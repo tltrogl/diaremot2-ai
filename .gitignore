@@ -1,0 +1,24 @@
+# Ignore Python caches and build artifacts
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.onnx
+*.pth
+build/
+dist/
+.vscode/
+checkpoints/
+dpngtmp/
+logs/
+.cache/
+outputs/
+.onnx
+.pth
+
+# Ignore virtual environments
+.venv*/
+.suckthis/
+sux/
+
+/.ai
