@@ -7,7 +7,7 @@ name = "diaremot"
 version = "2.1.0"
 description = "DiaRemot CPU-only speech affect and transcription pipeline"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = "3.11"
 license = {text = "Proprietary"}
 keywords = ["speech", "diarization", "emotion", "cli"]
 dependencies = [
@@ -18,9 +18,9 @@ dependencies = [
     "llvmlite==0.42.0",
     "resampy==0.4.2",
     "soundfile==0.12.1",
-    "torch==2.4.1+cpu",
-    "torchaudio==2.4.1+cpu",
-    "torchvision==0.19.1+cpu",
+    "torch==2.4.1+cpu --index-url https://download.pytorch.org/whl/cpu",
+    "torchaudio==2.4.1+cpu --index-url https://download.pytorch.org/whl/cpu",
+    "torchvision==0.19.1+cpu --index-url https://download.pytorch.org/whl/cpu",
     "ctranslate2==4.6.0",
     "faster-whisper==1.1.0",
     "openai-whisper==20231117",
@@ -28,6 +28,7 @@ dependencies = [
     "onnxruntime==1.17.1",
     "tokenizers==0.15.2",
     "huggingface_hub==0.24.6",
+    "hf_transfer"
     "pandas==2.0.3",
     "scikit-learn==1.3.2",
     "audioread==3.0.1",
