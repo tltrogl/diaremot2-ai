@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-echo "[setup] starting"
+echo "[setup] starting (zero-touch)"
 
 # --- Config ---
 PROJECT_DIR="${PROJECT_DIR:-/workspace}"
@@ -12,9 +12,9 @@ MODEL_DIR="${MODEL_DIR:-/opt/models}"
 REPO_MODELS_DIR="$PROJECT_DIR/models"
 REPO_MODELS_ZIP="$PROJECT_DIR/models.zip"
 
-# optional: URL + SHA256 to fetch models.zip if not in repo
-MODEL_RELEASE_URL="${MODEL_RELEASE_URL:-}"
-MODEL_RELEASE_SHA256="${MODEL_RELEASE_SHA256:-}"
+# Hard defaults: your public GitHub Release asset
+MODEL_RELEASE_URL="https://github.com/tltrogl/diaremot2-ai/releases/download/v2.AI/models.zip"
+MODEL_RELEASE_SHA256="3cc2115f4ef7cd4f9e43cfcec376bf56ea2a8213cb760ab17b27edbc2cac206c"
 
 export HF_HOME="${HF_HOME:-/opt/cache/hf}"
 export TRANSFORMERS_CACHE="${TRANSFORMERS_CACHE:-$HF_HOME}"
@@ -32,7 +32,6 @@ python -m pip install -U pip wheel setuptools
 # --- Install deps ---
 if [ -f "$REQ_TXT" ]; then
   echo "[setup] installing from requirements.txt"
-  # your repo's requirements.txt sets the CPU torch index via --index-url
   pip install --no-cache-dir -r "$REQ_TXT"
 else
   echo "[setup] editable install from pyproject"
@@ -53,15 +52,12 @@ if [ -f "$REPO_MODELS_ZIP" ]; then
 elif [ -d "$REPO_MODELS_DIR" ]; then
   echo "[setup] copying repo models/ → $MODEL_DIR"
   rsync -a "$REPO_MODELS_DIR"/ "$MODEL_DIR"/
-elif [ -n "$MODEL_RELEASE_URL" ]; then
-  echo "[setup] fetching models.zip from release URL"
-  curl -L --fail --retry 5 -o "$REPO_MODELS_ZIP" "$MODEL_RELEASE_URL"
-  if [ -n "$MODEL_RELEASE_SHA256" ]; then
-    echo "$MODEL_RELEASE_SHA256  $REPO_MODELS_ZIP" | sha256sum -c - || { echo "Bad models.zip SHA256"; exit 2; }
-  fi
-  unzip -o "$REPO_MODELS_ZIP" -d "$MODEL_DIR"
 else
-  echo "[setup] WARNING: no models shipped (models.zip or models/ missing). Set MODEL_RELEASE_URL or commit models."
+  echo "[setup] fetching models.zip from release"
+  echo "[setup] URL: $MODEL_RELEASE_URL"
+  curl -L --fail --retry 5 -o "$REPO_MODELS_ZIP" "$MODEL_RELEASE_URL"
+  echo "$MODEL_RELEASE_SHA256  $REPO_MODELS_ZIP" | sha256sum -c - || { echo "[setup] Bad models.zip SHA256"; exit 2; }
+  unzip -o "$REPO_MODELS_ZIP" -d "$MODEL_DIR"
 fi
 
 # Flatten accidental models/models nesting
@@ -88,22 +84,9 @@ if [ ! -f "$MODEL_DIR/panns/model.onnx" ] && [ -f "$MODEL_DIR/panns/model2.onnx"
   echo "[setup] aliased panns/model2.onnx -> model.onnx"
 fi
 
-# --- Ensure BART tokenizer assets exist (offline run) ---
-# Requires setup internet if not present locally.
+# --- BART tokenizer check (won't run if included in models.zip) ---
 if [ ! -f "$MODEL_DIR/bart/tokenizer.json" ] && [ ! -f "$MODEL_DIR/bart/merges.txt" ]; then
-  echo "[setup] BART tokenizer missing; fetching to $MODEL_DIR/bart"
-  pip install -q transformers huggingface_hub
-  python - <<'PY'
-import os
-from transformers import AutoTokenizer, AutoConfig
-dst = os.path.join(os.environ.get("MODEL_DIR","/opt/models"), "bart")
-os.makedirs(dst, exist_ok=True)
-mid = "facebook/bart-large-mnli"
-tok = AutoTokenizer.from_pretrained(mid, use_fast=True)
-tok.save_pretrained(dst)                              # tokenizer.json or merges+vocab
-AutoConfig.from_pretrained(mid).to_json_file(os.path.join(dst, "config.json"))
-print("[setup] wrote BART tokenizer+config to", dst)
-PY
+  echo "[setup] WARNING: BART tokenizer missing in models.zip; pipeline may download later if internet is allowed."
 fi
 
 # --- CPU-only defaults ---
