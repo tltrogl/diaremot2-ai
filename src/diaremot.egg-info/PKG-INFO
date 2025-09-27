@@ -1,0 +1,138 @@
+Metadata-Version: 2.4
+Name: diaremot
+Version: 2.1.0
+Summary: DiaRemot CPU-only speech affect and transcription pipeline
+License: Proprietary
+Keywords: speech,diarization,emotion,cli
+Requires-Python: >=3.9
+Description-Content-Type: text/markdown
+Requires-Dist: numpy==1.24.4
+Requires-Dist: scipy==1.10.1
+Requires-Dist: librosa==0.10.2.post1
+Requires-Dist: numba==0.59.1
+Requires-Dist: llvmlite==0.42.0
+Requires-Dist: resampy==0.4.2
+Requires-Dist: soundfile==0.12.1
+Requires-Dist: torch==2.4.1+cpu
+Requires-Dist: torchaudio==2.4.1+cpu
+Requires-Dist: torchvision==0.19.1+cpu
+Requires-Dist: ctranslate2==4.6.0
+Requires-Dist: faster-whisper==1.1.0
+Requires-Dist: openai-whisper==20231117
+Requires-Dist: transformers==4.38.2
+Requires-Dist: onnxruntime==1.17.1
+Requires-Dist: tokenizers==0.15.2
+Requires-Dist: huggingface_hub==0.24.6
+Requires-Dist: pandas==2.0.3
+Requires-Dist: scikit-learn==1.3.2
+Requires-Dist: audioread==3.0.1
+Requires-Dist: pydub==0.25.1
+Requires-Dist: ffmpeg-python==0.2.0
+Requires-Dist: matplotlib==3.7.5
+Requires-Dist: seaborn==0.13.2
+Requires-Dist: reportlab==4.1.0
+Requires-Dist: praat-parselmouth==0.4.3
+Requires-Dist: jinja2==3.1.6
+Requires-Dist: beautifulsoup4==4.12.3
+Requires-Dist: tqdm==4.66.4
+Requires-Dist: joblib==1.3.2
+Requires-Dist: psutil==5.9.8
+Requires-Dist: click==8.1.7
+Requires-Dist: typer==0.9.0
+
+# DiaRemot — CPU‑Only Speech + Affect Pipeline (Codex‑Ready)
+
+This project runs **on CPU** and produces a diarized transcript with per‑segment affect:
+- **ASR**: Faster‑Whisper tiny.en (CT2)
+- **Diarization**: Silero VAD (ONNX) + ECAPA‑TDNN embeddings (ONNX)
+- **SED**: PANNs (ONNX) + labels CSV
+- **SER**: 8‑class speech emotion (INT8/FP32 ONNX)
+- **Text emotion**: GoEmotions (ONNX)
+- **Intent/zero‑shot**: BART (ONNX classifier)
+
+Everything is wired for **OpenAI Codex Cloud**: reproducible container, cached models, and no Windows‑only paths.
+
+---
+
+## Quickstart (local or Codex shell)
+
+```bash
+# Python 3.11 recommended (3.9–3.11 supported by your repo pins)
+python -V
+
+# venv
+python -m venv .venv
+. .venv/bin/activate  # Windows: .venv\Scripts\activate
+
+# install (uses your repo's requirements.txt with CPU torch index)
+pip install -U pip wheel setuptools
+pip install -r requirements.txt
+pip install -e .
+
+# models base dir
+export DIAREMOT_MODEL_DIR=/opt/models   # or ./models locally
+
+# run via CLI (preferred)
+python -m diaremot.cli run --input samples/ --out outputs/run1
+# or, if scripts are installed:
+# diaremot run --input samples/ --out outputs/run1
+
+# diagnostics
+python -m diaremot.cli diagnostics
+# or: diaremot-diagnostics
+```
+
+Entrypoints are provided by `src/diaremot/cli.py` and `[project.scripts]` in `pyproject.toml`.
+`run_pipeline` and `resume` are also proxied through the CLI.
+
+---
+
+## Models (single source of truth)
+
+All model files live under **`$DIAREMOT_MODEL_DIR`** (default `/opt/models`). Layout must be:
+
+```
+{MODEL_DIR}/silero_vad.onnx
+{MODEL_DIR}/ecapa_onnx/ecapa_tdnn.onnx
+{MODEL_DIR}/panns/model.onnx
+{MODEL_DIR}/panns/class_labels_indices.csv
+{MODEL_DIR}/goemotions-onnx/model.onnx
+{MODEL_DIR}/ser8-onnx/model.onnx        # or model.int8.onnx
+{MODEL_DIR}/faster-whisper-tiny.en/model.bin
+{MODEL_DIR}/bart/model_uint8.onnx       # or model.onnx
+# BART tokenizer assets (required for offline)
+{MODEL_DIR}/bart/tokenizer.json         # or merges.txt + vocab.json
+{MODEL_DIR}/bart/tokenizer_config.json
+{MODEL_DIR}/bart/special_tokens_map.json
+{MODEL_DIR}/bart/config.json
+```
+
+Ship models via one of:
+1. **Repo**: include `models/` or `models.zip` in repo root.
+2. **Release**: upload `models.zip` as a GitHub Release asset; `setup.sh` can download it.
+3. **Custom host**: download during `setup.sh` with checksum verification.
+
+**Codex note:** models persist in the warm container cache (~12h).
+
+---
+
+## Environment variables
+
+- `DIAREMOT_MODEL_DIR` (default `/opt/models`) — base directory above
+- `OMP_NUM_THREADS=1` — avoid CPU oversubscription
+- `TOKENIZERS_PARALLELISM=false` — silence HF tokenizer parallelism
+- `HF_HOME=/opt/cache/hf` — Hugging Face cache path (optional)
+
+Optional (for release download in setup):
+- `MODEL_RELEASE_URL` — direct URL to `models.zip`
+- `MODEL_RELEASE_SHA256` — SHA256 for integrity check
+
+---
+
+## Codex Cloud settings
+
+- **Base image**: `universal` (Python 3.11)
+- **Setup script**: `./setup.sh` — installs deps, stages `models/` into `/opt/models`
+- **Maintenance**: `./maintenance.sh` — quick health/import check
+- **Internet**: Agent **OFF** (deterministic). Setup can fetch if needed.
+- **AGENTS.md** shows concrete run commands via the CLI.

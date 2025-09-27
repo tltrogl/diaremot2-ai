@@ -54,7 +54,9 @@ def ensure_onnx_model(
 
         if ident.startswith("hf://"):
             repo_id, filename = ident[5:].rsplit("/", 1)
-        elif "/" in ident and not ident.startswith("./") and not ident.startswith("../"):
+        elif (
+            "/" in ident and not ident.startswith("./") and not ident.startswith("../")
+        ):
             repo_id, filename = ident.rsplit("/", 1)
         else:
             raise FileNotFoundError(ident)

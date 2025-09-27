@@ -144,9 +144,7 @@ def _load_uncompressed_with_soundfile(
     if mono and y.ndim > 1:
         y = np.mean(y, axis=1)
     if sr != target_sr:
-        y = librosa.resample(
-            y, orig_sr=sr, target_sr=target_sr, res_type="kaiser_best"
-        )
+        y = librosa.resample(y, orig_sr=sr, target_sr=target_sr, res_type="kaiser_best")
         sr = target_sr
     return y.astype(np.float32), sr
 
@@ -273,7 +271,12 @@ def _get_audio_duration(path: str) -> float:
             duration = float(result.stdout.strip())
             logger.debug(f"Got duration via ffprobe: {duration}s")
             return duration
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError, ValueError) as exc_probe:
+    except (
+        subprocess.CalledProcessError,
+        subprocess.TimeoutExpired,
+        FileNotFoundError,
+        ValueError,
+    ) as exc_probe:
         logger.debug(f"ffprobe failed for duration: {exc_probe}")
 
     logger.warning(f"Could not determine duration for {path}, using 0.0")
@@ -297,7 +300,9 @@ def _create_audio_chunks(audio_path: str, config: PreprocessConfig) -> List[Chun
     else:
         sr = int(config.target_sr)
 
-    logger.info(f"[chunks] Audio duration: {duration / 60:.1f} minutes; threshold={config.chunk_threshold_minutes} min; size={config.chunk_size_minutes} min; overlap={config.chunk_overlap_seconds}s")
+    logger.info(
+        f"[chunks] Audio duration: {duration / 60:.1f} minutes; threshold={config.chunk_threshold_minutes} min; size={config.chunk_size_minutes} min; overlap={config.chunk_overlap_seconds}s"
+    )
 
     chunk_duration = config.chunk_size_minutes * 60.0
     overlap_duration = config.chunk_overlap_seconds
@@ -331,25 +336,43 @@ def _create_audio_chunks(audio_path: str, config: PreprocessConfig) -> List[Chun
         try:
             t0 = time.time()
             # Try direct chunk extraction with ffmpeg (faster for M4A)
-            temp_chunk_raw = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+            temp_chunk_raw = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
             temp_chunk_raw.close()
-            
+
             cmd = [
-                'ffmpeg', '-y', '-i', audio_path,
-                '-ss', str(actual_start), '-t', str(actual_end - actual_start),
-                '-acodec', 'pcm_s16le', '-ar', str(sr), '-ac', '1',
-                '-loglevel', 'quiet',
-                temp_chunk_raw.name
+                "ffmpeg",
+                "-y",
+                "-i",
+                audio_path,
+                "-ss",
+                str(actual_start),
+                "-t",
+                str(actual_end - actual_start),
+                "-acodec",
+                "pcm_s16le",
+                "-ar",
+                str(sr),
+                "-ac",
+                "1",
+                "-loglevel",
+                "quiet",
+                temp_chunk_raw.name,
             ]
-            
+
             result = subprocess.run(cmd, capture_output=True, timeout=120)
             if result.returncode == 0:
-                chunk_audio, _ = sf.read(temp_chunk_raw.name, dtype='float32')
-                logger.info(f"[chunks] Extracted chunk {chunk_id} via ffmpeg in {time.time()-t0:.2f}s ({actual_start:.1f}s→{actual_end:.1f}s)")
+                chunk_audio, _ = sf.read(temp_chunk_raw.name, dtype="float32")
+                logger.info(
+                    f"[chunks] Extracted chunk {chunk_id} via ffmpeg in {time.time()-t0:.2f}s ({actual_start:.1f}s→{actual_end:.1f}s)"
+                )
             else:
                 raise subprocess.CalledProcessError(result.returncode, cmd)
-                
-        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError):
+
+        except (
+            subprocess.CalledProcessError,
+            subprocess.TimeoutExpired,
+            FileNotFoundError,
+        ):
             if info and _is_uncompressed_pcm(info):
                 logger.debug(
                     f"ffmpeg chunk extraction failed; reading PCM chunk via soundfile for chunk {chunk_id}"
@@ -395,7 +418,9 @@ def _create_audio_chunks(audio_path: str, config: PreprocessConfig) -> List[Chun
         )
         chunks.append(chunk_info)
 
-        logger.info(f"[chunks] Saved chunk {chunk_id}: {chunk_filename} ({chunk_info.duration:.1f}s)")
+        logger.info(
+            f"[chunks] Saved chunk {chunk_id}: {chunk_filename} ({chunk_info.duration:.1f}s)"
+        )
 
         # Move to next chunk
         start_time = end_time

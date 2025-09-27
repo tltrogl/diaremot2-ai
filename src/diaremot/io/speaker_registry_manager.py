@@ -68,7 +68,9 @@ class SpeakerRegistryManager:
         with self._lock:
             # ``SpeakerRegistry`` keeps the payload in ``_speakers``; copy it to
             # avoid leaking a mutable reference.
-            return {k: dict(v) for k, v in getattr(self._registry, "_speakers", {}).items()}
+            return {
+                k: dict(v) for k, v in getattr(self._registry, "_speakers", {}).items()
+            }
 
     def metadata(self) -> Dict[str, Any]:
         with self._lock:

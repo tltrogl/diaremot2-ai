@@ -144,7 +144,9 @@ class PipelineCheckpointManager:
                 # Save metadata (convert enum to string for JSON serialization)
                 with open(metadata_path, "w") as f:
                     metadata_dict = asdict(metadata)
-                    metadata_dict['stage'] = metadata.stage.value  # Convert enum to string
+                    metadata_dict["stage"] = (
+                        metadata.stage.value
+                    )  # Convert enum to string
                     json.dump(metadata_dict, f, indent=2)
 
                 self.logger.info(f"Checkpoint created: {stage.value} ({progress:.1f}%)")

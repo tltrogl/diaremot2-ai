@@ -516,9 +516,7 @@ class EmotionIntentAnalyzer:
                 model_path = ensure_onnx_model(ident)
                 self._ser_session = create_onnx_session(model_path)
             except Exception as e:
-                logger.warning(
-                    f"SER ONNX model unavailable ({e}); will use fallback"
-                )
+                logger.warning(f"SER ONNX model unavailable ({e}); will use fallback")
                 self._ser_processor = None
                 self._ser_session = None
         else:
@@ -540,9 +538,7 @@ class EmotionIntentAnalyzer:
                     self.ser_model_name
                 )
             except Exception as e:
-                logger.warning(
-                    f"SER model unavailable ({e}); will use fallback"
-                )
+                logger.warning(f"SER model unavailable ({e}); will use fallback")
                 self._ser_processor = None
                 self._ser_model = None
 
@@ -675,9 +671,7 @@ class EmotionIntentAnalyzer:
                 model_path = ensure_onnx_model(ident)
                 self._text_session = create_onnx_session(model_path)
             except Exception as e:
-                logger.warning(
-                    f"Text ONNX model unavailable ({e}); will use fallback"
-                )
+                logger.warning(f"Text ONNX model unavailable ({e}); will use fallback")
                 self._text_session = None
                 self._text_tokenizer = None
         else:
@@ -707,9 +701,7 @@ class EmotionIntentAnalyzer:
                     or not text.strip()
                 ):
                     raise RuntimeError("text model missing or text empty")
-                enc = self._text_tokenizer(
-                    text, return_tensors="np", truncation=True
-                )
+                enc = self._text_tokenizer(text, return_tensors="np", truncation=True)
                 ort_inputs = {k: v for k, v in enc.items()}
                 logits = self._text_session.run(None, ort_inputs)[0]
                 if logits.ndim == 2:
@@ -824,7 +816,9 @@ class EmotionIntentAnalyzer:
             )
         except Exception as e:
             if self.affect_backend == "onnx":
-                logger.info("Intent ONNX backend not implemented; using transformer pipeline fallback")
+                logger.info(
+                    "Intent ONNX backend not implemented; using transformer pipeline fallback"
+                )
             logger.warning(f"Intent model unavailable ({e}); will use fallback")
             self._intent_pipeline = None
 
@@ -934,7 +928,11 @@ class EmotionIntentAnalyzer:
         ser_neu = ser_probs.get("neutral", 0.0) + ser_probs.get("calm", 0.0)
         ser_label = max(
             {"positive": ser_pos, "negative": ser_neg, "neutral": ser_neu},
-            key=lambda k: {"positive": ser_pos, "negative": ser_neg, "neutral": ser_neu}[k],
+            key=lambda k: {
+                "positive": ser_pos,
+                "negative": ser_neg,
+                "neutral": ser_neu,
+            }[k],
         )
 
         # Text polarity
@@ -948,10 +946,14 @@ class EmotionIntentAnalyzer:
         if ser_label == "neutral" and text_label != "neutral":
             return f"text-dominant-{text_label}"
 
-        v_sign_text = 1 if text_label == "positive" else (-1 if text_label == "negative" else 0)
+        v_sign_text = (
+            1 if text_label == "positive" else (-1 if text_label == "negative" else 0)
+        )
         v_sign_audio = 1 if v > 0.15 else (-1 if v < -0.15 else 0)
         aligned = (v_sign_text == v_sign_audio) or (v_sign_text == 0 and abs(v) < 0.15)
-        polarity_tag = text_label if text_label in ("positive", "negative") else ser_label
+        polarity_tag = (
+            text_label if text_label in ("positive", "negative") else ser_label
+        )
         return (
             f"affect-convergent-{polarity_tag}"
             if aligned

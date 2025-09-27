@@ -57,9 +57,13 @@ class SpeakerRegistrySchemaTest(unittest.TestCase):
             registry = SpeakerRegistry(str(path))
             self.assertTrue(registry.has("Alice"))
 
-            registry.update_centroid("Alice", np.asarray([0.2, 0.1, 0.3], dtype=np.float32))
+            registry.update_centroid(
+                "Alice", np.asarray([0.2, 0.1, 0.3], dtype=np.float32)
+            )
             registry.enroll("Bob", np.asarray([0.3, 0.4, 0.5], dtype=np.float32))
-            match_name, _ = registry.match(np.asarray([0.3, 0.4, 0.5], dtype=np.float32))
+            match_name, _ = registry.match(
+                np.asarray([0.3, 0.4, 0.5], dtype=np.float32)
+            )
             self.assertIn(match_name, {"Alice", "Bob"})
 
             registry.save()
@@ -92,9 +96,13 @@ class SpeakerRegistrySchemaTest(unittest.TestCase):
             registry = SpeakerRegistry(str(path))
             self.assertTrue(registry.has("Alice"))
 
-            registry.update_centroid("Alice", np.asarray([0.2, 0.1, 0.3], dtype=np.float32))
+            registry.update_centroid(
+                "Alice", np.asarray([0.2, 0.1, 0.3], dtype=np.float32)
+            )
             registry.enroll("Bob", np.asarray([0.3, 0.4, 0.5], dtype=np.float32))
-            _match_name, score = registry.match(np.asarray([0.2, 0.1, 0.3], dtype=np.float32))
+            _match_name, score = registry.match(
+                np.asarray([0.2, 0.1, 0.3], dtype=np.float32)
+            )
             self.assertGreaterEqual(score, 0.0)
 
             registry.save()

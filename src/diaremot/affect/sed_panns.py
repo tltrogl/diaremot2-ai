@@ -180,10 +180,14 @@ class PANNSEventTagger:
                                 self._session = create_onnx_session(mp)
                                 with lp.open() as f:
                                     reader = csv.DictReader(f)
-                                    self._labels = [row.get("display_name", "") for row in reader]
+                                    self._labels = [
+                                        row.get("display_name", "") for row in reader
+                                    ]
                                 return
                         except Exception as exc:
-                            logger.info("Failed loading ONNX from env root %s: %s", root, exc)
+                            logger.info(
+                                "Failed loading ONNX from env root %s: %s", root, exc
+                            )
                 if self._session is None or not self._labels:
                     logger.info(
                         "PANNs ONNX assets not found locally; skipping remote download fallback"
@@ -217,8 +221,13 @@ class PANNSEventTagger:
                     cand = self.cfg.model_dir / "class_labels_indices.csv"
                     if cand.exists():
                         src_labels = cand
-                if src_labels and not (home_panns / "class_labels_indices.csv").exists():
-                    (home_panns / "class_labels_indices.csv").write_bytes(src_labels.read_bytes())
+                if (
+                    src_labels
+                    and not (home_panns / "class_labels_indices.csv").exists()
+                ):
+                    (home_panns / "class_labels_indices.csv").write_bytes(
+                        src_labels.read_bytes()
+                    )
             except Exception:
                 pass
 
@@ -313,10 +322,7 @@ class PANNSEventTagger:
         total_sec = len(y_in) / float(sr)
         if self.cfg.max_eval_sec and total_sec > self.cfg.max_eval_sec:
             max_samples = int(self.cfg.max_eval_sec * sr)
-            if (
-                self.cfg.eval_strategy == "uniform"
-                and (self.cfg.max_eval_sec or 0) > 0
-            ):
+            if self.cfg.eval_strategy == "uniform" and (self.cfg.max_eval_sec or 0) > 0:
                 # Take N uniform slices totaling max_eval_sec
                 slices = 5
                 seg_len = max_samples // slices

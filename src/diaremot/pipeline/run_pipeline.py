@@ -34,6 +34,7 @@ def _configure_local_cache_env() -> None:
         target_path.mkdir(parents=True, exist_ok=True)
         os.environ[env_name] = str(target_path)
 
+
 if "_DIAREMOT_CACHE_ENV_CONFIGURED" not in globals():
     _configure_local_cache_env()
     _DIAREMOT_CACHE_ENV_CONFIGURED = True

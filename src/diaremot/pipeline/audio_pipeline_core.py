@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 """Core orchestration logic for the DiaRemot audio analysis pipeline."""
 
 from __future__ import annotations
@@ -1728,8 +1727,7 @@ class AudioAnalysisPipelineV2:
                 self.corelog.warn(
                     f"[cache] tx.json write failed: {e}. Check disk space and cache directory permissions."
                 )
-
-=======
+                
 # Fixed audio_pipeline_core.py with robust checkpoint system and error handling
 
 from __future__ import annotations

@@ -1,0 +1,18 @@
+{
+  "affect": {
+    "enable_intent": true,
+    "intent": {
+      "backend": "onnx",
+      "onnx_path": "models/bart/model_uint8.onnx"
+    },
+    "enable_ser": true,
+    "ser": {
+      "backend": "onnx",
+      "onnx_path": "models/ser8-onnx/model.onnx"
+    },
+    "enable_paralinguistics": true
+  },
+  "sed": {
+    "enabled": true
+  }
+}
