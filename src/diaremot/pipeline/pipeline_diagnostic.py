@@ -6,14 +6,18 @@ Diagnostic helpers for validating DiaRemot pipeline prerequisites.
 
 from __future__ import annotations
 
-import importlib
 import importlib.util
 import json
 import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import Dict, Tuple
+from typing import Any, Dict, Iterable, Tuple
+
+from .audio_pipeline_core import (
+    CORE_DEPENDENCY_REQUIREMENTS,
+    diagnostics as core_diagnostics,
+)
 
 
 def _module_available(module_name: str) -> bool:
@@ -26,7 +30,61 @@ class PipelineDiagnostic:
         self.issues = []
         self.fixes_applied = []
         self.warnings = []
-        
+        self._core_diag_cache: dict[str, Any] | None = None
+
+    def _core_summary(self, *, require_versions: bool = True) -> dict[str, Any]:
+        """Return the cached dependency summary from ``audio_pipeline_core``."""
+
+        cache = self._core_diag_cache
+        if not cache or cache.get("strict_versions") != require_versions:
+            cache = core_diagnostics(require_versions=require_versions)
+            self._core_diag_cache = cache
+        return cache
+
+    def _summarize_modules(
+        self,
+        modules: Iterable[str],
+        *,
+        warn_is_issue: bool = False,
+    ) -> Tuple[list[str], list[str]]:
+        """Collect issues/warnings for a subset of dependency modules."""
+
+        diag = self._core_summary(require_versions=True)
+        summary: dict[str, dict[str, Any]] = diag.get("summary", {})
+
+        issues: list[str] = []
+        warnings: list[str] = []
+
+        for mod in modules:
+            entry = summary.get(mod)
+            if not entry:
+                continue
+
+            status = entry.get("status", "ok")
+            if status == "ok":
+                continue
+
+            min_req = CORE_DEPENDENCY_REQUIREMENTS.get(mod)
+            version = entry.get("version")
+            detail = entry.get("issue")
+
+            message_parts = [mod]
+            if version:
+                message_parts.append(f"installed {version}")
+            if min_req:
+                message_parts.append(f"requires >= {min_req}")
+            if detail:
+                message_parts.append(f"reason: {detail}")
+
+            message = "; ".join(message_parts)
+
+            if status == "error" or (warn_is_issue and status == "warn"):
+                issues.append(message)
+            else:
+                warnings.append(message)
+
+        return issues, warnings
+
     def check_cache_issues(self) -> Tuple[bool, str]:
         """Check for cache-related issues"""
         cache_dir = Path(".cache")
@@ -55,33 +113,16 @@ class PipelineDiagnostic:
     
     def check_audio_dependencies(self) -> Tuple[bool, str]:
         """Check audio processing dependencies"""
-        issues = []
-        
-        # Check soundfile
-        try:
-            import soundfile
-            # Try to check if libsndfile is actually working
-            try:
-                import numpy as np
-                test_audio = np.zeros(100)
-                import tempfile
-                with tempfile.NamedTemporaryFile(suffix='.wav', delete=True) as f:
-                    soundfile.write(f.name, test_audio, 16000)
-                    soundfile.read(f.name)
-            except Exception as e:
-                issues.append(f"soundfile installed but not working: {e}")
-        except ImportError:
-            issues.append("soundfile not installed")
-        
-        # Check librosa
-        if not _module_available("librosa"):
-            issues.append("librosa not installed")
+        issues, warnings = self._summarize_modules(
+            ("numpy", "scipy", "librosa", "soundfile"),
+        )
 
-        # Check audioread (fallback)
+        for warning in warnings:
+            self.warnings.append(warning)
+
         if not _module_available("audioread"):
             self.warnings.append("audioread not installed (fallback audio loader)")
-        
-        # Check ffmpeg
+
         try:
             result = subprocess.run(
                 ["ffmpeg", "-version"],
@@ -95,31 +136,45 @@ class PipelineDiagnostic:
             issues.append("ffmpeg not found in PATH")
         except Exception as e:
             issues.append(f"ffmpeg check failed: {e}")
-        
+
         if issues:
             self.issues.extend(issues)
             return False, f"Audio dependencies issues: {', '.join(issues)}"
         return True, "Audio dependencies OK"
-    
+
     def fix_audio_dependencies(self) -> bool:
         """Try to fix audio dependency issues"""
         fixed = False
-        
+
         # Try to reinstall critical packages
-        packages = [
-            ("soundfile", "0.12.1"),
-            ("librosa", "0.10.1"),
-            ("audioread", None),
-            ("ffmpeg-python", None)
-        ]
-        
+        packages: list[tuple[str, str | None]] = []
+
+        summary = self._core_summary(require_versions=True).get("summary", {})
+        for pkg in ("soundfile", "librosa"):
+            entry = summary.get(pkg)
+            if entry and entry.get("status") in {"error", "warn"}:
+                packages.append((pkg, CORE_DEPENDENCY_REQUIREMENTS.get(pkg)))
+
+        if not _module_available("audioread"):
+            packages.append(("audioread", None))
+
+        # ``ffmpeg-python`` provides a simple pip-installable shim to access ffmpeg
+        packages.append(("ffmpeg-python", None))
+
         for package, version in packages:
             try:
                 if version:
-                    cmd = [sys.executable, "-m", "pip", "install", f"{package}=={version}", "--force-reinstall"]
+                    cmd = [
+                        sys.executable,
+                        "-m",
+                        "pip",
+                        "install",
+                        f"{package}>={version}",
+                        "--upgrade",
+                    ]
                 else:
                     cmd = [sys.executable, "-m", "pip", "install", package]
-                
+
                 result = subprocess.run(cmd, capture_output=True, text=True)
                 if result.returncode == 0:
                     self.fixes_applied.append(f"Reinstalled {package}")
@@ -131,32 +186,14 @@ class PipelineDiagnostic:
     
     def check_model_dependencies(self) -> Tuple[bool, str]:
         """Check ML model dependencies"""
-        issues = []
-        
-        # Check PyTorch
-        if _module_available("torch"):
-            torch = importlib.import_module("torch")
-            if not getattr(torch, "__version__", ""):
-                issues.append("PyTorch version unknown")
-        else:
-            issues.append("PyTorch not installed")
+        issues, warnings = self._summarize_modules(
+            ("torch", "ctranslate2", "faster_whisper", "onnxruntime", "transformers", "pandas"),
+            warn_is_issue=True,
+        )
 
-        # Check transformers
-        if not _module_available("transformers"):
-            issues.append("transformers not installed")
+        for warning in warnings:
+            self.warnings.append(warning)
 
-        # Check ONNX runtime
-        if not _module_available("onnxruntime"):
-            self.warnings.append("onnxruntime not installed (optional for CPU optimization)")
-
-        # Check faster-whisper
-        if not _module_available("faster_whisper"):
-            issues.append("faster-whisper not installed")
-
-        # Check ctranslate2
-        if not _module_available("ctranslate2"):
-            issues.append("ctranslate2 not installed")
-        
         if issues:
             self.issues.extend(issues)
             return False, f"Model dependencies issues: {', '.join(issues)}"
