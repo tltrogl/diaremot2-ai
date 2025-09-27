@@ -166,6 +166,19 @@ DEFAULT_PIPELINE_CONFIG: dict[str, Any] = {
     "loudness_mode": "asr",
 }
 
+CORE_DEPENDENCY_REQUIREMENTS: dict[str, str] = {
+    "numpy": "1.24",
+    "scipy": "1.10",
+    "librosa": "0.10",
+    "soundfile": "0.12",
+    "torch": "2.0",
+    "ctranslate2": "3.10",
+    "faster_whisper": "1.0",
+    "pandas": "2.0",
+    "onnxruntime": "1.16",
+    "transformers": "4.30",
+}
+
 __all__ = [
     "AudioAnalysisPipelineV2",
     "build_pipeline_config",
@@ -269,104 +282,95 @@ def diagnostics(require_versions: bool = False) -> dict[str, Any]:
 
 
 # Lightweight dependency verification (no heavy imports at module import time)
+def _iter_dependency_status():
+    for mod, min_ver in CORE_DEPENDENCY_REQUIREMENTS.items():
+        import_error: Exception | None = None
+        metadata_error: Exception | None = None
+        module = None
+        try:
+            module = __import__(mod.replace("-", "_"))
+        except Exception as exc:
+            import_error = exc
+
+        version: str | None = None
+        if module is not None:
+            try:
+                version = importlib_metadata.version(mod)
+            except importlib_metadata.PackageNotFoundError:
+                version = getattr(module, "__version__", None)
+            except Exception as exc:
+                metadata_error = exc
+        yield mod, min_ver, module, version, import_error, metadata_error
+
+
 def _verify_core_dependencies(require_versions: bool = False):
     """Verify core runtime dependencies are importable (and optionally versioned).
 
     Returns (ok: bool, issues: List[str]).
     This avoids importing heavy, optional diagnostics modules.
     """
-    checks = [
-        ("numpy", "1.24"),
-        ("scipy", "1.10"),
-        ("librosa", "0.10"),
-        ("soundfile", "0.12"),
-        ("torch", "2.0"),
-        ("ctranslate2", "3.10"),
-        ("faster_whisper", "1.0"),
-        ("pandas", "2.0"),
-        ("onnxruntime", "1.16"),
-        ("transformers", "4.30"),
-    ]
+
     issues: list[str] = []
 
-    for mod, min_ver in checks:
-        try:
-            m = __import__(mod.replace("-", "_"))
-        except Exception as e:
-            issues.append(f"Missing or failed to import: {mod} ({e})")
+    for mod, min_ver, module, version, import_error, metadata_error in _iter_dependency_status():
+        if import_error is not None or module is None:
+            issues.append(f"Missing or failed to import: {mod} ({import_error})")
             continue
 
-        ver = None
-        version_error: Exception | None = None
-        try:
-            ver = importlib_metadata.version(mod)
-        except importlib_metadata.PackageNotFoundError:
-            ver = getattr(m, "__version__", None)
-        except Exception as ve:
-            version_error = ve
-
-        if ver is None:
-            if require_versions:
-                reason = version_error or "version metadata unavailable"
-                issues.append(f"Version unknown for {mod}; require >= {min_ver} ({reason})")
+        if not require_versions:
             continue
 
-        if require_versions and Version is not None:
-            try:
-                if Version(ver) < Version(min_ver):
-                    issues.append(f"{mod} version {ver} < required {min_ver}")
-            except Exception as ve:
-                issues.append(f"Version check failed for {mod}: {ve}")
+        if version is None:
+            reason = metadata_error or "version metadata unavailable"
+            issues.append(f"Version unknown for {mod}; require >= {min_ver} ({reason})")
+            continue
+
+        if Version is None:
+            continue
+
+        try:
+            if Version(version) < Version(min_ver):
+                issues.append(f"{mod} version {version} < required {min_ver}")
+        except Exception as exc:
+            issues.append(f"Version check failed for {mod}: {exc}")
 
     return (len(issues) == 0), issues
 
 
 # Detailed dependency health summary for logging/reporting
 def _dependency_health_summary():
-    checks = [
-        ("numpy", "1.24"),
-        ("scipy", "1.10"),
-        ("librosa", "0.10"),
-        ("soundfile", "0.12"),
-        ("torch", "2.0"),
-        ("ctranslate2", "3.10"),
-        ("faster_whisper", "1.0"),
-        ("pandas", "2.0"),
-        ("onnxruntime", "1.16"),
-        ("transformers", "4.30"),
-    ]
     summary: dict[str, dict[str, Any]] = {}
 
-    for mod, min_ver in checks:
+    for mod, min_ver, module, version, import_error, metadata_error in _iter_dependency_status():
         entry: dict[str, Any] = {"required_min": min_ver}
-        try:
-            m = __import__(mod.replace("-", "_"))
-            entry["status"] = "ok"
-            ver = None
-            try:
-                ver = importlib_metadata.version(mod)
-            except importlib_metadata.PackageNotFoundError:
-                ver = getattr(m, "__version__", None)
-            except Exception as ve:
-                entry["status"] = "warn"
-                entry["issue"] = f"version lookup failed: {ve}"
 
-            if ver:
-                entry["version"] = str(ver)
-                if Version is not None:
-                    try:
-                        if Version(ver) < Version(min_ver):
-                            entry["status"] = "warn"
-                            entry["issue"] = f"version {ver} < required {min_ver}"
-                    except Exception as ve:
-                        entry["status"] = "warn"
-                        entry["issue"] = f"version comparison failed: {ve}"
-            else:
-                entry.setdefault("issue", "version metadata unavailable")
-        except Exception as e:
+        if import_error is not None or module is None:
             entry["status"] = "error"
-            entry["issue"] = str(e)
+            entry["issue"] = str(import_error)
+            summary[mod] = entry
+            continue
+
+        entry["status"] = "ok"
+
+        if metadata_error is not None:
+            entry["status"] = "warn"
+            entry["issue"] = f"version lookup failed: {metadata_error}"
+
+        if version is not None:
+            entry["version"] = str(version)
+            if Version is not None:
+                try:
+                    if Version(version) < Version(min_ver):
+                        entry["status"] = "warn"
+                        entry["issue"] = f"version {version} < required {min_ver}"
+                except Exception as exc:
+                    entry["status"] = "warn"
+                    entry["issue"] = f"version comparison failed: {exc}"
+        else:
+            entry.setdefault("issue", "version metadata unavailable")
+
         summary[mod] = entry
+
     return summary
 
 
@@ -388,10 +392,14 @@ def _fmt_hms_ms(ms: float) -> str:
 
 def _compute_audio_sha16(y: np.ndarray) -> str:
     try:
-        b = memoryview(y.astype("float32")).tobytes()
+        arr = np.asarray(y, dtype=np.float32)
     except Exception:
-        b = bytes(bytearray(y)) if hasattr(y, "__iter__") else b""
-    return hashlib.blake2s(b, digest_size=16).hexdigest()
+        return hashlib.blake2s(b"", digest_size=16).hexdigest()
+
+    if not arr.flags["C_CONTIGUOUS"]:
+        arr = np.ascontiguousarray(arr)
+
+    return hashlib.blake2s(arr.tobytes(), digest_size=16).hexdigest()
 
 
 def _compute_pp_signature(pp_conf: PreprocessConfig) -> dict:
