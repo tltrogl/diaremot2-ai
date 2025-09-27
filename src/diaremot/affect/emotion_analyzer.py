@@ -151,6 +151,38 @@ def _top_margin(probs: Dict[str, float]) -> float:
     return float(vals[0] - vals[1])
 
 
+def _normalize_scores(scores: Dict[str, float]) -> Dict[str, float]:
+    """Normalize a mapping of scores, guarding against bad inputs."""
+
+    if not scores:
+        return {}
+
+    clean: Dict[str, float] = {}
+    for label, value in scores.items():
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError):
+            numeric = 0.0
+        if not math.isfinite(numeric) or numeric < 0.0:
+            numeric = 0.0
+        clean[label] = numeric
+
+    total = sum(clean.values())
+    if total <= 0.0:
+        uniform = 1.0 / len(clean)
+        return {label: uniform for label in clean}
+
+    inv_total = 1.0 / total
+    return {label: value * inv_total for label, value in clean.items()}
+
+
+def _topk_distribution(dist: Dict[str, float], k: int) -> List[Dict[str, float]]:
+    if k <= 0 or not dist:
+        return []
+    ordered = sorted(dist.items(), key=lambda kv: (-kv[1], kv[0]))
+    return [{"label": label, "score": float(score)} for label, score in ordered[:k]]
+
+
 def _ensure_16k_mono(audio: np.ndarray, sr: int) -> Tuple[np.ndarray, int]:
     if audio is None or not isinstance(audio, np.ndarray) or audio.size == 0:
         return np.zeros(0, dtype=np.float32), 16000
@@ -233,10 +265,17 @@ class EmotionIntentAnalyzer:
 
         self.device = "cpu"
         self.text_model_name = text_emotion_model
-        self.intent_labels = (
-            list(intent_labels) if intent_labels else list(INTENT_LABELS_DEFAULT)
-        )
-        self.analyzer_threads = analyzer_threads
+        labels = list(intent_labels) if intent_labels else list(INTENT_LABELS_DEFAULT)
+        self.intent_labels = list(dict.fromkeys(labels))
+        self.analyzer_threads = None
+        if analyzer_threads is not None:
+            try:
+                override = int(analyzer_threads)
+            except (TypeError, ValueError):
+                override = None
+            else:
+                if override > 0:
+                    self.analyzer_threads = override
 
         # Model names (can be swapped if you want lighter variants)
         self.vad_model_name = "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim"
@@ -297,18 +336,29 @@ class EmotionIntentAnalyzer:
     ) -> EmotionAnalysisResult:
         x, sr = _ensure_16k_mono(wav, sr)
         x = _trim_max_len(x, sr, 30.0)
-        workers = int(self.analyzer_threads or min(4, os.cpu_count() or 1))
+        if self.analyzer_threads is not None:
+            workers = self.analyzer_threads
+        else:
+            workers = min(4, os.cpu_count() or 1)
         workers = max(1, workers)
-        with ThreadPoolExecutor(max_workers=workers) as ex:
-            fut_vad = ex.submit(self._infer_vad, x, sr)
-            fut_ser = ex.submit(self._infer_ser, x, sr)
-            fut_txt = ex.submit(self._infer_text, text or "")
-            fut_int = ex.submit(self._infer_intent, text or "")
+        normalized_text = text or ""
 
-            valence, arousal, dominance = fut_vad.result()
-            ser_top, ser_probs = fut_ser.result()
-            text_full, text_top5 = fut_txt.result()
-            intent_top, intent_top3 = fut_int.result()
+        if workers == 1:
+            valence, arousal, dominance = self._infer_vad(x, sr)
+            ser_top, ser_probs = self._infer_ser(x, sr)
+            text_full, text_top5 = self._infer_text(normalized_text)
+            intent_top, intent_top3 = self._infer_intent(normalized_text)
+        else:
+            with ThreadPoolExecutor(max_workers=workers) as ex:
+                fut_vad = ex.submit(self._infer_vad, x, sr)
+                fut_ser = ex.submit(self._infer_ser, x, sr)
+                fut_txt = ex.submit(self._infer_text, normalized_text)
+                fut_int = ex.submit(self._infer_intent, normalized_text)
+
+                valence, arousal, dominance = fut_vad.result()
+                ser_top, ser_probs = fut_ser.result()
+                text_full, text_top5 = fut_txt.result()
+                intent_top, intent_top3 = fut_int.result()
 
         # Cross-modal hint using polarity sums + SER polarity buckets
         pol = self._polarity_sums(text_full)
@@ -613,10 +663,8 @@ class EmotionIntentAnalyzer:
                 for i, lbl in enumerate(SER_LABELS_8):
                     if lbl not in prob_dict:
                         prob_dict[lbl] = float(probs[i]) if i < len(probs) else 0.0
-            # Normalize
-            tot = sum(prob_dict.values()) or 1.0
-            prob_dict = {k: v / tot for k, v in prob_dict.items()}
-            top = max(prob_dict, key=prob_dict.get)
+            prob_dict = _normalize_scores(prob_dict)
+            top = max(prob_dict, key=prob_dict.get) if prob_dict else "neutral"
             return top, prob_dict
         except Exception:
             return self._ser_proxy(audio, sr)
@@ -641,9 +689,7 @@ class EmotionIntentAnalyzer:
             probs = {lbl: 0.01 for lbl in SER_LABELS_8}
             probs[emo] = 0.7
             probs["neutral"] = max(probs["neutral"], 0.2)
-            # normalize
-            tot = sum(probs.values()) or 1.0
-            return emo, {k: v / tot for k, v in probs.items()}
+            return emo, _normalize_scores(probs)
         except Exception:
             return "neutral", {
                 lbl: (1.0 if lbl == "neutral" else 0.0) for lbl in SER_LABELS_8
@@ -720,10 +766,8 @@ class EmotionIntentAnalyzer:
                     for i, lbl in enumerate(GOEMOTIONS_LABELS)
                     if i < len(probs)
                 }
-                s = sum(dist.values()) or 1.0
-                dist = {k: v / s for k, v in dist.items()}
-                top5 = sorted(dist.items(), key=lambda kv: kv[1], reverse=True)[:5]
-                top5 = [{"label": k, "score": float(v)} for k, v in top5]
+                dist = _normalize_scores(dist)
+                top5 = _topk_distribution(dist, 5)
                 return dist, top5
             else:
                 if self._text_pipeline is None or not text.strip():
@@ -736,18 +780,14 @@ class EmotionIntentAnalyzer:
                     if lab in dist:
                         dist[lab] = float(item["score"])
                 # normalize to 1.0 for stability (multi-label but we want comparable numbers)
-                s = sum(dist.values()) or 1.0
-                dist = {k: v / s for k, v in dist.items()}
-                top5 = sorted(dist.items(), key=lambda kv: kv[1], reverse=True)[:5]
-                top5 = [{"label": k, "score": float(v)} for k, v in top5]
+                dist = _normalize_scores(dist)
+                top5 = _topk_distribution(dist, 5)
                 return dist, top5
         except Exception:
             # keyword fallback
             dist = self._text_keyword_fallback(text)
-            s = sum(dist.values()) or 1.0
-            dist = {k: v / s for k, v in dist.items()}
-            top5 = sorted(dist.items(), key=lambda kv: kv[1], reverse=True)[:5]
-            top5 = [{"label": k, "score": float(v)} for k, v in top5]
+            dist = _normalize_scores(dist)
+            top5 = _topk_distribution(dist, 5)
             return dist, top5
 
     @staticmethod
@@ -844,20 +884,16 @@ class EmotionIntentAnalyzer:
             }
             # reorder to our label list for stability & normalize
             probs = {lbl: probs.get(lbl, 0.0) for lbl in self.intent_labels}
-            s = sum(probs.values()) or 1.0
-            probs = {k: v / s for k, v in probs.items()}
+            probs = _normalize_scores(probs)
             top = max(probs, key=probs.get)
-            top3 = sorted(probs.items(), key=lambda kv: kv[1], reverse=True)[:3]
-            top3 = [{"label": k, "score": float(v)} for k, v in top3]
+            top3 = _topk_distribution(probs, 3)
             return top, top3
         except Exception:
             # rule fallback
             probs = self._intent_rules(t)
-            s = sum(probs.values()) or 1.0
-            probs = {k: v / s for k, v in probs.items()}
+            probs = _normalize_scores(probs)
             top = max(probs, key=probs.get)
-            top3 = sorted(probs.items(), key=lambda kv: kv[1], reverse=True)[:3]
-            top3 = [{"label": k, "score": float(v)} for k, v in top3]
+            top3 = _topk_distribution(probs, 3)
             return top, top3
 
     def _intent_rules(self, t: str) -> Dict[str, float]:
@@ -982,10 +1018,12 @@ def analyze_segment_batch(
                     "vad": {"valence": 0.0, "arousal": 0.0, "dominance": 0.0},
                     "speech_emotion": {
                         "top": "neutral",
-                        "scores_8class": {
-                            lbl: (1.0 if lbl == "neutral" else 0.0)
-                            for lbl in SER_LABELS_8
-                        },
+                        "scores_8class": _normalize_scores(
+                            {
+                                lbl: (1.0 if lbl == "neutral" else 0.0)
+                                for lbl in SER_LABELS_8
+                            }
+                        ),
                         "low_confidence_ser": True,
                     },
                     "text_emotions": {
