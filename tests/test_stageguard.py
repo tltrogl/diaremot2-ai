@@ -356,11 +356,7 @@ def test_process_audio_file_handles_missing_paraling(tmp_path, monkeypatch):
         self.pre = _StubPreprocessor()
         self.diar_conf = types.SimpleNamespace(
             registry_path=str(tmp_path / "registry.json"),
-<<<<<<< HEAD
             ahc_distance_threshold=0.12,
-=======
-            ahc_distance_threshold=0.02,
->>>>>>> fd1d72d (Handle missing paralinguistics metrics gracefully)
             speaker_limit=None,
             vad_threshold=0.22,
             vad_min_speech_sec=0.40,
