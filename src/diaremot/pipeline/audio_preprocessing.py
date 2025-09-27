@@ -230,8 +230,18 @@ def _safe_load_audio(
         raise RuntimeError(f"Cannot decode audio file {p} via ffmpeg: {exc}") from exc
 
 
-def _get_audio_duration(path: str) -> float:
-    """Get audio duration with robust fallback chain - FIXED VERSION"""
+def _get_audio_duration(path: str, info: Optional[sf.Info] = None) -> float:
+    """Get audio duration with a robust fallback chain."""
+
+    if info is not None:
+        try:
+            duration = getattr(info, "duration", None)
+        except Exception:
+            duration = None
+        if duration and duration > 0:
+            logger.debug(f"Got duration via soundfile metadata: {duration}s")
+            return float(duration)
+
     try:
         info = sf.info(path)
         if info and info.duration and info.duration > 0:
@@ -280,17 +290,37 @@ def _get_audio_duration(path: str) -> float:
     return 0.0
 
 
-def _create_audio_chunks(audio_path: str, config: PreprocessConfig) -> List[ChunkInfo]:
+def _probe_audio_metadata(path: str) -> Tuple[float, Optional[sf.Info]]:
+    """Return the duration and cached soundfile.Info for ``path``."""
+
+    info: Optional[sf.Info] = None
+    try:
+        info = sf.info(path)
+    except Exception as exc_info:
+        logger.debug(f"soundfile could not inspect {path}: {exc_info}")
+
+    duration = _get_audio_duration(path, info=info)
+    return duration, info
+
+
+def _create_audio_chunks(
+    audio_path: str,
+    config: PreprocessConfig,
+    *,
+    duration: Optional[float] = None,
+    info: Optional[sf.Info] = None,
+) -> List[ChunkInfo]:
     logger.info(f"[chunks] Creating audio chunks for long file: {audio_path}")
 
     # Load audio file info (robust to compressed containers)
-    info: Optional[sf.Info] = None
-    duration = _get_audio_duration(audio_path)
+    if duration is None or duration <= 0:
+        duration = _get_audio_duration(audio_path, info=info)
 
-    try:
-        info = sf.info(audio_path)
-    except Exception as exc_info:
-        logger.debug(f"soundfile could not inspect {audio_path}: {exc_info}")
+    if info is None:
+        try:
+            info = sf.info(audio_path)
+        except Exception as exc_info:
+            logger.debug(f"soundfile could not inspect {audio_path}: {exc_info}")
 
     if info and info.samplerate:
         sr = int(info.samplerate)
@@ -328,12 +358,13 @@ def _create_audio_chunks(audio_path: str, config: PreprocessConfig) -> List[Chun
             actual_end = end_time
 
         # Extract chunk - FIXED VERSION
+        temp_chunk_raw = None
         try:
             t0 = time.time()
             # Try direct chunk extraction with ffmpeg (faster for M4A)
             temp_chunk_raw = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
             temp_chunk_raw.close()
-            
+
             cmd = [
                 'ffmpeg', '-y', '-i', audio_path,
                 '-ss', str(actual_start), '-t', str(actual_end - actual_start),
@@ -341,14 +372,14 @@ def _create_audio_chunks(audio_path: str, config: PreprocessConfig) -> List[Chun
                 '-loglevel', 'quiet',
                 temp_chunk_raw.name
             ]
-            
+
             result = subprocess.run(cmd, capture_output=True, timeout=120)
             if result.returncode == 0:
                 chunk_audio, _ = sf.read(temp_chunk_raw.name, dtype='float32')
                 logger.info(f"[chunks] Extracted chunk {chunk_id} via ffmpeg in {time.time()-t0:.2f}s ({actual_start:.1f}s→{actual_end:.1f}s)")
             else:
                 raise subprocess.CalledProcessError(result.returncode, cmd)
-                
+
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError):
             if info and _is_uncompressed_pcm(info):
                 logger.debug(
@@ -372,10 +403,11 @@ def _create_audio_chunks(audio_path: str, config: PreprocessConfig) -> List[Chun
                 )
         finally:
             # Clean up temp file
-            try:
-                os.unlink(temp_chunk_raw.name)
-            except Exception:
-                pass
+            if temp_chunk_raw is not None:
+                try:
+                    os.unlink(temp_chunk_raw.name)
+                except Exception:
+                    pass
 
         # Save chunk to temp file
         chunk_filename = (
@@ -661,14 +693,14 @@ class AudioPreprocessor:
 
     def process_file(self, path: str) -> Tuple[np.ndarray, int, Optional[AudioHealth]]:
         # Check if file needs chunking
-        duration = _get_audio_duration(path)
+        duration, info = _probe_audio_metadata(path)
         threshold_seconds = self.config.chunk_threshold_minutes * 60.0
 
         if self.config.auto_chunk_enabled and duration > threshold_seconds:
             logger.info(
                 f"Long audio detected ({duration / 60:.1f}min), using auto-chunking"
             )
-            return self._process_file_chunked(path)
+            return self._process_file_chunked(path, duration, info)
         else:
             logger.info(f"Processing audio normally ({duration / 60:.1f}min)")
             y, sr = _safe_load_audio(
@@ -677,10 +709,18 @@ class AudioPreprocessor:
             return self.process_array(y, sr)
 
     def _process_file_chunked(
-        self, path: str
+        self,
+        path: str,
+        duration: float,
+        info: Optional[sf.Info],
     ) -> Tuple[np.ndarray, int, Optional[AudioHealth]]:
         # Create chunks
-        chunks_info = _create_audio_chunks(path, self.config)
+        chunks_info = _create_audio_chunks(
+            path,
+            self.config,
+            duration=duration,
+            info=info,
+        )
 
         if not chunks_info:
             logger.warning("No chunks created, falling back to normal processing")
