@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 """Core orchestration logic for the DiaRemot audio analysis pipeline."""
 
 from __future__ import annotations
