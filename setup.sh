@@ -129,5 +129,5 @@ python -m diaremot.pipeline.audio_pipeline_core --verify_deps || true
 cat <<'MSG'
 ==> Setup complete (zero-touch).
 The agent can now run:
-  python -m diaremot.cli run --input data/sample.wav --out outputs/run_$RANDOM
+  python -m diaremot.cli asr run --input data/sample.wav --outdir outputs/run_$RANDOM
 MSG

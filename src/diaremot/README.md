@@ -1,4 +1,4 @@
-# DiaRemot — CPU‑Only Speech + Affect Pipeline (Codex‑Ready)
+# DiaRemot — CPU‑Only Speech + Affect Pipeline
 
 This project runs **on CPU** and produces a diarized transcript with per‑segment affect:
 - **ASR**: Faster‑Whisper tiny.en (CT2)
@@ -8,24 +8,48 @@ This project runs **on CPU** and produces a diarized transcript with per‑segme
 - **Text emotion**: GoEmotions (ONNX)
 - **Intent/zero‑shot**: BART (ONNX classifier)
 
-Everything is wired for **OpenAI Codex Cloud**: reproducible container, cached models, and no Windows‑only paths.
+Everything is wired for reproducible container execution with cached models and cross-platform paths.
 
 ---
 
-## Quickstart (local or Codex shell)
+## Quickstart
+
+### PowerShell
+
+```powershell
+# Python 3.11 recommended (repository supports 3.10–3.11)
+py -3.11 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+
+# install (uses the repository's requirements.txt with CPU torch index)
+python -m pip install -U pip wheel setuptools
+python -m pip install -r requirements.txt
+python -m pip install -e .
+
+# models base dir
+$env:DIAREMOT_MODEL_DIR = "C:/diaremot/models"  # or another writable path
+
+# run via CLI (preferred)
+python -m diaremot.cli asr run --input samples/ --out outputs/run1
+# or, if scripts are installed:
+# diaremot asr run --input samples/ --out outputs/run1
+# Backward-compatible aliases for ``diaremot run``/``resume`` remain available.
+
+# diagnostics
+diaremot system diagnostics
+```
+
+### POSIX shell
 
 ```bash
-# Python 3.11 recommended (3.9–3.11 supported by your repo pins)
-python -V
-
-# venv
+# Python 3.11 recommended (repository supports 3.10–3.11)
 python -m venv .venv
-. .venv/bin/activate  # Windows: .venv\Scripts\activate
+. .venv/bin/activate
 
-# install (uses your repo's requirements.txt with CPU torch index)
-pip install -U pip wheel setuptools
-pip install -r requirements.txt
-pip install -e .
+# install (uses the repository's requirements.txt with CPU torch index)
+python -m pip install -U pip wheel setuptools
+python -m pip install -r requirements.txt
+python -m pip install -e .
 
 # models base dir
 export DIAREMOT_MODEL_DIR=/opt/models   # or ./models locally
@@ -70,9 +94,6 @@ Ship models via one of:
 1. **Repo**: include `models/` or `models.zip` in repo root.
 2. **Release**: upload `models.zip` as a GitHub Release asset; `setup.sh` can download it.
 3. **Custom host**: download during `setup.sh` with checksum verification.
-
-**Codex note:** models persist in the warm container cache (~12h).
-
 ---
 
 ## Environment variables
@@ -88,10 +109,9 @@ Optional (for release download in setup):
 
 ---
 
-## Codex Cloud settings
+## Automation settings
 
-- **Base image**: `universal` (Python 3.11)
-- **Setup script**: `./setup.sh` — installs deps, stages `models/` into `/opt/models`
+- **Setup script**: `./setup.sh` — installs dependencies, stages `models/` into `/opt/models`
 - **Maintenance**: `./maintenance.sh` — quick health/import check
-- **Internet**: Agent **OFF** (deterministic). Setup can fetch if needed.
+- **Internet**: Available for documentation lookups and release downloads; model fetching should happen during setup.
 - **AGENTS.md** shows concrete run commands via the CLI.
