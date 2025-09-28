@@ -30,6 +30,7 @@ from .audio_pipeline_core import (
     CORE_DEPENDENCY_REQUIREMENTS,
     diagnostics as core_diagnostics,
 )
+from .diagnostics_smoke import run_pipeline_smoke_test
 
 # Optional fallbacks that are not required by the core dependency set
 OPTIONAL_DEPENDENCIES = ("whisper",)
@@ -99,36 +100,13 @@ def check_models(local_only: bool = False) -> Dict[str, str]:
 
 def run_smoke_test() -> Dict[str, str]:
     """Run a very small end‑to‑end pipeline test."""
-    try:
-        import numpy as np
-        import soundfile as sf
-        from .audio_pipeline_core import AudioAnalysisPipelineV2
 
-        sr = 16000
-        audio = np.zeros(sr, dtype=np.float32)  # 1‑second silence
+    result = run_pipeline_smoke_test(tmp_dir=Path("healthcheck_tmp"))
+    if result.success:
+        output = str(result.output_dir) if result.output_dir else ""
+        return {"success": True, "output": output}
 
-        tmp_dir = Path("healthcheck_tmp")
-        tmp_dir.mkdir(exist_ok=True)
-        wav_path = tmp_dir / "smoke.wav"
-        sf.write(wav_path, audio, sr)
-
-        config = {
-            "whisper_model": "faster-whisper-tiny.en",
-            "noise_reduction": False,
-            "beam_size": 1,
-            "temperature": 0.0,
-            "no_speech_threshold": 0.6,
-            "registry_path": str(tmp_dir / "registry.json"),
-            "asr_backend": "faster",
-        }
-        pipeline = AudioAnalysisPipelineV2(config)
-
-        out_dir = tmp_dir / "out"
-        out_dir.mkdir(exist_ok=True)
-        pipeline.process_audio_file(str(wav_path), str(out_dir))
-        return {"success": True, "output": str(out_dir)}
-    except Exception as exc:  # pragma: no cover - diagnostics only
-        return {"success": False, "error": str(exc)}
+    return {"success": False, "error": result.error or "unknown"}
 
 
 def main() -> None:

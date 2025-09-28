@@ -11,21 +11,10 @@ import os
 import subprocess
 import time
 import uuid
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 import numpy as np
-
-try:
-    from importlib import metadata as importlib_metadata
-except ImportError:
-    import importlib_metadata  # type: ignore
-
-try:
-    from packaging.version import Version
-except Exception:
-    Version = None  # type: ignore
 
 from ..affect.emotion_analyzer import EmotionIntentAnalyzer
 from ..affect.intent_defaults import INTENT_LABELS_DEFAULT
@@ -38,7 +27,18 @@ from ..summaries.html_summary_generator import HTMLSummaryGenerator
 from ..summaries.pdf_summary_generator import PDFSummaryGenerator
 from ..summaries.speakers_summary_builder import build_speakers_summary
 from .audio_preprocessing import AudioPreprocessor, PreprocessConfig
+from .cache_env import configure_local_cache_env
+from .dependency_checks import dependency_summary, diagnostics, verify_dependencies
+from .logging_utils import (
+    PipelineLogger,
+    RunStats,
+    StageGuard,
+    format_duration,
+    format_duration_ms,
+)
 from .pipeline_checkpoint_system import PipelineCheckpointManager, ProcessingStage
+from .pipeline_config import DEFAULT_PIPELINE_CONFIG, build_pipeline_config, clear_pipeline_cache
+from .provider_registry import get_provider, register_provider
 from .speaker_diarization import DiarizationConfig, SpeakerDiarizer
 
 # Early environment and warning configuration (also done in run_pipeline.py).
@@ -54,36 +54,35 @@ except Exception:
     pass
 
 
-def _configure_local_cache_env() -> None:
-    cache_root = (Path(__file__).resolve().parents[3] / ".cache").resolve()
-    cache_root.mkdir(parents=True, exist_ok=True)
-    targets = {
-        "HF_HOME": cache_root / "hf",
-        "HUGGINGFACE_HUB_CACHE": cache_root / "hf",
-        "TRANSFORMERS_CACHE": cache_root / "transformers",
-        "TORCH_HOME": cache_root / "torch",
-        "XDG_CACHE_HOME": cache_root,
-    }
-    for env_name, target in targets.items():
-        target_path = target.resolve()
-        existing = os.environ.get(env_name)
-        if existing:
-            try:
-                existing_path = Path(existing).resolve()
-            except (OSError, RuntimeError, ValueError):
-                existing_path = None
-            if existing_path is not None:
-                if existing_path == target_path:
-                    continue
-                if existing_path.is_relative_to(cache_root):
-                    continue
-        target_path.mkdir(parents=True, exist_ok=True)
-        os.environ[env_name] = str(target_path)
-
-
-_configure_local_cache_env()
+configure_local_cache_env()
 
 WINDOWS_MODELS_ROOT = Path("D:/models") if os.name == "nt" else None
+
+
+def _maybe_register_provider(name: str, factory) -> None:
+    try:
+        get_provider(name)
+    except KeyError:
+        register_provider(name, factory)
+
+
+def _default_transcriber_factory(**kwargs):
+    from .transcription_module import AudioTranscriber
+
+    return AudioTranscriber(**kwargs)
+
+
+def _default_emotion_factory(params: dict[str, Any]) -> EmotionIntentAnalyzer:
+    return EmotionIntentAnalyzer(
+        text_emotion_model=params.get("text_emotion_model", "SamLowe/roberta-base-go_emotions"),
+        intent_labels=params.get("intent_labels", INTENT_LABELS_DEFAULT),
+    )
+
+
+_maybe_register_provider("preprocessor", lambda config: AudioPreprocessor(config))
+_maybe_register_provider("speaker_diarizer", lambda config: SpeakerDiarizer(config))
+_maybe_register_provider("transcriber", _default_transcriber_factory)
+_maybe_register_provider("emotion_analyzer", _default_emotion_factory)
 
 
 def _resolve_default_whisper_model() -> Path:
@@ -119,66 +118,6 @@ def _first_existing_path(*candidates: str) -> str | None:
     return None
 
 
-DEFAULT_PIPELINE_CONFIG: dict[str, Any] = {
-    "registry_path": "speaker_registry.json",
-    "ahc_distance_threshold": DiarizationConfig.ahc_distance_threshold,
-    "speaker_limit": None,
-    "whisper_model": "faster-whisper-tiny.en",
-    "asr_backend": "faster",
-    "compute_type": "float32",
-    "cpu_threads": 1,
-    "language": None,
-    "language_mode": "auto",
-    "ignore_tx_cache": False,
-    "quiet": False,
-    "disable_affect": False,
-    "affect_backend": "onnx",
-    "affect_text_model_dir": None,
-    "affect_intent_model_dir": None,
-    "beam_size": 1,
-    "temperature": 0.0,
-    "no_speech_threshold": 0.50,
-    "noise_reduction": False,
-    "enable_sed": True,
-    "auto_chunk_enabled": True,
-    "chunk_threshold_minutes": 30.0,
-    "chunk_size_minutes": 20.0,
-    "chunk_overlap_seconds": 30.0,
-    "vad_threshold": 0.30,
-    "vad_min_speech_sec": 0.8,
-    "vad_min_silence_sec": 0.8,
-    "vad_speech_pad_sec": 0.2,
-    "vad_backend": "auto",
-    "disable_energy_vad_fallback": False,
-    "energy_gate_db": -33.0,
-    "energy_hop_sec": 0.01,
-    "max_asr_window_sec": 480,
-    "segment_timeout_sec": 300.0,
-    "batch_timeout_sec": 1200.0,
-    "cpu_diarizer": False,
-    "validate_dependencies": False,
-    "strict_dependency_versions": False,
-    "cache_root": ".cache",
-    "cache_roots": [],
-    "log_dir": "logs",
-    "checkpoint_dir": "checkpoints",
-    "target_sr": 16000,
-    "loudness_mode": "asr",
-}
-
-CORE_DEPENDENCY_REQUIREMENTS: dict[str, str] = {
-    "numpy": "1.24",
-    "scipy": "1.10",
-    "librosa": "0.10",
-    "soundfile": "0.12",
-    "torch": "2.0",
-    "ctranslate2": "3.10",
-    "faster_whisper": "1.0",
-    "pandas": "2.0",
-    "onnxruntime": "1.16",
-    "transformers": "4.30",
-}
-
 __all__ = [
     "AudioAnalysisPipelineV2",
     "build_pipeline_config",
@@ -188,42 +127,6 @@ __all__ = [
     "verify_dependencies",
     "clear_pipeline_cache",
 ]
-
-
-def build_pipeline_config(
-    overrides: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    """Return a pipeline configuration merged with overrides."""
-
-    config = dict(DEFAULT_PIPELINE_CONFIG)
-    if overrides:
-        for key, value in overrides.items():
-            if key not in DEFAULT_PIPELINE_CONFIG and value is None:
-                # Skip unknown keys that explicitly request default behaviour
-                continue
-            if value is not None or key in config:
-                config[key] = value
-    return config
-
-
-def clear_pipeline_cache(cache_root: Path | None = None) -> None:
-    """Remove cached diarization/transcription artefacts."""
-
-    cache_dir = Path(cache_root) if cache_root else Path(".cache")
-    if cache_dir.exists():
-        import shutil
-
-        try:
-            shutil.rmtree(cache_dir, ignore_errors=True)
-        except PermissionError:
-            raise RuntimeError("Could not clear cache directory due to insufficient permissions")
-    cache_dir.mkdir(parents=True, exist_ok=True)
-
-
-def verify_dependencies(strict: bool = False) -> tuple[bool, list[str]]:
-    """Expose lightweight dependency verification for external callers."""
-
-    return _verify_core_dependencies(require_versions=strict)
 
 
 def run_pipeline(
@@ -269,125 +172,13 @@ def resume(
     return pipe.process_audio_file(input_path, outdir)
 
 
-def diagnostics(require_versions: bool = False) -> dict[str, Any]:
-    """Return diagnostic information about optional runtime dependencies."""
-
-    ok, issues = _verify_core_dependencies(require_versions=require_versions)
-    return {
-        "ok": ok,
-        "issues": issues,
-        "summary": _dependency_health_summary(),
-        "strict_versions": require_versions,
-    }
-
-
-# Lightweight dependency verification (no heavy imports at module import time)
-def _iter_dependency_status():
-    for mod, min_ver in CORE_DEPENDENCY_REQUIREMENTS.items():
-        import_error: Exception | None = None
-        metadata_error: Exception | None = None
-        module = None
-        try:
-            module = __import__(mod.replace("-", "_"))
-        except Exception as exc:
-            import_error = exc
-
-        version: str | None = None
-        if module is not None:
-            try:
-                version = importlib_metadata.version(mod)
-            except importlib_metadata.PackageNotFoundError:
-                version = getattr(module, "__version__", None)
-            except Exception as exc:
-                metadata_error = exc
-        yield mod, min_ver, module, version, import_error, metadata_error
-
-
-def _verify_core_dependencies(require_versions: bool = False):
-    """Verify core runtime dependencies are importable (and optionally versioned).
-
-    Returns (ok: bool, issues: List[str]).
-    This avoids importing heavy, optional diagnostics modules.
-    """
-
-    issues: list[str] = []
-
-    for mod, min_ver, module, version, import_error, metadata_error in _iter_dependency_status():
-        if import_error is not None or module is None:
-            issues.append(f"Missing or failed to import: {mod} ({import_error})")
-            continue
-
-        if not require_versions:
-            continue
-
-        if version is None:
-            reason = metadata_error or "version metadata unavailable"
-            issues.append(f"Version unknown for {mod}; require >= {min_ver} ({reason})")
-            continue
-
-        if Version is None:
-            continue
-
-        try:
-            if Version(version) < Version(min_ver):
-                issues.append(f"{mod} version {version} < required {min_ver}")
-        except Exception as exc:
-            issues.append(f"Version check failed for {mod}: {exc}")
-
-    return (len(issues) == 0), issues
-
-
-# Detailed dependency health summary for logging/reporting
-def _dependency_health_summary():
-    summary: dict[str, dict[str, Any]] = {}
-
-    for mod, min_ver, module, version, import_error, metadata_error in _iter_dependency_status():
-        entry: dict[str, Any] = {"required_min": min_ver}
-
-        if import_error is not None or module is None:
-            entry["status"] = "error"
-            entry["issue"] = str(import_error)
-            summary[mod] = entry
-            continue
-
-        entry["status"] = "ok"
-
-        if metadata_error is not None:
-            entry["status"] = "warn"
-            entry["issue"] = f"version lookup failed: {metadata_error}"
-
-        if version is not None:
-            entry["version"] = str(version)
-            if Version is not None:
-                try:
-                    if Version(version) < Version(min_ver):
-                        entry["status"] = "warn"
-                        entry["issue"] = f"version {version} < required {min_ver}"
-                except Exception as exc:
-                    entry["status"] = "warn"
-                    entry["issue"] = f"version comparison failed: {exc}"
-        else:
-            entry.setdefault("issue", "version metadata unavailable")
-
-        summary[mod] = entry
-
-    return summary
-
-
 # Utility functions
 def _fmt_hms(seconds: float) -> str:
-    seconds = max(0, float(seconds))
-    m, s = divmod(int(round(seconds)), 60)
-    h, m = divmod(m, 60)
-    return f"{h:02d}:{m:02d}:{s:02d}" if h else f"{m:02d}:{s:02d}"
+    return format_duration(seconds)
 
 
 def _fmt_hms_ms(ms: float) -> str:
-    total_ms = int(round(max(0.0, float(ms))))
-    s, ms = divmod(total_ms, 1000)
-    m, s = divmod(s, 60)
-    h, m = divmod(m, 60)
-    return f"{h:02d}:{m:02d}:{s:02d}.{ms:03d}" if h else f"{m:02d}:{s:02d}.{ms:03d}"
+    return format_duration_ms(ms)
 
 
 def _compute_audio_sha16(y: np.ndarray) -> str:
@@ -436,226 +227,6 @@ def _read_json_safe(path: Path):
     except Exception:
         return None
     return None
-
-
-# JSONL Logger
-class JSONLWriter:
-    def __init__(self, path: Path):
-        self.path = Path(path)
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        if not self.path.exists():
-            self.path.write_text("", encoding="utf-8")
-
-    def emit(self, record: dict[str, Any]) -> None:
-        try:
-            with self.path.open("a", encoding="utf-8") as f:
-                f.write(json.dumps(record, ensure_ascii=False) + "\n")
-        except PermissionError as e:
-            print(f"Warning: Could not write to log file {self.path}: {e}")
-        except Exception as e:
-            print(f"Warning: Error writing to log file {self.path}: {e}")
-
-
-@dataclass
-class RunStats:
-    run_id: str
-    file_id: str
-    schema_version: str = "2.0.0"
-    stage_timings_ms: dict[str, float] = field(default_factory=dict)
-    stage_counts: dict[str, dict[str, int]] = field(default_factory=dict)
-    warnings: list[str] = field(default_factory=list)
-    errors: list[str] = field(default_factory=list)
-    failures: list[dict[str, Any]] = field(default_factory=list)
-    models: dict[str, Any] = field(default_factory=dict)
-    config_snapshot: dict[str, Any] = field(default_factory=dict)
-
-    def mark(self, stage: str, elapsed_ms: float, counts: dict[str, int] | None = None):
-        self.stage_timings_ms[stage] = self.stage_timings_ms.get(stage, 0.0) + float(elapsed_ms)
-        if counts:
-            slot = self.stage_counts.setdefault(stage, {})
-            for k, v in counts.items():
-                slot[k] = slot.get(k, 0) + int(v)
-
-
-class CoreLogger:
-    def __init__(self, run_id: str, jsonl_path: Path, console_level: int = logging.INFO):
-        self.run_id = run_id
-        self.jsonl = JSONLWriter(jsonl_path)
-        self.log = logging.getLogger(f"pipeline.{run_id}")
-        self.log.setLevel(console_level)
-        if not self.log.handlers:
-            ch = logging.StreamHandler()
-            ch.setLevel(console_level)
-            fmt = logging.Formatter("[%(asctime)s] [%(levelname)s] %(message)s", datefmt="%H:%M")
-            ch.setFormatter(fmt)
-            self.log.addHandler(ch)
-
-    def event(self, stage: str, event: str, **fields):
-        rec = {
-            "ts": time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime()),
-            "run_id": self.run_id,
-            "stage": stage,
-            "event": event,
-        }
-        rec.update(fields)
-        self.jsonl.emit(rec)
-
-    def info(self, msg: str):
-        self.log.info(msg)
-
-    def warn(self, msg: str):
-        self.log.warning(msg)
-
-    def error(self, msg: str):
-        self.log.error(msg)
-
-
-class StageGuard:
-    _OPTIONAL_STAGE_EXCEPTION_MAP = {
-        "background_sed": (
-            ImportError,
-            ModuleNotFoundError,
-            FileNotFoundError,
-            OSError,
-        ),
-        "registry_update": (
-            FileNotFoundError,
-            PermissionError,
-            OSError,
-        ),
-        "paralinguistics": (
-            ImportError,
-            ModuleNotFoundError,
-        ),
-        "affect_and_assemble": (
-            ImportError,
-            ModuleNotFoundError,
-        ),
-        "overlap_interruptions": (
-            AttributeError,
-            ImportError,
-            ModuleNotFoundError,
-        ),
-        "conversation_analysis": (ValueError,),
-        "speaker_rollups": (
-            ValueError,
-            TypeError,
-        ),
-    }
-    _CRITICAL_STAGES = {"preprocess", "outputs"}
-    _TIMEOUT_STAGES = {"diarize", "transcribe"}
-
-    def __init__(self, corelog: CoreLogger, stats: RunStats, stage: str):
-        self.corelog = corelog
-        self.stats = stats
-        self.stage = stage
-        self.start = None
-
-    def __enter__(self):
-        self.start = time.time()
-        self.corelog.event(self.stage, "start")
-        self.corelog.info(f"[{self.stage}] start")
-        return self
-
-    def done(self, **counts):
-        if counts:
-            self.stats.mark(self.stage, 0.0, counts)
-
-    def _is_known_nonfatal(self, exc: BaseException) -> bool:
-        if isinstance(exc, TimeoutError | subprocess.TimeoutExpired) and (self.stage in self._TIMEOUT_STAGES):
-            return True
-        allowed = self._OPTIONAL_STAGE_EXCEPTION_MAP.get(self.stage, tuple())
-        return any(isinstance(exc, exc_cls) for exc_cls in allowed)
-
-    def __exit__(self, exc_type, exc, tb):
-        elapsed_ms = (time.time() - self.start) * 1000.0 if self.start else 0.0
-        if exc:
-            # Always propagate KeyboardInterrupt so Ctrl+C works
-            if isinstance(exc, KeyboardInterrupt):
-                self.corelog.error("[interrupt] KeyboardInterrupt received; aborting")
-                return False
-            known_nonfatal = self._is_known_nonfatal(exc)
-            trace_hash = hashlib.blake2b(
-                f"{self.stage}:{type(exc).__name__}".encode(), digest_size=8
-            ).hexdigest()
-            self.corelog.event(
-                self.stage,
-                "error",
-                elapsed_ms=elapsed_ms,
-                error=f"{type(exc).__name__}: {exc}",
-                trace_hash=trace_hash,
-                handled=known_nonfatal,
-            )
-            dur_txt = _fmt_hms_ms(elapsed_ms)
-            log_fn = self.corelog.warn if known_nonfatal else self.corelog.error
-            log_fn(f"[{self.stage}] {'handled ' if known_nonfatal else ''}" f"{type(exc).__name__}: {exc} ({dur_txt})")
-            self.stats.mark(self.stage, elapsed_ms)
-            try:
-                msg = f"{self.stage}: {type(exc).__name__}: {exc}"
-                self.stats.warnings.append(msg)
-                self.stats.errors.append(msg)
-
-                # Record structured failure with fix suggestion
-                def _suggest_fix(stage: str, err: BaseException) -> str:
-                    txt = str(err).lower()
-                    if stage == "preprocess":
-                        if "libsndfile" in txt or "soundfile" in txt:
-                            return "Install libsndfile: apt-get install libsndfile1 (Linux) or brew install libsndfile (macOS)."
-                        if "ffmpeg" in txt or "audioread" in txt:
-                            return "Install ffmpeg and ensure it is on PATH."
-                        if "file not found" in txt or "no such file" in txt:
-                            return "Check input path and permissions."
-                        return "Verify audio codec support (try converting to WAV 16kHz mono)."
-                    if stage == "transcribe":
-                        if isinstance(err, TimeoutError | subprocess.TimeoutExpired):
-                            return "Increase --asr-segment-timeout or choose a smaller Whisper model."
-                        if "faster_whisper" in txt or "ctranslate2" in txt:
-                            return "Install faster-whisper and ctranslate2; confirm CPU wheels are compatible."
-                        if "whisper" in txt and "tiny" in txt:
-                            return "OpenAI whisper fallback failed; try reinstalling whisper or using a local model."
-                        if "model" in txt and ("not found" in txt or "download" in txt):
-                            return "Model not found; provide a valid local model path or enable network access."
-                        return "Reduce model size, set compute_type=float32, and verify dependencies."
-                    if stage == "paralinguistics":
-                        return "Install librosa/scipy extras or run with --disable_paralinguistics."
-                    if stage == "affect_and_assemble":
-                        return "Install emotion/intent model dependencies or run with --disable_affect."
-                    if stage == "background_sed":
-                        return "Provide SED models locally or disable background SED tagging."
-                    if stage == "overlap_interruptions":
-                        return "Install paralinguistics extras for overlap metrics or skip this stage."
-                    if stage == "conversation_analysis":
-                        return "Ensure numpy/pandas are available for analytics or review conversation inputs."
-                    if stage == "speaker_rollups":
-                        return "Inspect segment data integrity before computing speaker rollups."
-                    if stage == "outputs":
-                        return "Ensure outdir is writable and disk has space."
-                    return "Check logs for details; ensure dependencies and file permissions."
-
-                self.stats.failures.append(
-                    {
-                        "stage": self.stage,
-                        "error": f"{type(exc).__name__}: {exc}",
-                        "elapsed_ms": elapsed_ms,
-                        "suggestion": _suggest_fix(self.stage, exc),
-                    }
-                )
-                # Stage-specific flags to inform outer control flow
-                if self.stage == "preprocess":
-                    self.stats.config_snapshot["preprocess_failed"] = True
-                if self.stage == "transcribe":
-                    self.stats.config_snapshot["transcribe_failed"] = True
-            except Exception:
-                pass
-            swallow = known_nonfatal and self.stage not in self._CRITICAL_STAGES
-            return swallow
-        else:
-            self.corelog.event(self.stage, "stop", elapsed_ms=elapsed_ms)
-            dur_txt = _fmt_hms_ms(elapsed_ms)
-            self.corelog.info(f"[{self.stage}] ok in {dur_txt}")
-            self.stats.mark(self.stage, elapsed_ms)
-            return False
-
 
 # Default data structures
 SEGMENT_COLUMNS = [
@@ -772,7 +343,7 @@ class AudioAnalysisPipelineV2:
                 pass
 
         # Logger & Stats
-        self.corelog = CoreLogger(
+        self.corelog = PipelineLogger(
             self.run_id,
             self.log_dir / "run.jsonl",
             console_level=(logging.WARNING if self.quiet else logging.INFO),
@@ -807,7 +378,10 @@ class AudioAnalysisPipelineV2:
                 chunk_size_minutes=cfg.get("chunk_size_minutes", 20.0),
                 chunk_overlap_seconds=cfg.get("chunk_overlap_seconds", 30.0),
             )
-            self.pre = AudioPreprocessor(self.pp_conf)
+            preprocessor_factory = get_provider(
+                "preprocessor", lambda config: AudioPreprocessor(config)
+            )
+            self.pre = preprocessor_factory(self.pp_conf)
 
             # Diarizer
             registry_path = cfg.get("registry_path", str(Path("registry") / "speaker_registry.json"))
@@ -866,7 +440,10 @@ class AudioAnalysisPipelineV2:
                 pass
 
             # Diarizer: baseline by default; optional CPU-optimized wrapper behind a flag
-            self.diar = SpeakerDiarizer(self.diar_conf)
+            diarizer_factory = get_provider(
+                "speaker_diarizer", lambda config: SpeakerDiarizer(config)
+            )
+            self.diar = diarizer_factory(self.diar_conf)
             if bool(cfg.get("cpu_diarizer", False)):
                 try:
                     from .cpu_optimized_diarizer import (
@@ -881,8 +458,6 @@ class AudioAnalysisPipelineV2:
                     self.corelog.warn(f"[diarizer] CPU wrapper unavailable, using baseline: {_e}")
 
             # Transcriber - Force CPU-only configuration
-            from .transcription_module import AudioTranscriber
-
             transcriber_config = {
                 "model_size": str(cfg.get("whisper_model", DEFAULT_WHISPER_MODEL)),
                 # Device selection is handled internally by the transcription backends
@@ -912,15 +487,21 @@ class AudioAnalysisPipelineV2:
             os.environ["CUDA_VISIBLE_DEVICES"] = ""
             os.environ["TORCH_DEVICE"] = "cpu"
 
-            self.tx = AudioTranscriber(**transcriber_config)
+            transcriber_factory = get_provider("transcriber", _default_transcriber_factory)
+            self.tx = transcriber_factory(**transcriber_config)
 
             # Affect analyzer (optional)
             if cfg.get("disable_affect"):
                 self.affect = None
             else:
-                self.affect = EmotionIntentAnalyzer(
-                    text_emotion_model=cfg.get("text_emotion_model", "SamLowe/roberta-base-go_emotions"),
-                    intent_labels=cfg.get("intent_labels", INTENT_LABELS_DEFAULT),
+                emotion_factory = get_provider("emotion_analyzer", _default_emotion_factory)
+                self.affect = emotion_factory(
+                    {
+                        "text_emotion_model": cfg.get(
+                            "text_emotion_model", "SamLowe/roberta-base-go_emotions"
+                        ),
+                        "intent_labels": cfg.get("intent_labels", INTENT_LABELS_DEFAULT),
+                    }
                 )
 
             # Optional background SED / noise tagger
@@ -963,24 +544,26 @@ class AudioAnalysisPipelineV2:
             # Ensure minimal components exist even on init failure
             try:
                 if not hasattr(self, "pre"):
-                    self.pre = AudioPreprocessor(PreprocessConfig())
+                    self.pre = get_provider(
+                        "preprocessor", lambda config: AudioPreprocessor(config)
+                    )(PreprocessConfig())
             except Exception:
                 self.pre = None
             try:
                 if not hasattr(self, "diar"):
-                    self.diar = SpeakerDiarizer(DiarizationConfig(target_sr=16000))
+                    self.diar = get_provider(
+                        "speaker_diarizer", lambda config: SpeakerDiarizer(config)
+                    )(DiarizationConfig(target_sr=16000))
             except Exception:
                 self.diar = None
             try:
                 if not hasattr(self, "tx"):
-                    from .transcription_module import AudioTranscriber
-
-                    self.tx = AudioTranscriber()
+                    self.tx = get_provider("transcriber", _default_transcriber_factory)()
             except Exception:
                 pass
             try:
                 if not hasattr(self, "affect"):
-                    self.affect = EmotionIntentAnalyzer()
+                    self.affect = get_provider("emotion_analyzer", _default_emotion_factory)({})
             except Exception:
                 pass
             try:
@@ -1117,7 +700,10 @@ class AudioAnalysisPipelineV2:
             )
         except (RuntimeError, ValueError, OSError, ImportError) as e:
             html_path = None
-            self.corelog.warn(f"HTML summary skipped: {e}. Verify HTML template assets or install report dependencies.")
+            self.file_logger.warning(
+                "HTML summary skipped: %s. Verify HTML template assets or install report dependencies.",
+                e,
+            )
 
         # PDF summary
         try:
@@ -1130,7 +716,10 @@ class AudioAnalysisPipelineV2:
             )
         except (RuntimeError, ValueError, OSError, ImportError) as e:
             pdf_path = None
-            self.corelog.warn(f"PDF summary skipped: {e}. Ensure wkhtmltopdf/LaTeX prerequisites are installed.")
+            self.file_logger.warning(
+                "PDF summary skipped: %s. Ensure wkhtmltopdf/LaTeX prerequisites are installed.",
+                e,
+            )
 
         self.checkpoints.create_checkpoint(
             input_audio_path,
@@ -1144,6 +733,7 @@ class AudioAnalysisPipelineV2:
         outp = Path(out_dir)
         outp.mkdir(parents=True, exist_ok=True)
         self.stats.file_id = Path(input_audio_path).name
+        self.file_logger = self.corelog.bind(file_id=self.stats.file_id)
 
         # Initialize all variables to prevent UnboundLocalError
         y = np.array([])
@@ -1172,11 +762,11 @@ class AudioAnalysisPipelineV2:
         try:
             # ========== 0) Dependency Check (informational) ==========
             with StageGuard(self.corelog, self.stats, "dependency_check"):
-                dep_summary = _dependency_health_summary()
+                dep_summary = dependency_summary()
                 unhealthy = [k for k, v in dep_summary.items() if v.get("status") != "ok"]
                 self.corelog.event("dependency_check", "summary", unhealthy=unhealthy)
                 if unhealthy:
-                    self.corelog.warn(f"Dependency issues detected: {unhealthy}")
+                    self.file_logger.warning("Dependency issues detected: %s", unhealthy)
                     for k in unhealthy:
                         issue = dep_summary[k].get("issue")
                         if issue:
@@ -1193,7 +783,7 @@ class AudioAnalysisPipelineV2:
             with StageGuard(self.corelog, self.stats, "preprocess"):
                 y, sr, health = self.pre.process_file(input_audio_path)
                 duration_s = float(len(y) / sr) if sr else 0.0
-                self.corelog.info(f"[preprocess] file duration {_fmt_hms(duration_s)}")
+                self.file_logger.info("[preprocess] file duration %s", _fmt_hms(duration_s))
                 self.corelog.event(
                     "preprocess",
                     "metrics",
@@ -1274,9 +864,11 @@ class AudioAnalysisPipelineV2:
                 # Only resume diarization if diar cache also matches
                 resume_diar = bool(_cache_matches(diar_cache))
                 if resume_diar:
-                    self.corelog.info("[resume] using tx.json+diar.json caches; skipping diarize+ASR")
+                    self.file_logger.info(
+                        "[resume] using tx.json+diar.json caches; skipping diarize+ASR"
+                    )
                 else:
-                    self.corelog.info(
+                    self.file_logger.info(
                         "[resume] using tx.json cache; skipping ASR and reconstructing turns from tx cache"
                     )
                 self.corelog.event(
@@ -1287,7 +879,7 @@ class AudioAnalysisPipelineV2:
                 )
             elif _cache_matches(diar_cache):
                 resume_diar = True
-                self.corelog.info("[resume] using diar.json cache; skipping diarize")
+                self.file_logger.info("[resume] using diar.json cache; skipping diarize")
                 self.corelog.event(
                     "resume",
                     "diar_cache_hit",
@@ -1852,7 +1444,7 @@ class AudioAnalysisPipelineV2:
             dep_summary = self.stats.config_snapshot.get("dependency_summary", {}) or {}
             unhealthy = [k for k, v in dep_summary.items() if v.get("status") != "ok"]
             if dep_ok and not unhealthy:
-                self.corelog.info("[deps] All core dependencies loaded successfully.")
+                self.file_logger.info("[deps] All core dependencies loaded successfully.")
             else:
                 self.corelog.warn("[deps] Issues detected: " + ", ".join(unhealthy))
             # Expose in manifest
@@ -1892,23 +1484,27 @@ class AudioAnalysisPipelineV2:
                 "outputs",
             ]
             failures = {f.get("stage"): f for f in getattr(self.stats, "failures", [])}
-            self.corelog.info("[ALERT] Stage summary:")
+            self.file_logger.info("[ALERT] Stage summary:")
             for st in stages:
                 if st in failures:
                     f = failures[st]
                     ms = float(f.get("elapsed_ms", 0.0))
-                    self.corelog.warn(
-                        f"  - {st}: FAIL in {_fmt_hms_ms(ms)} — {f.get('error')} | Fix: {f.get('suggestion')}"
+                    self.file_logger.warning(
+                        "  - %s: FAIL in %s — %s | Fix: %s",
+                        st,
+                        _fmt_hms_ms(ms),
+                        f.get("error"),
+                        f.get("suggestion"),
                     )
                 else:
                     if st in (
                         "paralinguistics",
                         "affect_and_assemble",
                     ) and self.stats.config_snapshot.get("transcribe_failed"):
-                        self.corelog.warn(f"  - {st}: SKIPPED (transcribe_failed)")
+                        self.file_logger.warning("  - %s: SKIPPED (transcribe_failed)", st)
                     else:
                         ms = float(self.stats.stage_timings_ms.get(st, 0.0))
-                        self.corelog.info(f"  - {st}: PASS in {_fmt_hms_ms(ms)}")
+                        self.file_logger.info("  - %s: PASS in %s", st, _fmt_hms_ms(ms))
         except Exception:
             pass
         self.checkpoints.create_checkpoint(input_audio_path, ProcessingStage.COMPLETE, manifest, progress=100.0)
