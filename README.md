@@ -12,7 +12,9 @@ Everything is wired for **OpenAI Codex Cloud**: reproducible container, cached m
 
 ---
 
-## Quickstart (local or Codex shell)
+## Installation & Quickstart
+
+### 1. Create a Python environment
 
 ```bash
 # Python 3.11 recommended (3.9–3.11 supported by your repo pins)
@@ -20,26 +22,84 @@ python -V
 
 # venv
 python -m venv .venv
-. .venv/bin/activate  # Windows: .venv\Scripts\activate
+. .venv/bin/activate  # Windows: .venv\\Scripts\\activate
+```
 
+### 2. Install DiaRemot and dependencies
+
+```bash
 # install (uses your repo's requirements.txt with CPU torch index)
 pip install -U pip wheel setuptools
 pip install -r requirements.txt
 pip install -e .
+```
 
-# models base dir
+Tkinter bindings are required for the desktop GUI. Install the platform-specific
+system package before launching the app:
+
+```bash
+# Debian/Ubuntu: sudo apt-get update && sudo apt-get install -y python3-tk
+# macOS (Homebrew): brew install python-tk@3.11  # adjust version to your Python
+# Windows: ensure "tcl/tk" feature is selected in the Python installer
+```
+
+### 3. Stage the pretrained models
+
+Set `DIAREMOT_MODEL_DIR` to the folder that contains the ONNX/CT2 assets listed
+below. The CLI and GUI both look in this path when loading models.
+
+```bash
 export DIAREMOT_MODEL_DIR=/opt/models   # or ./models locally
+```
 
+### 4. Run the pipeline
+
+```bash
 # run via CLI (preferred)
 python -m diaremot.cli asr run --input samples/ --out outputs/run1
 # or, if scripts are installed:
 # diaremot asr run --input samples/ --out outputs/run1
 # Backward-compatible aliases for ``diaremot run``/``resume`` remain available.
 
+# desktop GUI launcher
+python -m diaremot.gui.app
+# or, with scripts installed:
+# diaremot-gui
+
 # diagnostics
 python -m diaremot.cli system diagnostics
 # or: diaremot system diagnostics / diaremot-diagnostics
 ```
+
+### 5. Launch the desktop GUI
+
+```bash
+python -m diaremot.gui.app
+# or, with scripts installed:
+# diaremot-gui
+```
+
+For a Start Menu friendly executable on Windows, see the packaging workflow
+below.
+
+---
+
+## Build a Windows desktop executable
+
+Use PyInstaller to bundle the Tkinter GUI into a single-folder distribution.
+The process should be run from an activated virtual environment on Windows so
+the collected DLLs match the target platform.
+
+```powershell
+python -m pip install --upgrade pip
+python -m pip install .[desktop]
+pyinstaller packaging/diaremot_gui.spec --noconfirm
+```
+
+Artifacts are written to `dist/DiaRemotDesktop/`. Ship that folder (or create a
+zip) alongside your models directory and a shortcut that runs `DiaRemotDesktop.exe`.
+Before first launch, ensure `DIAREMOT_MODEL_DIR` points to the directory that
+contains the ONNX and CT2 assets.
 
 Entrypoints are provided by `src/diaremot/cli.py` and `[project.scripts]` in `pyproject.toml`.
 `run_pipeline` and `resume` are also proxied through the CLI.
