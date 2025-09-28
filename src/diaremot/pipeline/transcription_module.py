@@ -1423,7 +1423,7 @@ def estimate_snr_db(audio: np.ndarray) -> float:
         return float("nan")
 
     # Create hash for caching
-    audio_hash = hashlib.md5(audio.tobytes()).hexdigest()[:16]
+    audio_hash = hashlib.blake2s(audio.tobytes()).hexdigest()[:16]
 
     try:
         # Fast SNR estimation

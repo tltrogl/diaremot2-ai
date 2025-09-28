@@ -2,21 +2,18 @@
 
 from __future__ import annotations
 
-import hashlib
 import logging
 from pathlib import Path
 from typing import Union
+
+from ..utils.hash import hash_file
 
 logger = logging.getLogger(__name__)
 
 
 def _check_sha256(path: Path, sha256: str) -> None:
     """Validate file integrity via SHA256."""
-    h = hashlib.sha256()
-    with path.open("rb") as f:
-        for chunk in iter(lambda: f.read(8192), b""):
-            h.update(chunk)
-    digest = h.hexdigest()
+    digest = hash_file(path, algo="sha256")
     if digest.lower() != sha256.lower():
         raise RuntimeError(f"SHA256 mismatch for {path}: {digest} != {sha256}")
 
