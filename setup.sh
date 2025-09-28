@@ -34,6 +34,16 @@ fi
 command -v python3 >/dev/null 2>&1 || { echo "ERROR: python3 not found"; exit 1; }
 echo "==> Python: $(python3 -V)"
 
+if command -v apt-get >/dev/null 2>&1; then
+  if [[ "$(id -u)" == "0" ]]; then
+    echo "==> Installing system Tk bindings (python3-tk)"
+    apt-get update -qq
+    apt-get install -y python3-tk >/dev/null
+  else
+    echo "INFO: install python3-tk via 'sudo apt-get install -y python3-tk' for the GUI"
+  fi
+fi
+
 echo "==> Creating virtual environment (.venv)"
 python3 -m venv .venv
 # shellcheck disable=SC1091

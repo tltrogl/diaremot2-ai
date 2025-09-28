@@ -49,6 +49,12 @@ dependencies = [
 [project.scripts]
 diaremot = "diaremot.cli:app"
 diaremot-diagnostics = "diaremot.cli:main_diagnostics"
+diaremot-gui = "diaremot.gui.app:main"
+
+[project.optional-dependencies]
+desktop = [
+    "pyinstaller>=6.6,<6.7",
+]
 
 [tool.setuptools.package-dir]
 "" = "src"
