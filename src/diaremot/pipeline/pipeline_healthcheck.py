@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-"""DiaRemo pipeline health check utilities.
+"""Lightweight diagnostics for ensuring the DiaRemot pipeline is runnable.
 
-Lightweight diagnostic script to verify that the DiaRemo pipeline is ready to
-run.  The script assumes **faster-whisper** as the default ASR backend and will
-fall back to OpenAI's `whisper` package when available.  It performs three
+The script assumes **faster-whisper** as the default ASR backend and will
+fall back to OpenAI's ``whisper`` package when available.  It performs three
 stages:
 
 1. **Dependency check** – import core Python packages and report versions.
@@ -27,18 +26,13 @@ import json
 from pathlib import Path
 from typing import Dict
 
-# Core packages required for the pipeline
-DEPENDENCIES = [
-    "torch",
-    "librosa",
-    "soundfile",
-    "numpy",
-    "scipy",
-    "transformers",
-    "faster_whisper",  # preferred ASR backend
-    "whisper",  # optional fallback backend
-    "onnxruntime",
-]
+from .audio_pipeline_core import (
+    CORE_DEPENDENCY_REQUIREMENTS,
+    diagnostics as core_diagnostics,
+)
+
+# Optional fallbacks that are not required by the core dependency set
+OPTIONAL_DEPENDENCIES = ("whisper",)
 
 # Minimal set of ONNX models used by the pipeline
 MODELS = {
@@ -49,15 +43,43 @@ MODELS = {
 
 
 def check_dependencies() -> Dict[str, str]:
-    """Attempt to import each dependency and return version info."""
+    """Return the version/health of each core dependency."""
+
+    diag = core_diagnostics(require_versions=True)
+    summary = diag.get("summary", {})
+
     report: Dict[str, str] = {}
-    for pkg in DEPENDENCIES:
+
+    for pkg, min_version in CORE_DEPENDENCY_REQUIREMENTS.items():
+        entry = summary.get(pkg, {})
+        status = entry.get("status", "ok")
+        version = entry.get("version")
+        issue = entry.get("issue")
+
+        if status == "ok":
+            if version:
+                report[pkg] = version
+            elif min_version:
+                report[pkg] = f"unknown (requires >= {min_version})"
+            else:
+                report[pkg] = "unknown"
+            continue
+
+        detail = issue or status
+        if version:
+            detail = f"{detail}; installed {version}"
+        if min_version:
+            detail = f"{detail}; requires >= {min_version}"
+        report[pkg] = f"{status}: {detail}"
+
+    # Optional dependencies remain best-effort imports
+    for pkg in OPTIONAL_DEPENDENCIES:
         try:
             module = importlib.import_module(pkg)
-            version = getattr(module, "__version__", "unknown")
-            report[pkg] = version
-        except Exception as exc:  # pragma: no cover - best effort
+            report[pkg] = getattr(module, "__version__", "unknown")
+        except Exception as exc:  # pragma: no cover - diagnostics only
             report[pkg] = f"missing ({exc})"
+
     return report
 
 

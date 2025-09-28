@@ -41,9 +41,9 @@ source .venv/bin/activate
 
 echo "==> Upgrading bootstrap tooling"
 python -m pip install --upgrade pip setuptools wheel
-python -m pip install uv
+
 echo "==> Installing requirements.txt"
-python -m uv pip install -r requirements.txt
+python -m pip install -r requirements.txt
 
 # ---- local caches (keep behavior) ----
 echo "==> Preparing local caches"
