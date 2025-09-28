@@ -1200,11 +1200,16 @@ class AudioAnalysisPipelineV2:
                     duration_s=duration_s,
                     snr_db=float(getattr(health, "snr_db", 0.0)) if health else None,
                 )
+            audio_sha16 = _compute_audio_sha16(y)
+            if audio_sha16:
+                self.checkpoints.seed_file_hash(input_audio_path, audio_sha16)
+
             self.checkpoints.create_checkpoint(
                 input_audio_path,
                 ProcessingStage.AUDIO_PREPROCESSING,
                 {"sr": sr},
                 progress=5.0,
+                file_hash=audio_sha16,
             )
             # ========== 1b) Background SED (optional) ==========
             with StageGuard(self.corelog, self.stats, "background_sed"):
@@ -1231,7 +1236,6 @@ class AudioAnalysisPipelineV2:
                     )
 
             # Compute checkpoint signatures
-            audio_sha16 = _compute_audio_sha16(y)
             pp_sig = _compute_pp_signature(self.pp_conf)
             cache_dir = self.cache_root / audio_sha16
             cache_dir.mkdir(parents=True, exist_ok=True)
