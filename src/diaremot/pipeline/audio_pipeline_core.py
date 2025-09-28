@@ -38,6 +38,7 @@ from ..summaries.html_summary_generator import HTMLSummaryGenerator
 from ..summaries.pdf_summary_generator import PDFSummaryGenerator
 from ..summaries.speakers_summary_builder import build_speakers_summary
 from .audio_preprocessing import AudioPreprocessor, PreprocessConfig
+from .cache_env import configure_local_cache_env
 from .pipeline_checkpoint_system import PipelineCheckpointManager, ProcessingStage
 from .speaker_diarization import DiarizationConfig, SpeakerDiarizer
 
@@ -54,34 +55,7 @@ except Exception:
     pass
 
 
-def _configure_local_cache_env() -> None:
-    cache_root = (Path(__file__).resolve().parents[3] / ".cache").resolve()
-    cache_root.mkdir(parents=True, exist_ok=True)
-    targets = {
-        "HF_HOME": cache_root / "hf",
-        "HUGGINGFACE_HUB_CACHE": cache_root / "hf",
-        "TRANSFORMERS_CACHE": cache_root / "transformers",
-        "TORCH_HOME": cache_root / "torch",
-        "XDG_CACHE_HOME": cache_root,
-    }
-    for env_name, target in targets.items():
-        target_path = target.resolve()
-        existing = os.environ.get(env_name)
-        if existing:
-            try:
-                existing_path = Path(existing).resolve()
-            except (OSError, RuntimeError, ValueError):
-                existing_path = None
-            if existing_path is not None:
-                if existing_path == target_path:
-                    continue
-                if existing_path.is_relative_to(cache_root):
-                    continue
-        target_path.mkdir(parents=True, exist_ok=True)
-        os.environ[env_name] = str(target_path)
-
-
-_configure_local_cache_env()
+configure_local_cache_env()
 
 WINDOWS_MODELS_ROOT = Path("D:/models") if os.name == "nt" else None
 

@@ -15,6 +15,17 @@ import time
 import numpy as np
 from pathlib import Path
 
+from .diagnostics_smoke import (
+    SMOKE_TEST_TRANSCRIBE_KWARGS,
+    burst_audio_factory,
+    prepare_smoke_wav,
+    run_pipeline_smoke_test,
+)
+
+
+VALIDATION_TMP_DIR = Path("test_validation_tmp")
+VALIDATION_OUTPUT_DIR = Path("test_output")
+
 
 def set_cpu_environment():
     """Set CPU-only environment"""
@@ -25,44 +36,25 @@ def set_cpu_environment():
     print("✓ CPU-only environment configured")
 
 
-def create_test_audio():
+def create_test_audio(tmp_dir: Path) -> str:
     """Create a short test audio file"""
     print("Creating test audio...")
-
-    # Generate 5 seconds of test audio with simple patterns
-    sr = 16000
-    duration = 5
-    t = np.linspace(0, duration, sr * duration)
-
-    # Create simple speech-like patterns
-    audio = np.zeros_like(t)
-
-    # Add some "speech" bursts
-    for start_time in [0.5, 2.0, 3.5]:
-        start_idx = int(start_time * sr)
-        end_idx = int((start_time + 1.0) * sr)
-
-        # Simple modulated tone
-        freq = 200 + 100 * np.random.random()
-        burst = np.sin(2 * np.pi * freq * t[start_idx:end_idx])
-        burst *= np.exp(-5 * (t[start_idx:end_idx] - start_time))  # Fade
-        audio[start_idx:end_idx] = burst * 0.1
-
-    # Add some noise
-    audio += np.random.normal(0, 0.01, len(audio))
-
-    # Save as wav file
-    test_audio_path = Path("test_audio.wav")
     try:
-        import soundfile as sf
-
-        sf.write(test_audio_path, audio.astype(np.float32), sr)
-        print(f"✓ Test audio created: {test_audio_path}")
-        return str(test_audio_path)
-    except ImportError:
+        wav_path = prepare_smoke_wav(
+            tmp_dir,
+            waveform_factory=burst_audio_factory,
+            duration_seconds=5.0,
+            filename="test_audio.wav",
+        )
+        print(f"✓ Test audio created: {wav_path}")
+        return str(wav_path)
+    except RuntimeError:
         print("⚠ soundfile not available, using numpy save")
-        np.save("test_audio.npy", audio.astype(np.float32))
-        return "test_audio.npy"
+        tmp_dir.mkdir(parents=True, exist_ok=True)
+        fallback_path = tmp_dir / "test_audio.npy"
+        audio = burst_audio_factory(16000, 5.0)
+        np.save(fallback_path, audio.astype(np.float32))
+        return str(fallback_path)
 
 
 def test_transcription_directly():
@@ -76,13 +68,7 @@ def test_transcription_directly():
 
         # Initialize with CPU-only settings
         print("Initializing transcriber...")
-        transcriber = AudioTranscriber(
-            model_size="faster-whisper-tiny.en",  # Use fastest model for testing
-            compute_type="float32",
-            beam_size=1,
-            temperature=0.0,
-            no_speech_threshold=0.6,
-        )
+        transcriber = AudioTranscriber(**SMOKE_TEST_TRANSCRIBE_KWARGS)
         print("✓ Transcriber initialized")
 
         # Validate backend
@@ -143,61 +129,54 @@ def test_full_pipeline():
     try:
         if str(Path.cwd()) not in sys.path:
             sys.path.insert(0, str(Path.cwd()))
-        from .audio_pipeline_core import AudioAnalysisPipelineV2
 
         # Create test audio
-        test_audio_path = create_test_audio()
+        test_audio_path = create_test_audio(VALIDATION_TMP_DIR)
+        wav_path = Path(test_audio_path)
 
-        # Configure pipeline for fast testing
-        config = {
-            "whisper_model": "faster-whisper-tiny.en",
-            "noise_reduction": False,
-            "beam_size": 1,
-            "temperature": 0.0,
-            "no_speech_threshold": 0.6,
-            "registry_path": "test_speaker_registry.json",
-        }
-
-        print("Initializing pipeline...")
-        pipeline = AudioAnalysisPipelineV2(config)
-        print("✓ Pipeline initialized")
-
-        # Check transcriber
-        if hasattr(pipeline, "tx"):
-            info = pipeline.tx.get_model_info()
-            print(f"  - Backend: {info.get('backend', 'unknown')}")
-            print(f"  - Device: {info.get('device', 'unknown')}")
-            print(f"  - Model: {info.get('model_size', 'unknown')}")
-
-            if info.get("backend") == "fallback":
-                print("⚠ Pipeline using fallback transcriber")
-
-        # Run pipeline on test audio
-        output_dir = Path("test_output")
-        output_dir.mkdir(exist_ok=True)
-
-        print(f"\nRunning pipeline on {test_audio_path}...")
-        start_time = time.time()
-
-        if test_audio_path.endswith(".npy"):
-            # For numpy files, create a minimal wav file
-            audio_data = np.load(test_audio_path)
-            import tempfile
+        if wav_path.suffix == ".npy":
+            audio_data = np.load(wav_path)
             import soundfile as sf
 
-            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
-                sf.write(f.name, audio_data, 16000)
-                test_audio_path = f.name
+            wav_path = VALIDATION_TMP_DIR / "test_audio_from_npy.wav"
+            sf.write(wav_path, audio_data, 16000)
 
-        result = pipeline.process_audio_file(test_audio_path, str(output_dir))
+        config_overrides = {
+            "registry_path": str(VALIDATION_TMP_DIR / "test_speaker_registry.json"),
+        }
+
+        print(f"\nRunning pipeline on {wav_path}...")
+        start_time = time.time()
+
+        result = run_pipeline_smoke_test(
+            config_overrides=config_overrides,
+            tmp_dir=VALIDATION_TMP_DIR,
+            output_dir=VALIDATION_OUTPUT_DIR,
+            waveform_factory=burst_audio_factory,
+            duration_seconds=5.0,
+            wav_path=wav_path,
+        )
+
+        if not result.success:
+            raise RuntimeError(result.error or "unknown diagnostics failure")
+
         elapsed = time.time() - start_time
+        run_info = result.run_result or {}
 
         print(f"✓ Pipeline completed in {elapsed:.2f}s")
-        print(f"  - Run ID: {result['run_id']}")
-        print(f"  - Output dir: {result['out_dir']}")
+        print(f"  - Run ID: {run_info.get('run_id', 'unknown')}")
+        print(f"  - Output dir: {run_info.get('out_dir', result.output_dir)}")
+
+        tx_info = run_info.get("transcriber", {})
+        if tx_info:
+            print(f"  - Backend: {tx_info.get('backend', 'unknown')}")
+            print(f"  - Device: {tx_info.get('device', 'unknown')}")
+            print(f"  - Model: {tx_info.get('model_size', 'unknown')}")
+            if tx_info.get("backend") == "fallback":
+                print("⚠ Pipeline using fallback transcriber")
 
         # Check outputs
-        csv_path = Path(result["outputs"]["csv"])
+        csv_path = Path(run_info.get("outputs", {}).get("csv", ""))
         if csv_path.exists():
             print(f"  - CSV output: {csv_path}")
             # Count lines
@@ -305,18 +284,11 @@ def run_comprehensive_validation():
 
 def cleanup_test_files():
     """Clean up test files"""
-    test_files = ["test_audio.wav", "test_audio.npy", "test_speaker_registry.json"]
-
-    for file in test_files:
-        try:
-            Path(file).unlink(missing_ok=True)
-        except Exception:
-            pass
-
     try:
         import shutil
 
-        shutil.rmtree("test_output", ignore_errors=True)
+        shutil.rmtree(VALIDATION_TMP_DIR, ignore_errors=True)
+        shutil.rmtree(VALIDATION_OUTPUT_DIR, ignore_errors=True)
     except Exception:
         pass
 
