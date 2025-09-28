@@ -6,6 +6,7 @@ import json
 from functools import lru_cache
 from importlib import import_module
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Dict, Optional
 
 import typer
@@ -16,9 +17,20 @@ app = typer.Typer(help="High level CLI wrapper for the DiaRemot audio pipeline."
 @lru_cache()
 def _core():
     try:
-        return import_module("diaremot.pipeline.audio_pipeline_core")
+        from .pipeline import orchestrator as _orch
+        from .pipeline import config as _config
     except ModuleNotFoundError:
-        return import_module("audio_pipeline_core")
+        try:
+            return import_module("diaremot.pipeline.audio_pipeline_core")
+        except ModuleNotFoundError:
+            return import_module("audio_pipeline_core")
+    else:
+        return SimpleNamespace(
+            build_pipeline_config=_config.build_pipeline_config,
+            diagnostics=_orch.diagnostics,
+            resume=_orch.resume,
+            run_pipeline=_orch.run_pipeline,
+        )
 
 
 def core_build_config(overrides: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
