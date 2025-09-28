@@ -31,13 +31,14 @@ pip install -e .
 export DIAREMOT_MODEL_DIR=/opt/models   # or ./models locally
 
 # run via CLI (preferred)
-python -m diaremot.cli run --input samples/ --out outputs/run1
+python -m diaremot.cli asr run --input samples/ --out outputs/run1
 # or, if scripts are installed:
-# diaremot run --input samples/ --out outputs/run1
+# diaremot asr run --input samples/ --out outputs/run1
+# Backward-compatible aliases for ``diaremot run``/``resume`` remain available.
 
 # diagnostics
-python -m diaremot.cli diagnostics
-# or: diaremot-diagnostics
+python -m diaremot.cli system diagnostics
+# or: diaremot system diagnostics / diaremot-diagnostics
 ```
 
 Entrypoints are provided by `src/diaremot/cli.py` and `[project.scripts]` in `pyproject.toml`.

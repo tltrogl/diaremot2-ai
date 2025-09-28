@@ -163,7 +163,7 @@ class StageGuard(AbstractContextManager["StageGuard"]):
 
         if exc:
             known_nonfatal = self._is_known_nonfatal(exc)
-            trace_hash = hashlib.blake2b(
+            trace_hash = hashlib.blake2s(
                 f"{self.stage}:{type(exc).__name__}".encode(), digest_size=8
             ).hexdigest()
             self.corelog.event(

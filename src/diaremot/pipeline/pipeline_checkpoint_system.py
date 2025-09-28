@@ -6,7 +6,6 @@ Handles incremental saves, resume functionality, and stage-based progress tracki
 
 import json
 import pickle
-import hashlib
 import threading
 from pathlib import Path
 from typing import Dict, Any, Optional, List, Tuple, Union
@@ -14,6 +13,8 @@ from datetime import datetime
 from dataclasses import dataclass, asdict
 from enum import Enum
 import logging
+
+from ..utils.hash import hash_file
 
 
 class ProcessingStage(Enum):
@@ -120,12 +121,8 @@ class PipelineCheckpointManager:
             if not file_path.exists():
                 return ""
 
-            hash_md5 = hashlib.md5()
-            with open(file_path, "rb") as f:
-                for chunk in iter(lambda: f.read(4096), b""):
-                    hash_md5.update(chunk)
-
-            normalized = self._normalize_hash_value(hash_md5.hexdigest())
+            digest = hash_file(file_path)
+            normalized = self._normalize_hash_value(digest)
             self._hash_cache[key] = normalized
             return normalized
 

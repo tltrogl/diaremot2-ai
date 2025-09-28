@@ -5,15 +5,20 @@ from typing import Iterator, Tuple
 import pytest
 
 from diaremot.pipeline import config as config_mod
-from diaremot.pipeline.config import build_pipeline_config
+from diaremot.pipeline.config import PipelineConfig, build_pipeline_config
 
 
-def test_build_pipeline_config_merges_and_skips_none() -> None:
-    overrides = {"beam_size": 4, "speaker_limit": None, "unknown": None}
+def test_build_pipeline_config_merges_and_validates() -> None:
+    overrides = {"beam_size": 4, "speaker_limit": None}
     merged = build_pipeline_config(overrides)
     assert merged["beam_size"] == 4
-    assert "speaker_limit" in merged  # existing keys preserved even when None
-    assert "unknown" not in merged
+    assert merged["speaker_limit"] is None
+
+    with pytest.raises(ValueError):
+        build_pipeline_config({"unknown": 1})
+
+    cfg = PipelineConfig(beam_size=2)
+    assert build_pipeline_config(cfg)["beam_size"] == 2
 
 
 def test_dependency_summary_handles_import_errors(monkeypatch: pytest.MonkeyPatch) -> None:
