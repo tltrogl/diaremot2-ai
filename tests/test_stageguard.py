@@ -98,7 +98,9 @@ def _install_audio_pipeline_stubs() -> None:
         module = types.ModuleType("diaremot.affect.emotion_analyzer")
 
         class _EmotionIntentAnalyzer:
-            pass
+            def __init__(self, *args, **kwargs):
+                self.init_args = args
+                self.init_kwargs = kwargs
 
         module.EmotionIntentAnalyzer = _EmotionIntentAnalyzer
         return module
@@ -136,9 +138,15 @@ def _install_audio_pipeline_stubs() -> None:
         module = types.ModuleType("diaremot.affect.sed_panns")
 
         class _SEDConfig:
-            pass
+            def __init__(self, *args, **kwargs):
+                self.args = args
+                self.kwargs = kwargs
 
         class _PANNSEventTagger:
+            def __init__(self, *args, **kwargs):
+                self.args = args
+                self.kwargs = kwargs
+
             def tag(self, *args, **kwargs):
                 return {}
 
@@ -170,9 +178,13 @@ def _install_audio_pipeline_stubs() -> None:
         module = types.ModuleType("diaremot.pipeline.audio_preprocessing")
 
         class _PreprocessConfig:
-            pass
+            def __init__(self, **kwargs):
+                self.__dict__.update(kwargs)
 
         class _AudioPreprocessor:
+            def __init__(self, config):
+                self.config = config
+
             def process_file(self, *args, **kwargs):
                 return ([], 16000, None)
 
@@ -191,6 +203,9 @@ def _install_audio_pipeline_stubs() -> None:
                     setattr(self, key, value)
 
         class _AudioTranscriber:
+            def __init__(self, **kwargs):
+                self.init_kwargs = kwargs
+
             def transcribe_segments(self, *args, **kwargs):
                 return []
 
@@ -212,7 +227,8 @@ def _install_audio_pipeline_stubs() -> None:
 
         class _PipelineCheckpointManager:
             def __init__(self, *args, **kwargs):
-                pass
+                self.args = args
+                self.kwargs = kwargs
 
             def create_checkpoint(self, *args, **kwargs):
                 return None
@@ -227,11 +243,48 @@ def _install_audio_pipeline_stubs() -> None:
         module = types.ModuleType("diaremot.pipeline.speaker_diarization")
 
         class _DiarizationConfig:
-            speaker_limit = 2
+            ahc_distance_threshold = 0.02
+            vad_threshold = 0.3
+            vad_min_speech_sec = 0.8
+            vad_min_silence_sec = 0.8
+            speech_pad_sec = 0.2
+            energy_gate_db = -33.0
+            energy_hop_sec = 0.01
+
+            def __init__(
+                self,
+                target_sr,
+                registry_path,
+                ahc_distance_threshold,
+                speaker_limit,
+                ecapa_model_path,
+                vad_backend,
+                vad_threshold,
+                vad_min_speech_sec,
+                vad_min_silence_sec,
+                speech_pad_sec,
+                allow_energy_vad_fallback,
+                energy_gate_db,
+                energy_hop_sec,
+            ):
+                self.target_sr = target_sr
+                self.registry_path = registry_path
+                self.ahc_distance_threshold = ahc_distance_threshold
+                self.speaker_limit = speaker_limit
+                self.ecapa_model_path = ecapa_model_path
+                self.vad_backend = vad_backend
+                self.vad_threshold = vad_threshold
+                self.vad_min_speech_sec = vad_min_speech_sec
+                self.vad_min_silence_sec = vad_min_silence_sec
+                self.speech_pad_sec = speech_pad_sec
+                self.allow_energy_vad_fallback = allow_energy_vad_fallback
+                self.energy_gate_db = energy_gate_db
+                self.energy_hop_sec = energy_hop_sec
 
         class _SpeakerDiarizer:
             def __init__(self, *args, **kwargs):
-                pass
+                self.args = args
+                self.kwargs = kwargs
 
         class _SpeakerRegistry:
             def __init__(self, *args, **kwargs):
@@ -244,6 +297,24 @@ def _install_audio_pipeline_stubs() -> None:
         return module
 
     _register_stub("diaremot.pipeline.speaker_diarization", _diarizer_builder)
+
+    def _cpu_diar_builder():
+        module = types.ModuleType("diaremot.pipeline.cpu_optimized_diarizer")
+
+        class _CPUOptimizationConfig:
+            def __init__(self, max_speakers=None):
+                self.max_speakers = max_speakers
+
+        class _CPUOptimizedSpeakerDiarizer:
+            def __init__(self, base_diarizer, config):
+                self.base = base_diarizer
+                self.config = config
+
+        module.CPUOptimizationConfig = _CPUOptimizationConfig
+        module.CPUOptimizedSpeakerDiarizer = _CPUOptimizedSpeakerDiarizer
+        return module
+
+    _register_stub("diaremot.pipeline.cpu_optimized_diarizer", _cpu_diar_builder)
 
 
 _install_audio_pipeline_stubs()
@@ -420,3 +491,30 @@ def test_process_audio_file_handles_missing_paraling(tmp_path, monkeypatch):
     assert segment["emotion_top"] == "neutral"
     assert segment["wpm"] == 0.0
     assert segment["pause_count"] == 0
+
+
+def test_cpu_diarizer_uses_optimized_wrapper(tmp_path, monkeypatch):
+    cpu_module = importlib.import_module("diaremot.pipeline.cpu_optimized_diarizer")
+    diar_module = importlib.import_module("diaremot.pipeline.speaker_diarization")
+    core_module = importlib.import_module("diaremot.pipeline.audio_pipeline_core")
+
+    class _TrackingSpeakerDiarizer:
+        def __init__(self, config):
+            self.config = config
+
+    monkeypatch.setattr(diar_module, "SpeakerDiarizer", _TrackingSpeakerDiarizer)
+    monkeypatch.setattr(core_module, "SpeakerDiarizer", _TrackingSpeakerDiarizer)
+
+    pipeline = AudioAnalysisPipelineV2(
+        config={
+            "log_dir": str(tmp_path / "logs"),
+            "checkpoint_dir": str(tmp_path / "chk"),
+            "cache_root": tmp_path / "cache",
+            "cpu_diarizer": True,
+            "speaker_limit": 3,
+        }
+    )
+
+    assert isinstance(pipeline.diar, cpu_module.CPUOptimizedSpeakerDiarizer)
+    assert isinstance(pipeline.diar.base, _TrackingSpeakerDiarizer)
+    assert pipeline.diar.config.max_speakers == 3

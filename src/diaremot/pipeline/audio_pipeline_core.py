@@ -869,7 +869,7 @@ class AudioAnalysisPipelineV2:
             self.diar = SpeakerDiarizer(self.diar_conf)
             if bool(cfg.get("cpu_diarizer", False)):
                 try:
-                    from cpu_optimized_diarizer import (
+                    from .cpu_optimized_diarizer import (
                         CPUOptimizationConfig,
                         CPUOptimizedSpeakerDiarizer,
                     )
