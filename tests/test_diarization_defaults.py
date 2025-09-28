@@ -1,7 +1,12 @@
 from pathlib import Path
 
-import numpy as np
-from scipy.io import wavfile
+import pytest
+
+np = pytest.importorskip("numpy")
+if getattr(np, "__stub__", False):
+    pytest.skip("numpy not available", allow_module_level=True)
+
+wavfile = pytest.importorskip("scipy.io").wavfile
 
 from diaremot.pipeline import speaker_diarization as sd
 

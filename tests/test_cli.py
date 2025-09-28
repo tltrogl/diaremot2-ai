@@ -3,7 +3,8 @@ import sys
 from pathlib import Path
 
 import pytest
-import typer
+
+typer = pytest.importorskip("typer")
 from typer.testing import CliRunner
 
 # Ensure the src layout is importable when running tests directly from the repo root.
