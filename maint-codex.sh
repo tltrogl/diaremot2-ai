@@ -73,6 +73,12 @@ for mod in ("diaremot", "diaremot.cli"):
 
 print("[maint] Running diagnostics --strict")
 from diaremot.cli import core_diagnostics
-print(json.dumps(core_diagnostics(require_versions=True), indent=2))
+result = core_diagnostics(require_versions=True)
+print(json.dumps(result, indent=2))
+
+if not result.get("ok", True):
+    print("[maint] diagnostics FAILED", file=sys.stderr)
+    sys.exit(4)
+
 print("[maint] OK")
 PY
