@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 import hashlib
@@ -6,8 +5,10 @@ import json
 import logging
 import subprocess
 import time
+from contextlib import AbstractContextManager
 from dataclasses import dataclass, field
 from pathlib import Path
+from types import TracebackType
 from typing import Any
 
 class JSONLWriter:
@@ -83,6 +84,41 @@ class CoreLogger:
         self.log.error(message)
 
 
+def _fmt_hms(seconds: float) -> str:
+    """Return a human readable H:MM:SS style string for ``seconds``."""
+
+    safe_seconds = max(0.0, float(seconds))
+    total_seconds = int(safe_seconds)
+    hours, remainder = divmod(total_seconds, 3600)
+    minutes, secs = divmod(remainder, 60)
+
+    if hours:
+        return f"{hours:d}:{minutes:02d}:{secs:02d}"
+    return f"{minutes:02d}:{secs:02d}"
+
+
+def _fmt_hms_ms(milliseconds: float) -> str:
+    """Return a human readable string with millisecond precision."""
+
+    safe_ms = max(0.0, float(milliseconds))
+    seconds = safe_ms / 1000.0
+    base_seconds = int(seconds)
+    fractional_ms = int(round((seconds - base_seconds) * 1000))
+
+    if fractional_ms == 1000:
+        base_seconds += 1
+        fractional_ms = 0
+
+    hours, remainder = divmod(base_seconds, 3600)
+    minutes, secs = divmod(remainder, 60)
+
+    if hours:
+        return f"{hours:d}:{minutes:02d}:{secs:02d}.{fractional_ms:03d}"
+    if minutes:
+        return f"{minutes:02d}:{secs:02d}.{fractional_ms:03d}"
+    return f"00:{secs:02d}.{fractional_ms:03d}"
+
+
 class StageGuard(AbstractContextManager["StageGuard"]):
 
     _OPTIONAL_STAGE_EXCEPTION_MAP = {
@@ -121,13 +157,16 @@ class StageGuard(AbstractContextManager["StageGuard"]):
 
 
     def __init__(self, corelog: CoreLogger, stats: RunStats, stage: str):
-
         self.corelog = corelog
         self.stats = stats
         self.stage = stage
         self.start: float | None = None
-        self.corelog.info(f"[{self.stage}] start")
 
+    def __enter__(self) -> "StageGuard":
+        if self.start is None:
+            self.start = time.time()
+        self.corelog.info(f"[{self.stage}] start")
+        self.corelog.event(self.stage, "start")
         return self
 
     def done(self, **counts: int) -> None:
@@ -141,7 +180,12 @@ class StageGuard(AbstractContextManager["StageGuard"]):
         optional = self._OPTIONAL_STAGE_EXCEPTION_MAP.get(self.stage, ())
         return isinstance(exc, optional)
 
-    def __exit__(self, exc_type, exc, tb):  # type: ignore[override]
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> bool | None:
         if self.start is None:
             self.start = time.time()
         elapsed_ms = max(0.0, (time.time() - self.start) * 1000.0)
