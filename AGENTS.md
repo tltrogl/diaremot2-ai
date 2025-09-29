@@ -1,28 +1,36 @@
-# AGENTS.md — Build / Run / Test (Codex)
+# DiaRemot repository guidelines
 
-## Setup
-- **Setup script**: `./setup.sh`  (cold container)
-- **Maintenance**: `./maintenance.sh` (warm cache)
-- **Python**: 3.11 (repo supports 3.9–3.11 per pins)
+## Mission profile
+DiaRemot delivers a CPU-only speech intelligence pipeline that ingests long-form audio and emits
+diarised transcripts, affect overlays, sound-event tags, conversation metrics, and HTML/PDF
+briefings. All code and docs in this repository should assume **no GPU availability** and a
+containerised Linux host with internet access for documentation lookups and deterministic artifact
+downloads.
 
-## Run — choose ONE and delete the rest
-```bash
-# Preferred: CLI
-python -m diaremot.cli run --input "samples/" --out "outputs/run1"
+## Tooling & environment
+- Target CPython 3.11 (3.10 remains supported). Keep `requirements.txt` and `pyproject.toml`
+in lock-step with the modules imported under `src/diaremot`.
+- The pinned wheels target x86_64 CPUs with AVX2; do not introduce GPU-only dependencies.
+- Ensure `ffmpeg` is available on `PATH`. Optional helpers such as PyAV improve duration probing but
+the pipeline must continue working without them.
+- Models live under `$DIAREMOT_MODEL_DIR` (defaults to `/opt/models`). The layout is documented in
+the README and mirrored in `setup.sh`/`maintenance.sh`.
+- Local caches default to `./.cache` to keep Hugging Face, Torch, and tokenizer data inside the
+repository. Respect this when adding new modules.
 
-# If console scripts are installed:
-# diaremot run --input "samples/" --out "outputs/run1"
+## Workflows
+- `./setup.sh` performs the canonical bootstrap: venv creation, dependency install, editable
+package installation, model staging, cache normalisation, and CLI diagnostics. Keep the script and
+the README perfectly aligned.
+- `./maintenance.sh` and `./maint-codex.sh` are the lightweight health checks for warm containers;
+they validate model assets and run the Typer system diagnostics in strict mode.
+- Preferred entry points are Typer commands exposed through `python -m diaremot.cli` or the
+installed `diaremot` console script. Document new behaviour via these interfaces instead of ad-hoc
+scripts.
 
-# Alternate (legacy module entry if you call it directly):
-# python -m diaremot.pipeline.run_pipeline --input "samples/" --out "outputs/run1"
-```
-Diagnostics:
-```bash
-python -m diaremot.cli diagnostics
-# or: diaremot-diagnostics
-```
-
-## Expectations
-- Models present under `$DIAREMOT_MODEL_DIR` (default `/opt/models`) per README.
-- Agent has **no internet**; all fetching is done in `setup.sh`.
-- On failure, exit non‑zero.
+## Testing & QA
+- Run `pytest -q` before shipping changes. Add focused tests under `tests/` for new behaviour.
+- Execute `python -m diaremot.cli system diagnostics --strict` to validate dependency health and
+model presence.
+- Keep documentation (README, AGENTS, setup/maintenance scripts, requirements, pyproject) in sync
+with functional changes. Documentation drift is considered a regression.

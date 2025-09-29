@@ -1,4 +1,3 @@
-"""Shared logging utilities for the audio pipeline."""
 
 from __future__ import annotations
 
@@ -11,22 +10,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-
-def format_duration(seconds: float) -> str:
-    seconds = max(0, float(seconds))
-    minutes, secs = divmod(int(round(seconds)), 60)
-    hours, minutes = divmod(minutes, 60)
-    return f"{hours:02d}:{minutes:02d}:{secs:02d}" if hours else f"{minutes:02d}:{secs:02d}"
-
-
-def format_duration_ms(ms: float) -> str:
-    total_ms = int(round(max(0.0, float(ms))))
-    seconds, ms = divmod(total_ms, 1000)
-    minutes, seconds = divmod(seconds, 60)
-    hours, minutes = divmod(minutes, 60)
-    return f"{hours:02d}:{minutes:02d}:{seconds:02d}.{ms:03d}" if hours else f"{minutes:02d}:{seconds:02d}.{ms:03d}"
-
-
 class JSONLWriter:
     def __init__(self, path: Path):
         self.path = Path(path)
@@ -38,9 +21,11 @@ class JSONLWriter:
         try:
             with self.path.open("a", encoding="utf-8") as f:
                 f.write(json.dumps(record, ensure_ascii=False) + "\n")
-        except PermissionError as exc:  # pragma: no cover - best effort logging
+
+        except PermissionError as exc:
             print(f"Warning: Could not write to log file {self.path}: {exc}")
-        except Exception as exc:  # pragma: no cover - best effort logging
+        except Exception as exc:  # pragma: no cover - defensive
+
             print(f"Warning: Error writing to log file {self.path}: {exc}")
 
 
@@ -64,24 +49,19 @@ class RunStats:
             for key, value in counts.items():
                 slot[key] = slot.get(key, 0) + int(value)
 
-
-class PipelineLogger:
-    """Structured logger that enriches messages with run context."""
-
+class CoreLogger:
     def __init__(self, run_id: str, jsonl_path: Path, console_level: int = logging.INFO):
         self.run_id = run_id
         self.jsonl = JSONLWriter(jsonl_path)
-        base_logger = logging.getLogger(f"pipeline.{run_id}")
-        base_logger.setLevel(console_level)
-        if not base_logger.handlers:
+        self.log = logging.getLogger(f"pipeline.{run_id}")
+        self.log.setLevel(console_level)
+        if not self.log.handlers:
             handler = logging.StreamHandler()
             handler.setLevel(console_level)
-            formatter = logging.Formatter(
-                "[%(asctime)s] [%(levelname)s] [run:%(run_id)s] %(message)s", datefmt="%H:%M"
-            )
-            handler.setFormatter(formatter)
-            base_logger.addHandler(handler)
-        self._adapter = logging.LoggerAdapter(base_logger, extra={"run_id": run_id})
+            fmt = logging.Formatter("[%(asctime)s] [%(levelname)s] %(message)s", datefmt="%H:%M")
+            handler.setFormatter(fmt)
+            self.log.addHandler(handler)
+
 
     def event(self, stage: str, event: str, **fields: Any) -> None:
         record = {
@@ -93,22 +73,18 @@ class PipelineLogger:
         record.update(fields)
         self.jsonl.emit(record)
 
-    def bind(self, **extra: Any) -> logging.LoggerAdapter:
-        context = dict(self._adapter.extra)
-        context.update(extra)
-        return logging.LoggerAdapter(self._adapter.logger, context)
+    def info(self, message: str) -> None:
+        self.log.info(message)
 
-    def info(self, msg: str, **kwargs: Any) -> None:
-        self._adapter.info(msg, **kwargs)
+    def warn(self, message: str) -> None:
+        self.log.warning(message)
 
-    def warn(self, msg: str, **kwargs: Any) -> None:
-        self._adapter.warning(msg, **kwargs)
-
-    def error(self, msg: str, **kwargs: Any) -> None:
-        self._adapter.error(msg, **kwargs)
+    def error(self, message: str) -> None:
+        self.log.error(message)
 
 
-class StageGuard:
+class StageGuard(AbstractContextManager["StageGuard"]):
+
     _OPTIONAL_STAGE_EXCEPTION_MAP = {
         "background_sed": (
             ImportError,
@@ -143,21 +119,15 @@ class StageGuard:
     _CRITICAL_STAGES = {"preprocess", "outputs"}
     _TIMEOUT_STAGES = {"diarize", "transcribe"}
 
-    def __init__(self, corelog: PipelineLogger, stats: RunStats, stage: str):
+
+    def __init__(self, corelog: CoreLogger, stats: RunStats, stage: str):
+
         self.corelog = corelog
         self.stats = stats
         self.stage = stage
         self.start: float | None = None
-        context = {"stage": stage}
-        file_id = getattr(stats, "file_id", None)
-        if file_id:
-            context["file_id"] = file_id
-        self._logger = corelog.bind(**context)
+        self.corelog.info(f"[{self.stage}] start")
 
-    def __enter__(self) -> "StageGuard":
-        self.start = time.time()
-        self.corelog.event(self.stage, "start")
-        self._logger.info("[%s] start", self.stage)
         return self
 
     def done(self, **counts: int) -> None:
@@ -167,17 +137,19 @@ class StageGuard:
     def _is_known_nonfatal(self, exc: BaseException) -> bool:
         if isinstance(exc, TimeoutError | subprocess.TimeoutExpired) and (self.stage in self._TIMEOUT_STAGES):
             return True
-        allowed = self._OPTIONAL_STAGE_EXCEPTION_MAP.get(self.stage, tuple())
-        return any(isinstance(exc, exc_cls) for exc_cls in allowed)
 
-    def __exit__(self, exc_type, exc, tb) -> bool:
-        elapsed_ms = (time.time() - self.start) * 1000.0 if self.start else 0.0
+        optional = self._OPTIONAL_STAGE_EXCEPTION_MAP.get(self.stage, ())
+        return isinstance(exc, optional)
+
+    def __exit__(self, exc_type, exc, tb):  # type: ignore[override]
+        if self.start is None:
+            self.start = time.time()
+        elapsed_ms = max(0.0, (time.time() - self.start) * 1000.0)
+
         if exc:
-            if isinstance(exc, KeyboardInterrupt):
-                self.corelog.error("[interrupt] KeyboardInterrupt received; aborting")
-                return False
             known_nonfatal = self._is_known_nonfatal(exc)
-            trace_hash = hashlib.blake2b(
+            trace_hash = hashlib.blake2s(
+
                 f"{self.stage}:{type(exc).__name__}".encode(), digest_size=8
             ).hexdigest()
             self.corelog.event(
@@ -188,15 +160,12 @@ class StageGuard:
                 trace_hash=trace_hash,
                 handled=known_nonfatal,
             )
-            duration_text = format_duration_ms(elapsed_ms)
-            log_fn = self._logger.warning if known_nonfatal else self._logger.error
+
+            dur_txt = _fmt_hms_ms(elapsed_ms)
+            log_fn = self.corelog.warn if known_nonfatal else self.corelog.error
             log_fn(
-                "[%s] %s%s: %s (%s)",
-                self.stage,
-                "handled " if known_nonfatal else "",
-                type(exc).__name__,
-                exc,
-                duration_text,
+                f"[{self.stage}] {'handled ' if known_nonfatal else ''}" f"{type(exc).__name__}: {exc} ({dur_txt})"
+
             )
             self.stats.mark(self.stage, elapsed_ms)
             try:
@@ -208,9 +177,9 @@ class StageGuard:
                     text = str(err).lower()
                     if stage == "preprocess":
                         if "libsndfile" in text or "soundfile" in text:
-                            return (
-                                "Install libsndfile: apt-get install libsndfile1 (Linux) or brew install libsndfile (macOS)."
-                            )
+
+                            return "Install libsndfile: apt-get install libsndfile1 (Linux) or brew install libsndfile (macOS)."
+
                         if "ffmpeg" in text or "audioread" in text:
                             return "Install ffmpeg and ensure it is on PATH."
                         if "file not found" in text or "no such file" in text:
@@ -254,23 +223,23 @@ class StageGuard:
                     self.stats.config_snapshot["preprocess_failed"] = True
                 if self.stage == "transcribe":
                     self.stats.config_snapshot["transcribe_failed"] = True
-            except Exception:  # pragma: no cover - defensive logging
+
+            except Exception:  # pragma: no cover - stats updates are best effort
                 pass
             swallow = known_nonfatal and self.stage not in self._CRITICAL_STAGES
             return swallow
-        self.corelog.event(self.stage, "stop", elapsed_ms=elapsed_ms)
-        duration_text = format_duration_ms(elapsed_ms)
-        self._logger.info("[%s] ok in %s", self.stage, duration_text)
-        self.stats.mark(self.stage, elapsed_ms)
-        return False
-
+        else:
+            self.corelog.event(self.stage, "stop", elapsed_ms=elapsed_ms)
+            dur_txt = _fmt_hms_ms(elapsed_ms)
+            self.corelog.info(f"[{self.stage}] ok in {dur_txt}")
+            self.stats.mark(self.stage, elapsed_ms)
+            return False
 
 __all__ = [
-    "JSONLWriter",
-    "PipelineLogger",
-    "RunStats",
-    "StageGuard",
-    "format_duration",
-    "format_duration_ms",
-]
 
+    "RunStats",
+    "CoreLogger",
+    "StageGuard",
+    "_fmt_hms",
+    "_fmt_hms_ms",
+]

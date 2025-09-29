@@ -5,7 +5,11 @@ import types
 import unittest
 from pathlib import Path
 
-import numpy as np
+import pytest
+
+np = pytest.importorskip("numpy")
+if getattr(np, "__stub__", False):
+    pytest.skip("numpy not available", allow_module_level=True)
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 SRC_ROOT = PROJECT_ROOT / "src"

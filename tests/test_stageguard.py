@@ -6,8 +6,11 @@ import sys
 import types
 import uuid
 
-import numpy as np
 import pytest
+
+np = pytest.importorskip("numpy")
+if getattr(np, "__stub__", False):
+    pytest.skip("numpy not available", allow_module_level=True)
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -319,13 +322,9 @@ def _install_audio_pipeline_stubs() -> None:
 
 _install_audio_pipeline_stubs()
 
-from diaremot.pipeline.audio_pipeline_core import (
-    AudioAnalysisPipelineV2,
-    CoreLogger,
-    RunStats,
-    StageGuard,
-    default_affect,
-)
+from diaremot.pipeline.logging_utils import CoreLogger, RunStats, StageGuard
+from diaremot.pipeline.orchestrator import AudioAnalysisPipelineV2
+from diaremot.pipeline.outputs import default_affect
 
 
 def _make_guard(tmp_path, stage: str):

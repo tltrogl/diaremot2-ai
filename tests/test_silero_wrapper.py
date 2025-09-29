@@ -3,7 +3,11 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-import numpy as np
+import pytest
+
+np = pytest.importorskip("numpy")
+if getattr(np, "__stub__", False):
+    pytest.skip("numpy not available", allow_module_level=True)
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
