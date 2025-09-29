@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field as dataclass_field, fields as dataclass_fields
 from importlib import metadata as importlib_metadata
 from pathlib import Path
-from typing import Any, Iterator
-
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
+from typing import Any, Iterable, Iterator, Mapping
 
 try:  # pragma: no cover - packaging optional during tests
     from packaging.version import Version
@@ -16,106 +15,175 @@ except Exception:  # pragma: no cover - defensive fallback
 from .speaker_diarization import DiarizationConfig
 
 
-class PipelineConfig(BaseModel):
+def _ensure_numeric_range(
+    name: str,
+    value: float,
+    *,
+    ge: float | None = None,
+    gt: float | None = None,
+    le: float | None = None,
+    lt: float | None = None,
+) -> None:
+    """Validate numeric range constraints for configuration fields."""
+
+    if ge is not None and value < ge:
+        raise ValueError(f"{name} must be >= {ge}")
+    if gt is not None and value <= gt:
+        raise ValueError(f"{name} must be > {gt}")
+    if le is not None and value > le:
+        raise ValueError(f"{name} must be <= {le}")
+    if lt is not None and value >= lt:
+        raise ValueError(f"{name} must be < {lt}")
+
+
+def _coerce_optional_path(value: Path | str | None) -> Path | None:
+    if value is None:
+        return None
+    return Path(value)
+
+
+@dataclass(slots=True)
+class PipelineConfig:
     """Validated configuration for the end-to-end pipeline."""
 
-    model_config = ConfigDict(extra="forbid", validate_assignment=True)
-
-    registry_path: Path = Field(default=Path("speaker_registry.json"))
-    ahc_distance_threshold: float = Field(default=DiarizationConfig.ahc_distance_threshold, ge=0.0)
-    speaker_limit: int | None = Field(default=None, ge=1)
-    whisper_model: str = Field(default="faster-whisper-tiny.en")
-    asr_backend: str = Field(default="faster")
-    compute_type: str = Field(default="float32")
-    cpu_threads: int = Field(default=1, ge=1)
+    registry_path: Path = Path("speaker_registry.json")
+    ahc_distance_threshold: float = DiarizationConfig.ahc_distance_threshold
+    speaker_limit: int | None = None
+    whisper_model: str = "faster-whisper-tiny.en"
+    asr_backend: str = "faster"
+    compute_type: str = "float32"
+    cpu_threads: int = 1
     language: str | None = None
-    language_mode: str = Field(default="auto")
+    language_mode: str = "auto"
     ignore_tx_cache: bool = False
     quiet: bool = False
     disable_affect: bool = False
-    affect_backend: str = Field(default="onnx")
+    affect_backend: str = "onnx"
     affect_text_model_dir: Path | None = None
     affect_intent_model_dir: Path | None = None
-    beam_size: int = Field(default=1, ge=1)
-    temperature: float = Field(default=0.0, ge=0.0, le=1.0)
-    no_speech_threshold: float = Field(default=0.50, ge=0.0, le=1.0)
+    beam_size: int = 1
+    temperature: float = 0.0
+    no_speech_threshold: float = 0.50
     noise_reduction: bool = False
     enable_sed: bool = True
     auto_chunk_enabled: bool = True
-    chunk_threshold_minutes: float = Field(default=30.0, gt=0.0)
-    chunk_size_minutes: float = Field(default=20.0, gt=0.0)
-    chunk_overlap_seconds: float = Field(default=30.0, ge=0.0)
-    vad_threshold: float = Field(default=0.30, ge=0.0, le=1.0)
-    vad_min_speech_sec: float = Field(default=0.8, ge=0.0)
-    vad_min_silence_sec: float = Field(default=0.8, ge=0.0)
-    vad_speech_pad_sec: float = Field(default=0.2, ge=0.0)
-    vad_backend: str = Field(default="auto")
+    chunk_threshold_minutes: float = 30.0
+    chunk_size_minutes: float = 20.0
+    chunk_overlap_seconds: float = 30.0
+    vad_threshold: float = 0.30
+    vad_min_speech_sec: float = 0.8
+    vad_min_silence_sec: float = 0.8
+    vad_speech_pad_sec: float = 0.2
+    vad_backend: str = "auto"
     disable_energy_vad_fallback: bool = False
-    energy_gate_db: float = Field(default=-33.0)
-    energy_hop_sec: float = Field(default=0.01, gt=0.0)
-    max_asr_window_sec: int = Field(default=480, gt=0)
-    segment_timeout_sec: float = Field(default=300.0, gt=0.0)
-    batch_timeout_sec: float = Field(default=1200.0, gt=0.0)
+    energy_gate_db: float = -33.0
+    energy_hop_sec: float = 0.01
+    max_asr_window_sec: int = 480
+    segment_timeout_sec: float = 300.0
+    batch_timeout_sec: float = 1200.0
     cpu_diarizer: bool = False
     validate_dependencies: bool = False
     strict_dependency_versions: bool = False
-    cache_root: Path = Field(default=Path(".cache"))
-    cache_roots: list[Path] = Field(default_factory=list)
-    log_dir: Path = Field(default=Path("logs"))
-    checkpoint_dir: Path = Field(default=Path("checkpoints"))
-    target_sr: int = Field(default=16000, gt=0)
-    loudness_mode: str = Field(default="asr")
+    cache_root: Path = Path(".cache")
+    cache_roots: list[Path] = dataclass_field(default_factory=list)
+    log_dir: Path = Path("logs")
+    checkpoint_dir: Path = Path("checkpoints")
+    target_sr: int = 16000
+    loudness_mode: str = "asr"
     run_id: str | None = None
     text_emotion_model: str | None = None
     intent_labels: list[str] | None = None
 
-    @field_validator("affect_backend", "asr_backend", "vad_backend", mode="before")
-    @classmethod
-    def _lower_str(cls, value: Any) -> Any:
-        if isinstance(value, str):
-            return value.lower()
-        return value
+    def __post_init__(self) -> None:  # noqa: D401 - dataclass validation helper
+        """Validate and normalise configuration fields."""
 
-    @field_validator("affect_backend")
-    @classmethod
-    def _validate_affect_backend(cls, value: str) -> str:
-        allowed = {"auto", "onnx", "torch"}
-        if value not in allowed:
-            raise ValueError(f"affect_backend must be one of {sorted(allowed)}")
-        return value
+        self.registry_path = Path(self.registry_path)
+        self.cache_root = Path(self.cache_root)
+        self.log_dir = Path(self.log_dir)
+        self.checkpoint_dir = Path(self.checkpoint_dir)
+        self.affect_text_model_dir = _coerce_optional_path(self.affect_text_model_dir)
+        self.affect_intent_model_dir = _coerce_optional_path(self.affect_intent_model_dir)
 
-    @field_validator("vad_backend")
-    @classmethod
-    def _validate_vad_backend(cls, value: str) -> str:
-        allowed = {"auto", "onnx", "torch"}
-        if value not in allowed:
-            raise ValueError(f"vad_backend must be one of {sorted(allowed)}")
-        return value
+        if isinstance(self.cache_roots, (str, Path)):
+            self.cache_roots = [Path(self.cache_roots)]
+        else:
+            self.cache_roots = [Path(path) for path in (self.cache_roots or [])]
 
-    @field_validator("loudness_mode")
-    @classmethod
-    def _validate_loudness_mode(cls, value: str) -> str:
-        allowed = {"asr", "broadcast"}
-        if value not in allowed:
-            raise ValueError(f"loudness_mode must be one of {sorted(allowed)}")
-        return value
+        if self.intent_labels is not None:
+            if not isinstance(self.intent_labels, Iterable) or isinstance(self.intent_labels, (str, bytes)):
+                raise ValueError("intent_labels must be an iterable of strings")
+            self.intent_labels = [str(label) for label in self.intent_labels]
 
-    @field_validator("cache_roots", mode="before")
-    @classmethod
-    def _coerce_cache_roots(cls, value: Any) -> Any:
-        if value is None:
-            return []
-        if isinstance(value, (str, Path)):
-            return [value]
-        return value
+        self.affect_backend = self._lower_choice("affect_backend", self.affect_backend, {"auto", "onnx", "torch"})
+        self.asr_backend = self._lower_choice("asr_backend", self.asr_backend, None)
+        self.vad_backend = self._lower_choice("vad_backend", self.vad_backend, {"auto", "onnx", "torch"})
+        self.loudness_mode = self._lower_choice("loudness_mode", self.loudness_mode, {"asr", "broadcast"})
+        self.language_mode = self._lower_choice("language_mode", self.language_mode, None)
 
-    @model_validator(mode="after")
-    def _validate_chunking(self) -> "PipelineConfig":
+        if self.speaker_limit is not None and self.speaker_limit < 1:
+            raise ValueError("speaker_limit must be >= 1 or None")
+
+        self._validate_positive_int("cpu_threads", self.cpu_threads)
+        self._validate_positive_int("beam_size", self.beam_size)
+        self._validate_positive_int("max_asr_window_sec", self.max_asr_window_sec)
+        self._validate_positive_float("chunk_threshold_minutes", self.chunk_threshold_minutes)
+        self._validate_positive_float("chunk_size_minutes", self.chunk_size_minutes)
+        _ensure_numeric_range("chunk_overlap_seconds", self.chunk_overlap_seconds, ge=0.0)
+        _ensure_numeric_range("vad_threshold", self.vad_threshold, ge=0.0, le=1.0)
+        _ensure_numeric_range("temperature", self.temperature, ge=0.0, le=1.0)
+        _ensure_numeric_range("no_speech_threshold", self.no_speech_threshold, ge=0.0, le=1.0)
+        _ensure_numeric_range("vad_min_speech_sec", self.vad_min_speech_sec, ge=0.0)
+        _ensure_numeric_range("vad_min_silence_sec", self.vad_min_silence_sec, ge=0.0)
+        _ensure_numeric_range("vad_speech_pad_sec", self.vad_speech_pad_sec, ge=0.0)
+        _ensure_numeric_range("energy_hop_sec", self.energy_hop_sec, gt=0.0)
+        _ensure_numeric_range("segment_timeout_sec", self.segment_timeout_sec, gt=0.0)
+        _ensure_numeric_range("batch_timeout_sec", self.batch_timeout_sec, gt=0.0)
+        self._validate_positive_int("target_sr", self.target_sr)
+        _ensure_numeric_range("ahc_distance_threshold", self.ahc_distance_threshold, ge=0.0)
+
         if self.chunk_size_minutes * 60.0 <= self.chunk_overlap_seconds:
             raise ValueError("chunk_overlap_seconds must be smaller than chunk_size_minutes * 60")
         if self.chunk_threshold_minutes < self.chunk_size_minutes:
             raise ValueError("chunk_threshold_minutes must be >= chunk_size_minutes")
-        return self
+
+    @staticmethod
+    def _lower_choice(name: str, value: Any, allowed: set[str] | None) -> str:
+        if not isinstance(value, str):
+            raise ValueError(f"{name} must be a string")
+        lowered = value.lower()
+        if allowed is not None and lowered not in allowed:
+            raise ValueError(f"{name} must be one of {sorted(allowed)}")
+        return lowered
+
+    @staticmethod
+    def _validate_positive_int(name: str, value: int) -> None:
+        if not isinstance(value, int) or value <= 0:
+            raise ValueError(f"{name} must be an integer > 0")
+
+    @staticmethod
+    def _validate_positive_float(name: str, value: float) -> None:
+        if not isinstance(value, (int, float)) or value <= 0:
+            raise ValueError(f"{name} must be a number > 0")
+
+    def model_dump(self, *, mode: str = "python") -> dict[str, Any]:  # noqa: D401 - compatibility shim
+        """Return the configuration as a dictionary."""
+
+        if mode not in {"python", "json"}:  # pragma: no cover - defensive guard
+            raise ValueError("mode must be 'python' or 'json'")
+        data: dict[str, Any] = {}
+        for field in dataclass_fields(self):
+            data[field.name] = getattr(self, field.name)
+        return data
+
+    @classmethod
+    def model_validate(cls, data: Mapping[str, Any] | "PipelineConfig") -> "PipelineConfig":
+        """Validate a mapping and construct a configuration instance."""
+
+        if isinstance(data, PipelineConfig):
+            return data
+        if not isinstance(data, Mapping):
+            raise ValueError("PipelineConfig.model_validate expects a mapping")
+        return cls(**dict(data))
 
 
 DEFAULT_PIPELINE_CONFIG: dict[str, Any] = PipelineConfig().model_dump(mode="python")
@@ -164,7 +232,7 @@ def build_pipeline_config(overrides: dict[str, Any] | PipelineConfig | None = No
 
     try:
         validated = PipelineConfig.model_validate(merged)
-    except ValidationError as exc:  # pragma: no cover - surface readable error upstream
+    except (TypeError, ValueError) as exc:  # pragma: no cover - surface readable error upstream
         raise ValueError(str(exc)) from exc
     return validated.model_dump(mode="python")
 
