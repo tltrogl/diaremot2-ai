@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
+from dataclasses import asdict, dataclass, field
 from importlib import metadata as importlib_metadata
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Iterable, Iterator, Mapping
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
-
-try:  # pragma: no cover - packaging optional during tests
+try:  # pragma: no cover - optional during tests
     from packaging.version import Version
 except Exception:  # pragma: no cover - defensive fallback
     Version = None  # type: ignore
@@ -16,106 +15,158 @@ except Exception:  # pragma: no cover - defensive fallback
 from .speaker_diarization import DiarizationConfig
 
 
-class PipelineConfig(BaseModel):
+def _ensure_path(value: Path | str) -> Path:
+    if isinstance(value, Path):
+        return value
+    return Path(value)
+
+
+def _ensure_optional_path(value: Path | str | None) -> Path | None:
+    if value is None:
+        return None
+    return _ensure_path(value)
+
+
+def _ensure_path_list(value: Iterable[Path | str] | Path | str | None) -> list[Path]:
+    if value is None:
+        return []
+    if isinstance(value, (str, Path)):
+        return [_ensure_path(value)]
+    return [_ensure_path(item) for item in value]
+
+
+def _normalise_str(value: Any) -> Any:
+    if isinstance(value, str):
+        return value.lower()
+    return value
+
+
+def _validate_choice(value: str, allowed: set[str], field_name: str) -> str:
+    if value not in allowed:
+        raise ValueError(f"{field_name} must be one of {sorted(allowed)}")
+    return value
+
+
+@dataclass(slots=True)
+class PipelineConfig:
     """Validated configuration for the end-to-end pipeline."""
 
-    model_config = ConfigDict(extra="forbid", validate_assignment=True)
-
-    registry_path: Path = Field(default=Path("speaker_registry.json"))
-    ahc_distance_threshold: float = Field(default=DiarizationConfig.ahc_distance_threshold, ge=0.0)
-    speaker_limit: int | None = Field(default=None, ge=1)
-    whisper_model: str = Field(default="faster-whisper-tiny.en")
-    asr_backend: str = Field(default="faster")
-    compute_type: str = Field(default="float32")
-    cpu_threads: int = Field(default=1, ge=1)
+    registry_path: Path = field(default_factory=lambda: Path("speaker_registry.json"))
+    ahc_distance_threshold: float = DiarizationConfig.ahc_distance_threshold
+    speaker_limit: int | None = None
+    whisper_model: str = "faster-whisper-tiny.en"
+    asr_backend: str = "faster"
+    compute_type: str = "float32"
+    cpu_threads: int = 1
     language: str | None = None
-    language_mode: str = Field(default="auto")
+    language_mode: str = "auto"
     ignore_tx_cache: bool = False
     quiet: bool = False
     disable_affect: bool = False
-    affect_backend: str = Field(default="onnx")
+    affect_backend: str = "onnx"
     affect_text_model_dir: Path | None = None
     affect_intent_model_dir: Path | None = None
-    beam_size: int = Field(default=1, ge=1)
-    temperature: float = Field(default=0.0, ge=0.0, le=1.0)
-    no_speech_threshold: float = Field(default=0.50, ge=0.0, le=1.0)
+    beam_size: int = 1
+    temperature: float = 0.0
+    no_speech_threshold: float = 0.50
     noise_reduction: bool = False
     enable_sed: bool = True
     auto_chunk_enabled: bool = True
-    chunk_threshold_minutes: float = Field(default=30.0, gt=0.0)
-    chunk_size_minutes: float = Field(default=20.0, gt=0.0)
-    chunk_overlap_seconds: float = Field(default=30.0, ge=0.0)
-    vad_threshold: float = Field(default=0.30, ge=0.0, le=1.0)
-    vad_min_speech_sec: float = Field(default=0.8, ge=0.0)
-    vad_min_silence_sec: float = Field(default=0.8, ge=0.0)
-    vad_speech_pad_sec: float = Field(default=0.2, ge=0.0)
-    vad_backend: str = Field(default="auto")
+    chunk_threshold_minutes: float = 30.0
+    chunk_size_minutes: float = 20.0
+    chunk_overlap_seconds: float = 30.0
+    vad_threshold: float = 0.30
+    vad_min_speech_sec: float = 0.8
+    vad_min_silence_sec: float = 0.8
+    vad_speech_pad_sec: float = 0.2
+    vad_backend: str = "auto"
     disable_energy_vad_fallback: bool = False
-    energy_gate_db: float = Field(default=-33.0)
-    energy_hop_sec: float = Field(default=0.01, gt=0.0)
-    max_asr_window_sec: int = Field(default=480, gt=0)
-    segment_timeout_sec: float = Field(default=300.0, gt=0.0)
-    batch_timeout_sec: float = Field(default=1200.0, gt=0.0)
+    energy_gate_db: float = -33.0
+    energy_hop_sec: float = 0.01
+    max_asr_window_sec: int = 480
+    segment_timeout_sec: float = 300.0
+    batch_timeout_sec: float = 1200.0
     cpu_diarizer: bool = False
     validate_dependencies: bool = False
     strict_dependency_versions: bool = False
-    cache_root: Path = Field(default=Path(".cache"))
-    cache_roots: list[Path] = Field(default_factory=list)
-    log_dir: Path = Field(default=Path("logs"))
-    checkpoint_dir: Path = Field(default=Path("checkpoints"))
-    target_sr: int = Field(default=16000, gt=0)
-    loudness_mode: str = Field(default="asr")
+    cache_root: Path = field(default_factory=lambda: Path(".cache"))
+    cache_roots: list[Path] = field(default_factory=list)
+    log_dir: Path = field(default_factory=lambda: Path("logs"))
+    checkpoint_dir: Path = field(default_factory=lambda: Path("checkpoints"))
+    target_sr: int = 16000
+    loudness_mode: str = "asr"
     run_id: str | None = None
     text_emotion_model: str | None = None
     intent_labels: list[str] | None = None
 
-    @field_validator("affect_backend", "asr_backend", "vad_backend", mode="before")
-    @classmethod
-    def _lower_str(cls, value: Any) -> Any:
-        if isinstance(value, str):
-            return value.lower()
-        return value
+    def __post_init__(self) -> None:
+        self.registry_path = _ensure_path(self.registry_path)
+        self.affect_text_model_dir = _ensure_optional_path(self.affect_text_model_dir)
+        self.affect_intent_model_dir = _ensure_optional_path(self.affect_intent_model_dir)
+        self.cache_root = _ensure_path(self.cache_root)
+        self.log_dir = _ensure_path(self.log_dir)
+        self.checkpoint_dir = _ensure_path(self.checkpoint_dir)
+        self.cache_roots = _ensure_path_list(self.cache_roots)
 
-    @field_validator("affect_backend")
-    @classmethod
-    def _validate_affect_backend(cls, value: str) -> str:
-        allowed = {"auto", "onnx", "torch"}
-        if value not in allowed:
-            raise ValueError(f"affect_backend must be one of {sorted(allowed)}")
-        return value
+        self.affect_backend = _validate_choice(
+            _normalise_str(self.affect_backend), {"auto", "onnx", "torch"}, "affect_backend"
+        )
+        self.asr_backend = _normalise_str(self.asr_backend)
+        self.vad_backend = _validate_choice(
+            _normalise_str(self.vad_backend), {"auto", "onnx", "torch"}, "vad_backend"
+        )
+        self.language_mode = _normalise_str(self.language_mode)
+        self.loudness_mode = _validate_choice(
+            _normalise_str(self.loudness_mode), {"asr", "broadcast"}, "loudness_mode"
+        )
 
-    @field_validator("vad_backend")
-    @classmethod
-    def _validate_vad_backend(cls, value: str) -> str:
-        allowed = {"auto", "onnx", "torch"}
-        if value not in allowed:
-            raise ValueError(f"vad_backend must be one of {sorted(allowed)}")
-        return value
-
-    @field_validator("loudness_mode")
-    @classmethod
-    def _validate_loudness_mode(cls, value: str) -> str:
-        allowed = {"asr", "broadcast"}
-        if value not in allowed:
-            raise ValueError(f"loudness_mode must be one of {sorted(allowed)}")
-        return value
-
-    @field_validator("cache_roots", mode="before")
-    @classmethod
-    def _coerce_cache_roots(cls, value: Any) -> Any:
-        if value is None:
-            return []
-        if isinstance(value, (str, Path)):
-            return [value]
-        return value
-
-    @model_validator(mode="after")
-    def _validate_chunking(self) -> "PipelineConfig":
+        if self.speaker_limit is not None and self.speaker_limit < 1:
+            raise ValueError("speaker_limit must be >= 1 when provided")
+        if self.cpu_threads < 1:
+            raise ValueError("cpu_threads must be >= 1")
+        if self.beam_size < 1:
+            raise ValueError("beam_size must be >= 1")
+        if not (0.0 <= self.temperature <= 1.0):
+            raise ValueError("temperature must be between 0.0 and 1.0")
+        if not (0.0 <= self.no_speech_threshold <= 1.0):
+            raise ValueError("no_speech_threshold must be between 0.0 and 1.0")
+        if not (0.0 <= self.vad_threshold <= 1.0):
+            raise ValueError("vad_threshold must be between 0.0 and 1.0")
+        if self.vad_min_speech_sec < 0.0:
+            raise ValueError("vad_min_speech_sec must be >= 0")
+        if self.vad_min_silence_sec < 0.0:
+            raise ValueError("vad_min_silence_sec must be >= 0")
+        if self.vad_speech_pad_sec < 0.0:
+            raise ValueError("vad_speech_pad_sec must be >= 0")
+        if self.energy_hop_sec <= 0.0:
+            raise ValueError("energy_hop_sec must be > 0")
+        if self.max_asr_window_sec <= 0:
+            raise ValueError("max_asr_window_sec must be > 0")
+        if self.segment_timeout_sec <= 0.0:
+            raise ValueError("segment_timeout_sec must be > 0")
+        if self.batch_timeout_sec <= 0.0:
+            raise ValueError("batch_timeout_sec must be > 0")
+        if self.chunk_threshold_minutes <= 0.0:
+            raise ValueError("chunk_threshold_minutes must be > 0")
+        if self.chunk_size_minutes <= 0.0:
+            raise ValueError("chunk_size_minutes must be > 0")
+        if self.chunk_overlap_seconds < 0.0:
+            raise ValueError("chunk_overlap_seconds must be >= 0")
         if self.chunk_size_minutes * 60.0 <= self.chunk_overlap_seconds:
             raise ValueError("chunk_overlap_seconds must be smaller than chunk_size_minutes * 60")
         if self.chunk_threshold_minutes < self.chunk_size_minutes:
             raise ValueError("chunk_threshold_minutes must be >= chunk_size_minutes")
-        return self
+
+    def model_dump(self, mode: str = "python") -> dict[str, Any]:  # pragma: no cover - exercised via tests
+        return asdict(self)
+
+    @classmethod
+    def model_validate(cls, data: Mapping[str, Any] | "PipelineConfig") -> "PipelineConfig":
+        if isinstance(data, cls):
+            return data
+        if not isinstance(data, Mapping):
+            raise TypeError("PipelineConfig.model_validate expects a mapping or PipelineConfig instance")
+        return cls(**data)
 
 
 DEFAULT_PIPELINE_CONFIG: dict[str, Any] = PipelineConfig().model_dump(mode="python")
@@ -164,7 +215,7 @@ def build_pipeline_config(overrides: dict[str, Any] | PipelineConfig | None = No
 
     try:
         validated = PipelineConfig.model_validate(merged)
-    except ValidationError as exc:  # pragma: no cover - surface readable error upstream
+    except (TypeError, ValueError) as exc:  # pragma: no cover - surface readable error upstream
         raise ValueError(str(exc)) from exc
     return validated.model_dump(mode="python")
 
