@@ -1,184 +1,224 @@
 # DiaRemot — CPU-Only Speech Intelligence Pipeline
 
-DiaRemot is a production-oriented **speech intelligence stack that runs fully on CPU**. It ingests long-form recordings and produces:
+DiaRemot ingests long-form audio on a CPU-only host and produces a full intelligence package:
 
-- **Diarized transcripts** powered by Faster-Whisper with Silero VAD + ECAPA-TDNN diarization.
-- **Affect enrichment**: acoustic emotion (SER), text emotion (GoEmotions), voice-quality metrics, and custom intent classification.
-- **Sound event detection** using PANNs for background context.
-- **Actionable summaries**: HTML/PDF briefings, CSV rollups, JSONL transcripts, QC health diagnostics, and an extensible manifest describing every artefact.
+- **Diarised transcription** using Faster-Whisper (CT2) with Silero VAD and ECAPA-TDNN embeddings.
+- **Affect enrichment** combining acoustic SER, text emotion (GoEmotions), intent classification,
+  paralinguistic measurements, and voice-quality metrics.
+- **Sound event detection** via PANNs to provide background context.
+- **Conversation analytics** including interruptions, dominance, turn-taking balance, and energy flow.
+- **Rich artefacts**: CSV/JSONL transcripts, speaker rollups, QC diagnostics, and HTML/PDF summaries.
 
-The repository is tuned for deterministic execution inside containerised environments (no GPU). The pipeline runs entirely on CPU and expects models to be pre-staged, but the agent runtime does have internet access for documentation and artifact downloads when needed.
+The repository targets reproducible execution in containers or bare-metal Linux hosts without GPUs.
+Pinned wheels come from the PyTorch CPU index and all tooling is validated on CPython 3.11 (3.10
+remains supported).
 
 ---
 
-## 1. Requirements at a Glance
+## 1. Requirements
 
-| Requirement | Notes |
+| Component | Details |
 | --- | --- |
-| Python | 3.10–3.11 supported (pins validated on CPython 3.11 and 3.11 recommended). |
-| CPU | x86_64 with AVX2 for Torch/CT2 wheels from the PyTorch CPU index. |
-| System tools | `ffmpeg` for decoding compressed audio and chunk extraction. |
-| Models | Pre-packaged ONNX/CT2 assets staged under `$DIAREMOT_MODEL_DIR` (defaults to `/opt/models`). See [Model Layout](#3-model-layout).
-| Disk | ~5 GB for models + temporary cache (`.cache/`). |
+| Python | 3.11 preferred (3.10 supported). |
+| CPU | x86_64 with AVX2 so the PyTorch CPU wheels and CT2 builds work. |
+| System tools | `ffmpeg` (decode/transcode) + `unzip`, `curl`, `rsync`. Optional: PyAV improves metadata probing. |
+| Disk | ~5 GB for models plus `.cache/` (Hugging Face/Torch/tokenizers). |
+| Models | Pre-packaged ONNX/CT2 assets staged under `$DIAREMOT_MODEL_DIR` (defaults to `/opt/models`). |
 
-Use `setup.sh` to bootstrap the project end-to-end (venv, requirements, model download, import checks) — it mirrors the manual steps above and pins wheels that we verify on Python 3.11. When running from PowerShell, invoke the script via `bash ./setup.sh`. Run `maintenance.sh` in warm containers to re-validate model presence and imports.
+Environment variables respected by the tooling:
+
+- `DIAREMOT_MODEL_DIR` — override the model root (defaults to `/opt/models`, `setup.sh` falls back to
+  `<repo>/models` when `/opt` is not writable).
+- `MODEL_RELEASE_URL` / `MODEL_RELEASE_SHA256` — override the release asset that `setup.sh` pulls.
+- `HF_HOME`, `HUGGINGFACE_HUB_CACHE`, `TRANSFORMERS_CACHE`, `TORCH_HOME`, `XDG_CACHE_HOME` — all
+  default to `./.cache` during setup to keep downloads inside the repo.
 
 ---
 
-## 2. Quickstart
+## 2. Model layout
 
-### PowerShell
+`setup.sh` (and the runtime) expect the following structure. The SHA-verified `models.zip` published
+with the repository already matches this layout.
+
+```
+${DIAREMOT_MODEL_DIR}/
+├── silero_vad.onnx
+├── ecapa_onnx/
+│   └── ecapa_tdnn.onnx
+├── panns/
+│   ├── model.onnx
+│   └── class_labels_indices.csv
+├── goemotions-onnx/
+│   └── model.onnx
+├── ser8-onnx/
+│   ├── model.onnx          # FP32 fallback
+│   └── model.int8.onnx      # INT8 preferred
+├── faster-whisper-tiny.en/
+│   └── model.bin
+└── bart/
+    ├── model_uint8.onnx
+    ├── config.json
+    ├── tokenizer.json       # or merges.txt + vocab.json
+    ├── merges.txt
+    └── vocab.json
+```
+
+> Tip: `maint-codex.sh` and `maintenance.sh` both validate this inventory and fail fast if a required
+asset is missing.
+
+---
+
+## 3. Bootstrap
+
+### One-command setup
+
+```bash
+bash ./setup.sh
+```
+
+The script performs:
+
+1. Repository sanity checks (core modules must exist).
+2. Virtualenv creation (re-used if already present) and dependency installation from `requirements.txt`.
+3. Editable install of `diaremot` so console scripts (`diaremot`, `diaremot-diagnostics`) are
+   available.
+4. Cache normalisation under `./.cache` for Hugging Face, Torch, and tokenizers.
+5. Model staging: downloads or reuses `models.zip`, verifies the SHA256, unpacks into
+   `$DIAREMOT_MODEL_DIR`, and normalises the directory structure.
+6. Optional 10 s synthetic sample via `ffmpeg` (`data/sample.wav`).
+7. Import validation for the major pipeline modules.
+8. `python -m diaremot.cli system diagnostics --strict` to confirm dependency health.
+
+Adjust the model download by exporting `MODEL_RELEASE_URL` / `MODEL_RELEASE_SHA256` before running the
+script. All steps mirror the manual instructions below—keep the README and script in sync.
+
+### Manual steps (PowerShell)
 
 ```powershell
-# Python environment (3.11 recommended)
 py -3.11 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -U pip setuptools wheel
 python -m pip install -r requirements.txt
 python -m pip install -e .
-
-# Model staging (defaults to /opt/models)
 $env:DIAREMOT_MODEL_DIR = "C:/diaremot/models"  # or another writable path
-# Populate the directory using bash ./setup.sh, a release models.zip, or manual sync.
-
-# Run a job (ASR + diarization + affect)
-python -m diaremot.cli asr run --input data/sample.wav --outdir outputs/sample_run
-# Console script (after install):
-diaremot asr run --input data/sample.wav --outdir outputs/sample_run
-
-# Resume a partially completed run
-diaremot asr resume --input data/sample.wav --outdir outputs/sample_run
-
-# Diagnostics and dependency health (includes ffmpeg + model checks)
-diaremot system diagnostics --strict
-
-# Regenerate summaries without re-running inference
-diaremot report gen --manifest outputs/sample_run/manifest.json --format pdf --format html
+Expand-Archive models.zip -DestinationPath $env:DIAREMOT_MODEL_DIR
+python -m diaremot.cli system diagnostics --strict
 ```
 
-### POSIX shell
+### Manual steps (POSIX shell)
 
 ```bash
-# Python environment (3.11 recommended)
-python -m venv .venv
+python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -U pip setuptools wheel
 python -m pip install -r requirements.txt
 python -m pip install -e .
-
-# Model staging (defaults to /opt/models)
-export DIAREMOT_MODEL_DIR=/opt/models  # or ./models if you prefer a local path
-# Populate the directory using bash ./setup.sh, a release models.zip, or manual sync.
-
-# Run a job (ASR + diarization + affect)
-python -m diaremot.cli asr run --input data/sample.wav --outdir outputs/sample_run
-# Console script (after install):
-diaremot asr run --input data/sample.wav --outdir outputs/sample_run
-
-# Resume a partially completed run
-diaremot asr resume --input data/sample.wav --outdir outputs/sample_run
-
-# Diagnostics and dependency health (includes ffmpeg + model checks)
+export DIAREMOT_MODEL_DIR=${DIAREMOT_MODEL_DIR:-/opt/models}
+unzip -o models.zip -d "$DIAREMOT_MODEL_DIR"
 python -m diaremot.cli system diagnostics --strict
-
-# Regenerate summaries without re-running inference
-python -m diaremot.cli report gen --manifest outputs/sample_run/manifest.json --format pdf --format html
 ```
 
-After executing `bash ./setup.sh`, run jobs via `python -m diaremot.cli asr run ...` (or the `diaremot` console script after installation). Warm-container maintenance uses `bash ./maintenance.sh`.
-
 ---
 
-## 3. Model Layout
+## 4. Running the pipeline
 
-The pipeline expects the following structure under `$DIAREMOT_MODEL_DIR` (default `/opt/models`):
+Preferred entry points are provided by `src/diaremot/cli.py` (Typer). Module execution works even
+without installation because `setup.sh` extends `PYTHONPATH`, but installing the package exposes the
+`diaremot` console script as well.
 
+```bash
+# End-to-end run (creates outputs under outputs/run1)
+python -m diaremot.cli asr run --input data/sample.wav --outdir outputs/run1
+
+# Resume a previous run (uses cached checkpoints, ignores --clear-cache)
+python -m diaremot.cli asr resume --input data/sample.wav --outdir outputs/run1
+
+# Regenerate summaries from a manifest (no re-processing)
+python -m diaremot.cli report gen --manifest outputs/run1/manifest.json --format pdf --format html
+
+# Inspect VAD behaviour with Silero
+python -m diaremot.cli vad debug --input data/sample.wav --json
+
+# Dependency and model diagnostics
+python -m diaremot.cli system diagnostics --strict
 ```
-silero_vad.onnx
-ecapa_onnx/ecapa_tdnn.onnx
-panns/model.onnx
-panns/class_labels_indices.csv
-goemotions-onnx/model.onnx
-ser8-onnx/model.int8.onnx  # FP32 fallback: ser8-onnx/model.onnx
-faster-whisper-tiny.en/model.bin
-bart/model_uint8.onnx      # FP32 fallback: bart/model.onnx
-bart/tokenizer.json        # or merges.txt + vocab.json
-bart/tokenizer_config.json
-bart/special_tokens_map.json
-bart/config.json
-```
 
-Ship models via one of:
+Useful switches for `asr run`:
 
-1. **Bundled assets** – commit `models/` or `models.zip` to the repo.
-2. **Release download** – host `models.zip` and configure `setup.sh` to fetch + checksum verify.
-3. **Custom staging** – populate the directory prior to running the CLI.
+- `--profile fast|accurate|offline` — load bundled configuration overrides.
+- `--whisper-model faster-whisper-medium.en` — use another CT2 bundle staged under
+  `$DIAREMOT_MODEL_DIR`.
+- `--chunk-enabled false` — disable automatic chunking for short files.
+- `--affect-backend torch` — prefer Torch affect models over ONNX.
+- `--disable-sed` or `--disable-affect` — trim the processing stack when debugging.
 
-`maintenance.sh` validates that either the INT8 or FP32 SER/BART weights are present alongside tokenizer assets.
+All CLI options are validated by `PipelineConfig`; invalid values produce descriptive errors before
+processing begins.
 
 ---
 
-## 4. CLI Surface
+## 5. Output artefacts
 
-The Typer-based CLI exposes domain-specific groups:
+Each run writes a manifest JSON and a suite of artefacts in the chosen output directory:
 
-### `diaremot asr`
-- `run` – complete ASR + diarization + affect pipeline. Supports profiles (`--profile fast|accurate|offline`), Faster-Whisper backend selection, Silero VAD tuning, energy-VAD fallback control, automatic chunking for long files, noise reduction, and affect backend overrides.
-- `resume` – pick up from checkpoints in `--outdir` (retains cached diarization/transcription artefacts).
+| File | Description |
+| --- | --- |
+| `manifest.json` | High-level summary (paths, run id, dependency health). |
+| `diarized_transcript_with_emotion.csv` | Main per-segment table (timestamps, transcript, affect, SER, VQ metrics). |
+| `segments.jsonl` | JSONL mirror of the transcript for downstream automation. |
+| `speakers_summary.csv` | Aggregated speaker rollups (dominance, words, emotions, interruptions). |
+| `timeline.csv` | Turn-by-turn diarisation timeline. |
+| `qc_report.json` | Diagnostics (overlap, cache health, dependency issues). |
+| `summary.html` / `summary.pdf` | Executive summaries with key moments, charts, and voice metrics. |
+| `speaker_registry.json` | Shared identity registry (path configurable via `--registry-path`). |
 
-Key options map directly onto the validated [`PipelineConfig`](src/diaremot/pipeline/config.py): chunk sizing, CPU threading, cache roots, ASR timeouts, SED enablement, and affect model directories.
-
-### `diaremot vad`
-- `debug` – lightweight Silero VAD inspection with JSON output for troubleshooting thresholds.
-
-### `diaremot report`
-- `gen` – rebuild HTML/PDF summaries from a manifest, optionally synthesizing speaker summaries if CSV rollups are absent.
-
-### `diaremot system`
-- `diagnostics` – dependency/model health checks (`--strict` enforces version minimums via the pinned `packaging` module) and ffmpeg availability reporting.
-
-The root command preserves `diaremot run ...` for backwards compatibility, delegating to `asr run`.
+Conversation analytics (turn-taking balance, interruption rates, response latency, topic coherence)
+and overlap statistics feed both the QC report and the HTML/PDF summaries. If a stage fails, the
+pipeline still tries to emit partial outputs so downstream tooling can surface actionable errors.
 
 ---
 
-## 5. Outputs
+## 6. Maintenance & diagnostics
 
-Each run writes a manifest (`manifest.json`) with the canonical list of artefacts:
-
-- `diarized_transcript_with_emotion.csv` and `segments.jsonl` for per-segment metadata (speaker, timestamps, text, SER/GoEmotions scores, voice-quality metrics, intent tags, VAD confidence, etc.).
-- `timeline.csv` for diarization-only consumption.
-- `summary.html` / `summary.pdf` built from the HTML/PDF generators.
-- `speakers_summary.csv` aggregating per-speaker statistics when available.
-- `qc_report.json` containing stage timings, dependency health, audio quality metrics, and summary voice-quality statistics.
-- `speaker_registry.json` (path surfaced in the manifest) for persistent speaker embeddings.
-
-The pipeline also persists intermediate checkpoints under `checkpoints/` and logs in `logs/` to support resume and audit flows.
+- `maintenance.sh` / `maint-codex.sh` — lightweight health checks for already-provisioned
+  environments. They validate the model inventory, import the package, and run the Typer diagnostics
+  with `--strict`. Exit codes are non-zero if models or dependencies are missing.
+- `python -m diaremot.pipeline.pipeline_diagnostic` — deeper introspection tool used internally by CI
+  (checks `ffmpeg`, optional Python modules, and prints remediation steps).
+- `pytest -q` — unit tests. Run inside the activated virtualenv once dependencies are installed.
 
 ---
 
-## 6. Configuration & Environment
+## 7. Development notes
 
-Key environment variables:
-
-- `DIAREMOT_MODEL_DIR` – override model root (default `/opt/models`).
-- `OMP_NUM_THREADS=1` – recommended to prevent CPU oversubscription.
-- `TOKENIZERS_PARALLELISM=false` – silences Hugging Face tokenizer warnings.
-- `HF_HOME`, `HUGGINGFACE_HUB_CACHE`, `TRANSFORMERS_CACHE`, `TORCH_HOME`, `XDG_CACHE_HOME` – automatically pointed at `.cache/` for offline determinism.
-
-`PipelineConfig` supports additional tuning such as `auto_chunk_enabled`, `chunk_threshold_minutes`, `cache_roots`, `noise_reduction`, and `cpu_diarizer`. See [`src/diaremot/pipeline/config.py`](src/diaremot/pipeline/config.py) for exhaustive fields and validation rules.
-
----
-
-## 7. Development Workflow
-
-- Run unit tests with `pytest -q`.
-- Use `python -m diaremot.cli system diagnostics --strict` to confirm dependency health before shipping new builds.
-- The codebase lives under `src/diaremot/` (Typer CLI, pipeline orchestrator, affect modules, summaries). Tests reside in `tests/` and stub third-party components (e.g., ReportLab) for offline CI.
-
-When contributing, update this README, `requirements.txt`, and `pyproject.toml` alongside functional changes so the published guidance stays authoritative.
+- Source lives under `src/diaremot`. Key modules include:
+  - `pipeline/orchestrator.py` — core execution engine with caching, checkpoints, and manifest
+    assembly.
+  - `affect/emotion_analyzer.py` — wraps text affect, SER, SED, and voice-quality extraction.
+  - `summaries/` — HTML/PDF generation, speaker rollups, and conversation flow analysis.
+- Configuration is validated by `PipelineConfig` (`pipeline/config.py`). Stick to the provided keys
+  when introducing new CLI options or defaults.
+- The repository keeps caches local (`.cache/`) to avoid polluting global environments. Respect the
+  same pattern for new downloads.
+- When adding dependencies, update both `requirements.txt` and `pyproject.toml`, then adjust
+  `setup.sh`, documentation, and diagnostics accordingly.
 
 ---
 
-## 8. Support & Licensing
+## 8. Troubleshooting
 
-The package is published as `diaremot` with version `2.1.0` (see `pyproject.toml`). Licensing is proprietary; ensure distribution complies with your organisation's policies.
+| Symptom | Likely cause / fix |
+| --- | --- |
+| `ffmpeg` errors or missing sample file | Install `ffmpeg` and ensure it is on `PATH`. `setup.sh` warns but continues. |
+| Diagnostics report missing modules | Re-run `./setup.sh` or `python -m pip install -e .` inside the venv. |
+| `models.zip` SHA mismatch | Update `MODEL_RELEASE_URL`/`MODEL_RELEASE_SHA256`, or refresh the asset in the GitHub release. |
+| Transcription fallback warnings | Check the manifest `dependency_unhealthy` list and the logs under `outputs/<run>/logs`. |
+| Conversation analysis skipped | Requires valid transcripts; inspect QC report for earlier stage failures. |
+
+Optional helpers:
+
+- **PyAV (`av`)** — improves duration probing for exotic containers. Install via `python -m pip install av`.
+- **panns_inference** — optional PyTorch-based SED fallback. The default ONNX runtime does not need it.
+
+For additional context see `src/diaremot/README.md`, which mirrors the developer-focused details used
+by the Typer CLI.

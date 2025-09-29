@@ -2,7 +2,7 @@
 --index-url https://download.pytorch.org/whl/cpu
 --extra-index-url https://pypi.org/simple
 
-# Numerics & signal processing
+# Core numerics & signal processing
 numpy==1.24.4
 scipy==1.10.1
 librosa==0.10.2.post1
@@ -24,26 +24,15 @@ openai-whisper==20231117
 transformers==4.38.2
 huggingface_hub==0.24.6
 onnxruntime==1.17.1
-tokenizers==0.15.2
 
-# Analytics & ML utilities
-pandas==2.0.3
-scikit-learn==1.3.2
-matplotlib==3.7.5
-seaborn==0.13.2
-reportlab==4.1.0
-
-# Audio utilities & IO
-audioread==3.0.1
-pydub==0.25.1
-ffmpeg-python==0.2.0
-
-# Runtime tooling
-tqdm==4.66.4
-joblib==1.3.2
-psutil==5.9.8
+# Runtime & CLI
+pydantic==2.8.2
 packaging==24.1
 typer==0.9.0
-click==8.1.7
-pydantic==2.8.2
 rich==13.7.1
+
+# Reporting & diagnostics
+audioread==3.0.1
+ffmpeg-python==0.2.0
+reportlab==4.1.0
+scikit-learn==1.3.2
