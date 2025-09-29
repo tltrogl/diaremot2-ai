@@ -27,6 +27,19 @@ def test_args_to_config_includes_flags() -> None:
     assert config["ignore_tx_cache"] is True
 
 
+def test_args_to_config_handles_chunk_toggle() -> None:
+    parser = cli_entry._build_arg_parser()
+    args = parser.parse_args([
+        "--input",
+        "sample.wav",
+        "--outdir",
+        "out",
+        "--no-chunk-enabled",
+    ])
+    config = cli_entry._args_to_config(args, ignore_tx_cache=False)
+    assert config["auto_chunk_enabled"] is False
+
+
 def test_main_verify_deps(monkeypatch: pytest.MonkeyPatch, capsys: Any) -> None:
     called = {}
 

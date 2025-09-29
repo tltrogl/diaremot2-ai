@@ -86,7 +86,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--affect-backend",
         default="onnx",
-        choices=["onnx", "torch"],
+        choices=["auto", "onnx", "torch"],
         help="Backend for affect analysis",
     )
     parser.add_argument(
@@ -119,7 +119,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--chunk-enabled",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
         default=True,
         help="Enable automatic chunking",
     )
