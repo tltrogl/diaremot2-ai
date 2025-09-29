@@ -121,7 +121,7 @@ class PipelineCheckpointManager:
             if not file_path.exists():
                 return ""
 
-            digest = hash_file(file_path)
+            digest = hash_file(file_path, open_func=open)
             normalized = self._normalize_hash_value(digest)
             self._hash_cache[key] = normalized
             return normalized
