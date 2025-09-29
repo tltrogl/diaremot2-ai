@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from hashlib import blake2s, new
 from pathlib import Path
-from typing import Iterable, Union
+from typing import IO, Iterable, Union
 
 
 def _iter_chunks(handle, chunk_size: int) -> Iterable[bytes]:
@@ -21,6 +22,7 @@ def hash_file(
     algo: str = "blake2s",
     chunk_size: int = 8192,
     digest_size: int | None = None,
+    open_func: Callable[[str, str], IO[bytes]] | None = None,
 ) -> str:
     """Return the hexadecimal digest for ``path`` using ``algo``.
 
@@ -38,7 +40,12 @@ def hash_file(
     else:
         hasher = new(algo)
 
-    with file_path.open("rb") as handle:
+    if open_func is None:
+        handle_cm = file_path.open("rb")
+    else:
+        handle_cm = open_func(str(file_path), "rb")
+
+    with handle_cm as handle:
         for chunk in _iter_chunks(handle, chunk_size):
             hasher.update(chunk)
 
