@@ -86,7 +86,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--affect-backend",
         default="onnx",
-        choices=["onnx", "torch"],
+        choices=["auto", "onnx", "torch"],
         help="Backend for affect analysis",
     )
     parser.add_argument(
@@ -119,7 +119,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--chunk-enabled",
-        action="store_true",
+        action=argparse.BooleanOptionalAction,
         default=True,
         help="Enable automatic chunking",
     )
@@ -311,7 +311,12 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     config = _args_to_config(args, ignore_tx_cache=ignore_tx_cache)
-    pipeline = AudioAnalysisPipelineV2(build_pipeline_config(config))
+    try:
+        validated_config = build_pipeline_config(config)
+    except ValueError as exc:
+        parser.error(f"Invalid configuration: {exc}")
+
+    pipeline = AudioAnalysisPipelineV2(validated_config)
     manifest = pipeline.process_audio_file(args.input, args.outdir)
     print(json.dumps(manifest, indent=2))
     return 0
