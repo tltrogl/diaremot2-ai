@@ -9,7 +9,7 @@ import logging
 import os
 from pathlib import Path
 import sys
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Literal, Optional
 
 import numpy as np
 
@@ -79,8 +79,13 @@ _NOISE_KEYWORDS = (
 )
 
 
+EvalStrategy = Literal["head", "uniform"]
+
+
 @dataclass
 class SEDConfig:
+    """Configuration for optional sound event detection."""
+
     top_k: int = 3
     run_on_suspect_only: bool = True
     min_duration_sec: float = 0.25
@@ -88,14 +93,27 @@ class SEDConfig:
     model_dir: Optional[Path] = DEFAULT_PANNS_MODEL_DIR
     # By default, analyze the full audio instead of truncating to a head slice.
     max_eval_sec: Optional[float] = None
-    eval_strategy: str = "head"  # "head" | "uniform"
+    eval_strategy: EvalStrategy = "head"
+
+    def __post_init__(self) -> None:
+        if self.top_k < 1:
+            raise ValueError("top_k must be >= 1")
+        if self.min_duration_sec < 0:
+            raise ValueError("min_duration_sec must be >= 0")
+        if self.max_eval_sec is not None and self.max_eval_sec <= 0:
+            raise ValueError("max_eval_sec must be > 0 when provided")
+        if self.eval_strategy not in {"head", "uniform"}:
+            raise ValueError("eval_strategy must be 'head' or 'uniform'")
+        if self.model_dir is not None:
+            self.model_dir = Path(self.model_dir)
 
 
 class PANNSEventTagger:
     """Lightweight wrapper for PANNs AudioSet tagging on CPU.
 
     Prefers an ONNX Runtime model when available, falling back to the
-    original `panns_inference` PyTorch implementation.
+    original `panns_inference` PyTorch implementation. The ``backend``
+    parameter accepts ``auto``, ``onnx``, ``pytorch``, or ``none``.
     - Accepts 16 kHz mono audio; resamples to 32 kHz if librosa available or
       uses simple upsampling fallbacks.
     - Returns top-K labels with scores and a coarse noise score.
@@ -103,10 +121,13 @@ class PANNSEventTagger:
 
     def __init__(self, cfg: Optional[SEDConfig] = None, backend: str = "auto"):
         self.cfg = cfg or SEDConfig()
-        if self.cfg.model_dir is not None:
-            self.cfg.model_dir = Path(self.cfg.model_dir)
 
-        backend = (backend or "auto").lower()
+        backend = (backend or "auto").strip().lower()
+        allowed_backends = {"auto", "onnx", "pytorch", "none"}
+        if backend not in allowed_backends:
+            raise ValueError(
+                f"backend must be one of {sorted(allowed_backends)}; received '{backend}'"
+            )
         if backend == "auto":
             # Prefer ONNX Runtime when both backends are available
             if _HAVE_ORT:
@@ -119,7 +140,7 @@ class PANNSEventTagger:
         self._tagger: Optional[_PannsAudioTagging] = None
         self._session: Optional["ort.InferenceSession"] = None
         self._labels: Optional[list[str]] = None
-        self.available = True
+        self.available = backend != "none"
         self._ensure_model()
         if not self.available:
             logger.warning(

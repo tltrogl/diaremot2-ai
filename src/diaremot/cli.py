@@ -136,6 +136,25 @@ def _merge_configs(
     return merged
 
 
+def _manifest_output_root(manifest_path: Path, manifest_data: Dict[str, Any]) -> Path:
+    root_value = manifest_data.get("out_dir")
+    if root_value:
+        root_path = Path(root_value).expanduser()
+        if not root_path.is_absolute():
+            root_path = (manifest_path.parent / root_path).resolve()
+        return root_path
+    return manifest_path.parent.resolve()
+
+
+def _resolve_manifest_path(root: Path, value: Any) -> Optional[Path]:
+    if not value:
+        return None
+    path = Path(value).expanduser()
+    if not path.is_absolute():
+        path = (root / path).resolve()
+    return path
+
+
 def _validate_assets(
     input_path: Path, output_dir: Path, config: PipelineConfig
 ) -> None:
@@ -681,24 +700,26 @@ def report_gen(
         ) from exc
 
     outputs = manifest_data.get("outputs", {}) or {}
-    base_outdir = outdir or Path(manifest_data.get("out_dir", manifest.parent))
-    base_outdir = base_outdir.expanduser().resolve()
+    output_root = _manifest_output_root(manifest, manifest_data)
+    base_outdir = Path(outdir).expanduser().resolve() if outdir else output_root
     base_outdir.mkdir(parents=True, exist_ok=True)
 
     segments: List[Dict[str, Any]] = []
-    segments_path = outputs.get("jsonl")
+    segments_path = _resolve_manifest_path(output_root, outputs.get("jsonl"))
     if segments_path:
-        segments = _load_segments_jsonl(Path(segments_path))
-    if not segments and outputs.get("csv"):
-        segments = _load_segments_csv(Path(outputs["csv"]))
+        segments = _load_segments_jsonl(segments_path)
+    if not segments:
+        csv_path = _resolve_manifest_path(output_root, outputs.get("csv"))
+        if csv_path:
+            segments = _load_segments_csv(csv_path)
 
     if not segments:
         raise typer.BadParameter("Manifest does not reference any segment outputs.")
 
     speakers_summary: List[Dict[str, Any]] = []
-    speakers_path = outputs.get("speakers_summary")
+    speakers_path = _resolve_manifest_path(output_root, outputs.get("speakers_summary"))
     if speakers_path:
-        speakers_summary = _load_speakers_csv(Path(speakers_path))
+        speakers_summary = _load_speakers_csv(speakers_path)
 
     if not speakers_summary:
         from .summaries.speakers_summary_builder import build_speakers_summary
@@ -706,10 +727,10 @@ def report_gen(
         speakers_summary = build_speakers_summary(segments, {}, {})
 
     overlap_stats: Dict[str, Any] = {}
-    qc_path = outputs.get("qc_report")
-    if qc_path and Path(qc_path).exists():
+    qc_path = _resolve_manifest_path(output_root, outputs.get("qc_report"))
+    if qc_path and qc_path.exists():
         try:
-            qc_data = json.loads(Path(qc_path).read_text())
+            qc_data = json.loads(qc_path.read_text())
             overlap_stats = qc_data.get("overlap_stats", {}) or {}
         except Exception:
             overlap_stats = {}
