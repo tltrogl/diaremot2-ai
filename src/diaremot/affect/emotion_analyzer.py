@@ -20,6 +20,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import logging
 import math
 import os
@@ -258,6 +259,25 @@ class EmotionIntentAnalyzer:
         self.ser_model_name = "Dpngtm/wav2vec2-emotion-recognition"
         self.intent_model_name = "facebook/bart-large-mnli"
 
+        backend = (affect_backend or "auto").lower()
+        backend_aliases = {
+            "pt": "torch",
+            "pytorch": "torch",
+            "torch": "torch",
+            "onnx": "onnx",
+        }
+        if backend in backend_aliases:
+            backend = backend_aliases[backend]
+        elif backend == "auto":
+            backend = (
+                "onnx"
+                if importlib.util.find_spec("onnxruntime") is not None
+                else "torch"
+            )
+        else:
+            logger.warning("Unknown affect backend '%s'; defaulting to torch", backend)
+            backend = "torch"
+
         # Lazy handles
         self._vad_processor = None
         self._vad_model = None
@@ -271,7 +291,7 @@ class EmotionIntentAnalyzer:
         self._text_session = None  # ONNX runtime session
         self._text_tokenizer = None
         self._intent_pipeline = None
-        self.affect_backend = (affect_backend or "auto").lower()
+        self.affect_backend = backend
         self.affect_text_model_dir = affect_text_model_dir
         self.affect_intent_model_dir = affect_intent_model_dir
 
@@ -541,9 +561,14 @@ class EmotionIntentAnalyzer:
                 model_path = ensure_onnx_model(ident)
                 self._ser_session = create_onnx_session(model_path)
             except Exception as e:
-                logger.warning(f"SER ONNX model unavailable ({e}); will use fallback")
+                logger.warning(
+                    f"SER ONNX model unavailable ({e}); falling back to torch"
+                )
                 self._ser_processor = None
                 self._ser_session = None
+                self.affect_backend = "torch"
+                self._lazy_ser()
+                return
         else:
             if self._ser_model is not None and self._ser_processor is not None:
                 return
@@ -692,9 +717,14 @@ class EmotionIntentAnalyzer:
                 model_path = ensure_onnx_model(ident)
                 self._text_session = create_onnx_session(model_path)
             except Exception as e:
-                logger.warning(f"Text ONNX model unavailable ({e}); will use fallback")
+                logger.warning(
+                    f"Text ONNX model unavailable ({e}); falling back to torch"
+                )
                 self._text_session = None
                 self._text_tokenizer = None
+                self.affect_backend = "torch"
+                self._lazy_text()
+                return
         else:
             if self._text_pipeline is not None:
                 return
