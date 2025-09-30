@@ -111,9 +111,15 @@ def run_smoke_test() -> Dict[str, str]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="DiaRemo pipeline health check")
-    parser.add_argument("--skip-models", action="store_true", help="skip model availability checks")
-    parser.add_argument("--skip-smoke", action="store_true", help="skip running the pipeline smoke test")
-    parser.add_argument("--local-only", action="store_true", help="do not download missing models")
+    parser.add_argument(
+        "--skip-models", action="store_true", help="skip model availability checks"
+    )
+    parser.add_argument(
+        "--skip-smoke", action="store_true", help="skip running the pipeline smoke test"
+    )
+    parser.add_argument(
+        "--local-only", action="store_true", help="do not download missing models"
+    )
     args = parser.parse_args()
 
     report = {"dependencies": check_dependencies()}

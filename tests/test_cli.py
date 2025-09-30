@@ -4,8 +4,11 @@ from pathlib import Path
 
 import pytest
 
-typer = pytest.importorskip("typer")
-from typer.testing import CliRunner
+try:
+    import typer
+    from typer.testing import CliRunner
+except ModuleNotFoundError:  # pragma: no cover - exercised only without typer installed
+    pytest.skip("typer is required for CLI tests", allow_module_level=True)
 
 # Ensure the src layout is importable when running tests directly from the repo root.
 TESTS_ROOT = Path(__file__).resolve().parents[1]
@@ -28,7 +31,9 @@ def test_cli_requires_input_argument(runner: CliRunner) -> None:
     assert "--input" in result.stdout or "--input" in result.stderr
 
 
-def test_cli_run_invokes_pipeline(monkeypatch: pytest.MonkeyPatch, runner: CliRunner, tmp_path: Path) -> None:
+def test_cli_run_invokes_pipeline(
+    monkeypatch: pytest.MonkeyPatch, runner: CliRunner, tmp_path: Path
+) -> None:
     audio = tmp_path / "call.wav"
     audio.write_text("fake audio")
     outdir = tmp_path / "outputs"
@@ -73,7 +78,9 @@ def test_cli_run_invokes_pipeline(monkeypatch: pytest.MonkeyPatch, runner: CliRu
     assert captured["clear_cache"] is True
 
 
-def test_cli_validates_affect_backend_paths(monkeypatch: pytest.MonkeyPatch, runner: CliRunner, tmp_path: Path) -> None:
+def test_cli_validates_affect_backend_paths(
+    monkeypatch: pytest.MonkeyPatch, runner: CliRunner, tmp_path: Path
+) -> None:
     audio = tmp_path / "call.wav"
     audio.write_text("fake audio")
     outdir = tmp_path / "outputs"
@@ -101,10 +108,15 @@ def test_cli_validates_affect_backend_paths(monkeypatch: pytest.MonkeyPatch, run
     )
 
     assert result.exit_code != 0
-    assert "affect_text_model_dir" in result.stdout or "affect_text_model_dir" in result.stderr
+    assert (
+        "affect_text_model_dir" in result.stdout
+        or "affect_text_model_dir" in result.stderr
+    )
 
 
-def test_diagnostics_entrypoint_accepts_strict(monkeypatch: pytest.MonkeyPatch, runner: CliRunner) -> None:
+def test_diagnostics_entrypoint_accepts_strict(
+    monkeypatch: pytest.MonkeyPatch, runner: CliRunner
+) -> None:
     captured = {}
 
     def fake_core_diagnostics(*, require_versions: bool):

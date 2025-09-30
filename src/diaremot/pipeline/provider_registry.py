@@ -34,4 +34,3 @@ def provide(name: str, *args: Any, **kwargs: Any) -> Any:
 
 
 __all__ = ["register_provider", "get_provider", "provide"]
-

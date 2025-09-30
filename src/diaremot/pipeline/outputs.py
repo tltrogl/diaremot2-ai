@@ -140,14 +140,21 @@ def write_qc_report(
         "config_snapshot": stats.config_snapshot,
         "audio_health": {
             "snr_db": float(getattr(health, "snr_db", 0.0)) if health else None,
-            "silence_ratio": float(getattr(health, "silence_ratio", 0.0)) if health else None,
-            "clipping_detected": bool(getattr(health, "clipping_detected", False)) if health else None,
-            "dynamic_range_db": float(getattr(health, "dynamic_range_db", 0.0)) if health else None,
+            "silence_ratio": float(getattr(health, "silence_ratio", 0.0))
+            if health
+            else None,
+            "clipping_detected": bool(getattr(health, "clipping_detected", False))
+            if health
+            else None,
+            "dynamic_range_db": float(getattr(health, "dynamic_range_db", 0.0))
+            if health
+            else None,
         },
         "counts": {"turns": int(n_turns), "segments": int(n_segments)},
     }
 
     try:
+
         def _avg(key: str) -> float | None:
             values = []
             for seg in segments or []:

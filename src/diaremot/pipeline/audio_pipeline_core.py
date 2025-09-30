@@ -1,4 +1,3 @@
-
 """Compatibility shim that re-exports the pipeline implementation pieces."""
 
 from __future__ import annotations
@@ -10,7 +9,14 @@ from .config import (
     build_pipeline_config,
     dependency_health_summary,
 )
-from .logging_utils import CoreLogger, JSONLWriter, RunStats, StageGuard, _fmt_hms, _fmt_hms_ms
+from .logging_utils import (
+    CoreLogger,
+    JSONLWriter,
+    RunStats,
+    StageGuard,
+    _fmt_hms,
+    _fmt_hms_ms,
+)
 from .orchestrator import (
     AudioAnalysisPipelineV2,
     clear_pipeline_cache,

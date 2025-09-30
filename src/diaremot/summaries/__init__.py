@@ -1,4 +1,4 @@
-"""Summary generation utilities and conversation analytics.""" 
+"""Summary generation utilities and conversation analytics."""
 
 __all__ = [
     "conversation_analysis",

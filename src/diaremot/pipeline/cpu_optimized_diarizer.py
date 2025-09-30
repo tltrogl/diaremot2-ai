@@ -70,7 +70,10 @@ class CPUOptimizedSpeakerDiarizer:
             last = merged[-1]
             if seg["start"] <= last["end"] and seg["speaker"] == last["speaker"]:
                 last["end"] = max(last["end"], seg["end"])
-                if seg.get("embedding") is not None and last.get("embedding") is not None:
+                if (
+                    seg.get("embedding") is not None
+                    and last.get("embedding") is not None
+                ):
                     last_emb = np.asarray(last["embedding"], dtype=np.float32)
                     seg_emb = np.asarray(seg["embedding"], dtype=np.float32)
                     last["embedding"] = np.mean([last_emb, seg_emb], axis=0).tolist()
@@ -97,7 +100,10 @@ class CPUOptimizedSpeakerDiarizer:
             for start, end in self._chunks(audio, sr):
                 chunk = audio[start:end]
 
-                if self.config.enable_vad and self._rms_db(chunk) < self.config.energy_threshold_db:
+                if (
+                    self.config.enable_vad
+                    and self._rms_db(chunk) < self.config.energy_threshold_db
+                ):
                     continue
 
                 offset = start / sr
@@ -108,7 +114,9 @@ class CPUOptimizedSpeakerDiarizer:
                 elif isinstance(result, (list, tuple)):
                     result_iter = result
                 else:
-                    self.logger.debug(f"Skipping unexpected diarize result type: {type(result)}")
+                    self.logger.debug(
+                        f"Skipping unexpected diarize result type: {type(result)}"
+                    )
                     result_iter = []
 
                 for seg in result_iter:
@@ -119,7 +127,9 @@ class CPUOptimizedSpeakerDiarizer:
                             s = dict(vars(seg))
                         else:
                             # Unsupported type (e.g., str); skip gracefully
-                            self.logger.debug(f"Skipping unexpected segment type: {type(seg)}")
+                            self.logger.debug(
+                                f"Skipping unexpected segment type: {type(seg)}"
+                            )
                             continue
 
                         # Normalize required fields
@@ -156,7 +166,9 @@ class CPUOptimizedSpeakerDiarizer:
                         )
                     else:
                         clusterer = _agglo(
-                            distance_threshold=getattr(cfg, "ahc_distance_threshold", 0.12),
+                            distance_threshold=getattr(
+                                cfg, "ahc_distance_threshold", 0.12
+                            ),
                             linkage=getattr(cfg, "ahc_linkage", "average"),
                             metric="cosine",
                         )

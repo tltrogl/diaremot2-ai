@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+
 class JSONLWriter:
     def __init__(self, path: Path):
         self.path = Path(path)
@@ -25,7 +26,6 @@ class JSONLWriter:
         except PermissionError as exc:
             print(f"Warning: Could not write to log file {self.path}: {exc}")
         except Exception as exc:  # pragma: no cover - defensive
-
             print(f"Warning: Error writing to log file {self.path}: {exc}")
 
 
@@ -42,15 +42,22 @@ class RunStats:
     models: dict[str, Any] = field(default_factory=dict)
     config_snapshot: dict[str, Any] = field(default_factory=dict)
 
-    def mark(self, stage: str, elapsed_ms: float, counts: dict[str, int] | None = None) -> None:
-        self.stage_timings_ms[stage] = self.stage_timings_ms.get(stage, 0.0) + float(elapsed_ms)
+    def mark(
+        self, stage: str, elapsed_ms: float, counts: dict[str, int] | None = None
+    ) -> None:
+        self.stage_timings_ms[stage] = self.stage_timings_ms.get(stage, 0.0) + float(
+            elapsed_ms
+        )
         if counts:
             slot = self.stage_counts.setdefault(stage, {})
             for key, value in counts.items():
                 slot[key] = slot.get(key, 0) + int(value)
 
+
 class CoreLogger:
-    def __init__(self, run_id: str, jsonl_path: Path, console_level: int = logging.INFO):
+    def __init__(
+        self, run_id: str, jsonl_path: Path, console_level: int = logging.INFO
+    ):
         self.run_id = run_id
         self.jsonl = JSONLWriter(jsonl_path)
         self.log = logging.getLogger(f"pipeline.{run_id}")
@@ -58,10 +65,11 @@ class CoreLogger:
         if not self.log.handlers:
             handler = logging.StreamHandler()
             handler.setLevel(console_level)
-            fmt = logging.Formatter("[%(asctime)s] [%(levelname)s] %(message)s", datefmt="%H:%M")
+            fmt = logging.Formatter(
+                "[%(asctime)s] [%(levelname)s] %(message)s", datefmt="%H:%M"
+            )
             handler.setFormatter(fmt)
             self.log.addHandler(handler)
-
 
     def event(self, stage: str, event: str, **fields: Any) -> None:
         record = {
@@ -119,7 +127,6 @@ def _fmt_hms_ms(milliseconds: float) -> str:
 
 
 class StageGuard(AbstractContextManager["StageGuard"]):
-
     _OPTIONAL_STAGE_EXCEPTION_MAP = {
         "background_sed": (
             ImportError,
@@ -154,7 +161,6 @@ class StageGuard(AbstractContextManager["StageGuard"]):
     _CRITICAL_STAGES = {"preprocess", "outputs"}
     _TIMEOUT_STAGES = {"diarize", "transcribe"}
 
-
     def __init__(self, corelog: CoreLogger, stats: RunStats, stage: str):
         self.corelog = corelog
         self.stats = stats
@@ -172,7 +178,9 @@ class StageGuard(AbstractContextManager["StageGuard"]):
             self.stats.mark(self.stage, 0.0, counts)
 
     def _is_known_nonfatal(self, exc: BaseException) -> bool:
-        if isinstance(exc, TimeoutError | subprocess.TimeoutExpired) and (self.stage in self._TIMEOUT_STAGES):
+        if isinstance(exc, TimeoutError | subprocess.TimeoutExpired) and (
+            self.stage in self._TIMEOUT_STAGES
+        ):
             return True
 
         optional = self._OPTIONAL_STAGE_EXCEPTION_MAP.get(self.stage, ())
@@ -186,7 +194,6 @@ class StageGuard(AbstractContextManager["StageGuard"]):
         if exc:
             known_nonfatal = self._is_known_nonfatal(exc)
             trace_hash = hashlib.blake2s(
-
                 f"{self.stage}:{type(exc).__name__}".encode(), digest_size=8
             ).hexdigest()
             self.corelog.event(
@@ -201,8 +208,8 @@ class StageGuard(AbstractContextManager["StageGuard"]):
             dur_txt = _fmt_hms_ms(elapsed_ms)
             log_fn = self.corelog.warn if known_nonfatal else self.corelog.error
             log_fn(
-                f"[{self.stage}] {'handled ' if known_nonfatal else ''}" f"{type(exc).__name__}: {exc} ({dur_txt})"
-
+                f"[{self.stage}] {'handled ' if known_nonfatal else ''}"
+                f"{type(exc).__name__}: {exc} ({dur_txt})"
             )
             self.stats.mark(self.stage, elapsed_ms)
             try:
@@ -214,7 +221,6 @@ class StageGuard(AbstractContextManager["StageGuard"]):
                     text = str(err).lower()
                     if stage == "preprocess":
                         if "libsndfile" in text or "soundfile" in text:
-
                             return "Install libsndfile: apt-get install libsndfile1 (Linux) or brew install libsndfile (macOS)."
 
                         if "ffmpeg" in text or "audioread" in text:
@@ -229,7 +235,9 @@ class StageGuard(AbstractContextManager["StageGuard"]):
                             return "Install faster-whisper and ctranslate2; confirm CPU wheels are compatible."
                         if "whisper" in text and "tiny" in text:
                             return "OpenAI whisper fallback failed; try reinstalling whisper or using a local model."
-                        if "model" in text and ("not found" in text or "download" in text):
+                        if "model" in text and (
+                            "not found" in text or "download" in text
+                        ):
                             return "Model not found; provide a valid local model path or enable network access."
                         return "Reduce model size, set compute_type=float32, and verify dependencies."
                     if stage == "paralinguistics":
@@ -272,8 +280,8 @@ class StageGuard(AbstractContextManager["StageGuard"]):
             self.stats.mark(self.stage, elapsed_ms)
             return False
 
-__all__ = [
 
+__all__ = [
     "RunStats",
     "CoreLogger",
     "StageGuard",

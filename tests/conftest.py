@@ -21,7 +21,9 @@ def pytest_configure() -> None:
         np.array = _to_array  # type: ignore[attr-defined]
         np.asarray = _to_array  # type: ignore[attr-defined]
         np.ascontiguousarray = lambda data: data  # type: ignore[attr-defined]
-        np.zeros = lambda shape, dtype=None: [0.0] * (shape if isinstance(shape, int) else int(math.prod(shape)))  # type: ignore[attr-defined]
+        np.zeros = lambda shape, dtype=None: [0.0] * (
+            shape if isinstance(shape, int) else int(math.prod(shape))
+        )  # type: ignore[attr-defined]
         np.float32 = float  # type: ignore[attr-defined]
         np.sqrt = lambda x: math.sqrt(x)  # type: ignore[attr-defined]
         np.mean = lambda arr: (sum(arr) / len(arr)) if arr else 0.0  # type: ignore[attr-defined]

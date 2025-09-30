@@ -7,9 +7,10 @@ from pathlib import Path
 
 import pytest
 
-np = pytest.importorskip("numpy")
-if getattr(np, "__stub__", False):
-    pytest.skip("numpy not available", allow_module_level=True)
+try:
+    import numpy as np
+except ModuleNotFoundError:  # pragma: no cover - exercised only when numpy missing
+    pytest.skip("numpy is required for speaker registry tests", allow_module_level=True)
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 SRC_ROOT = PROJECT_ROOT / "src"
@@ -40,9 +41,12 @@ def _install_test_stubs() -> None:
 
 _install_test_stubs()
 
-from diaremot.pipeline.speaker_diarization import SpeakerRegistry
+from diaremot.pipeline.speaker_diarization import SpeakerRegistry  # noqa: E402
 
-import diaremot
+import diaremot  # noqa: E402
+
+if getattr(np, "__stub__", False) or not hasattr(np, "zeros"):
+    pytest.skip("numpy not available", allow_module_level=True)
 
 
 class SpeakerRegistrySchemaTest(unittest.TestCase):
@@ -61,9 +65,13 @@ class SpeakerRegistrySchemaTest(unittest.TestCase):
             registry = SpeakerRegistry(str(path))
             self.assertTrue(registry.has("Alice"))
 
-            registry.update_centroid("Alice", np.asarray([0.2, 0.1, 0.3], dtype=np.float32))
+            registry.update_centroid(
+                "Alice", np.asarray([0.2, 0.1, 0.3], dtype=np.float32)
+            )
             registry.enroll("Bob", np.asarray([0.3, 0.4, 0.5], dtype=np.float32))
-            match_name, _ = registry.match(np.asarray([0.3, 0.4, 0.5], dtype=np.float32))
+            match_name, _ = registry.match(
+                np.asarray([0.3, 0.4, 0.5], dtype=np.float32)
+            )
             self.assertIn(match_name, {"Alice", "Bob"})
 
             registry.save()
@@ -96,9 +104,13 @@ class SpeakerRegistrySchemaTest(unittest.TestCase):
             registry = SpeakerRegistry(str(path))
             self.assertTrue(registry.has("Alice"))
 
-            registry.update_centroid("Alice", np.asarray([0.2, 0.1, 0.3], dtype=np.float32))
+            registry.update_centroid(
+                "Alice", np.asarray([0.2, 0.1, 0.3], dtype=np.float32)
+            )
             registry.enroll("Bob", np.asarray([0.3, 0.4, 0.5], dtype=np.float32))
-            _match_name, score = registry.match(np.asarray([0.2, 0.1, 0.3], dtype=np.float32))
+            _match_name, score = registry.match(
+                np.asarray([0.2, 0.1, 0.3], dtype=np.float32)
+            )
             self.assertGreaterEqual(score, 0.0)
 
             registry.save()

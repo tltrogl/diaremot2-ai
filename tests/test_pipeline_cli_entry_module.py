@@ -11,16 +11,18 @@ from diaremot.pipeline import cli_entry
 
 def test_args_to_config_includes_flags() -> None:
     parser = cli_entry._build_arg_parser()
-    args = parser.parse_args([
-        "--input",
-        "sample.wav",
-        "--outdir",
-        "out",
-        "--beam-size",
-        "3",
-        "--no-speech-threshold",
-        "0.25",
-    ])
+    args = parser.parse_args(
+        [
+            "--input",
+            "sample.wav",
+            "--outdir",
+            "out",
+            "--beam-size",
+            "3",
+            "--no-speech-threshold",
+            "0.25",
+        ]
+    )
     config = cli_entry._args_to_config(args, ignore_tx_cache=True)
     assert config["beam_size"] == 3
     assert config["no_speech_threshold"] == 0.25
@@ -29,40 +31,48 @@ def test_args_to_config_includes_flags() -> None:
 
 def test_args_to_config_handles_chunk_toggle() -> None:
     parser = cli_entry._build_arg_parser()
-    args = parser.parse_args([
-        "--input",
-        "sample.wav",
-        "--outdir",
-        "out",
-        "--no-chunk-enabled",
-    ])
+    args = parser.parse_args(
+        [
+            "--input",
+            "sample.wav",
+            "--outdir",
+            "out",
+            "--no-chunk-enabled",
+        ]
+    )
     config = cli_entry._args_to_config(args, ignore_tx_cache=False)
     assert config["auto_chunk_enabled"] is False
 
+
 def test_args_to_config_defaults_preserve_chunking() -> None:
     parser = cli_entry._build_arg_parser()
-    args = parser.parse_args([
-        "--input",
-        "sample.wav",
-        "--outdir",
-        "out",
-    ])
+    args = parser.parse_args(
+        [
+            "--input",
+            "sample.wav",
+            "--outdir",
+            "out",
+        ]
+    )
     config = cli_entry._args_to_config(args, ignore_tx_cache=False)
     assert config["auto_chunk_enabled"] is True
 
 
 def test_args_to_config_accepts_affect_backend_auto() -> None:
     parser = cli_entry._build_arg_parser()
-    args = parser.parse_args([
-        "--input",
-        "sample.wav",
-        "--outdir",
-        "out",
-        "--affect-backend",
-        "auto",
-    ])
+    args = parser.parse_args(
+        [
+            "--input",
+            "sample.wav",
+            "--outdir",
+            "out",
+            "--affect-backend",
+            "auto",
+        ]
+    )
     config = cli_entry._args_to_config(args, ignore_tx_cache=False)
     assert config["affect_backend"] == "auto"
+
 
 def test_main_verify_deps(monkeypatch: pytest.MonkeyPatch, capsys: Any) -> None:
     called = {}
@@ -79,7 +89,9 @@ def test_main_verify_deps(monkeypatch: pytest.MonkeyPatch, capsys: Any) -> None:
     assert "All core dependencies" in captured.out
 
 
-def test_main_runs_pipeline(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: Any) -> None:
+def test_main_runs_pipeline(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: Any
+) -> None:
     audio = tmp_path / "call.wav"
     audio.write_text("fake")
     outdir = tmp_path / "out"
@@ -97,13 +109,15 @@ def test_main_runs_pipeline(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, cap
 
     monkeypatch.setattr(cli_entry, "AudioAnalysisPipelineV2", DummyPipeline)
 
-    exit_code = cli_entry.main([
-        "--input",
-        str(audio),
-        "--outdir",
-        str(outdir),
-        "--clear-cache",
-    ])
+    exit_code = cli_entry.main(
+        [
+            "--input",
+            str(audio),
+            "--outdir",
+            str(outdir),
+            "--clear-cache",
+        ]
+    )
 
     assert exit_code == 0
     raw_output = capsys.readouterr().out.splitlines()

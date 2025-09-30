@@ -8,9 +8,10 @@ import uuid
 
 import pytest
 
-np = pytest.importorskip("numpy")
-if getattr(np, "__stub__", False):
-    pytest.skip("numpy not available", allow_module_level=True)
+try:
+    import numpy as np
+except ModuleNotFoundError:  # pragma: no cover - exercised only when numpy missing
+    pytest.skip("numpy is required for stageguard tests", allow_module_level=True)
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -322,9 +323,12 @@ def _install_audio_pipeline_stubs() -> None:
 
 _install_audio_pipeline_stubs()
 
-from diaremot.pipeline.logging_utils import CoreLogger, RunStats, StageGuard
-from diaremot.pipeline.orchestrator import AudioAnalysisPipelineV2
-from diaremot.pipeline.outputs import default_affect
+from diaremot.pipeline.logging_utils import CoreLogger, RunStats, StageGuard  # noqa: E402
+from diaremot.pipeline.orchestrator import AudioAnalysisPipelineV2  # noqa: E402
+from diaremot.pipeline.outputs import default_affect  # noqa: E402
+
+if getattr(np, "__stub__", False) or not hasattr(np, "array"):
+    pytest.skip("numpy not available", allow_module_level=True)
 
 
 def _make_guard(tmp_path, stage: str):

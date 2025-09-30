@@ -209,14 +209,10 @@ def test_parselmouth():
         if not getattr(para, "PARSELMOUTH_AVAILABLE", False):
             print("⚠ Parselmouth not available")
             return False
-        audio = np.sin(2 * np.pi * 100 * np.linspace(0, 1, 16000)).astype(
-            np.float32
-        )
+        audio = np.sin(2 * np.pi * 100 * np.linspace(0, 1, 16000)).astype(np.float32)
         cfg = para.ParalinguisticsConfig(vq_use_parselmouth=True)
         res = para._compute_voice_quality_parselmouth_v2(audio, 16000, cfg)
-        print(
-            f"✓ Parselmouth functional (jitter_pct={res.get('jitter_pct', 0.0):.3f})"
-        )
+        print(f"✓ Parselmouth functional (jitter_pct={res.get('jitter_pct', 0.0):.3f})")
         return True
     except Exception as e:
         print(f"❌ Parselmouth test failed: {e}")

@@ -183,7 +183,9 @@ class _SileroWrapper:
     back to the TorchHub PyTorch implementation (fully CPU).
     """
 
-    def __init__(self, threshold: float, speech_pad_sec: float = 0.05, backend: str = "auto"):
+    def __init__(
+        self, threshold: float, speech_pad_sec: float = 0.05, backend: str = "auto"
+    ):
         self.threshold = float(threshold)
         self.speech_pad_sec = float(speech_pad_sec)
         self.backend_preference = (backend or "auto").lower()
@@ -205,6 +207,7 @@ class _SileroWrapper:
     # ------------------------------------------------------------------
     def _load(self) -> None:
         """Load Silero VAD honoring backend preference (onnx|torch|auto)."""
+
         # Prefer Torch by default for reliability across exports
         def _load_torch():
             override = _bool_env("SILERO_VAD_TORCH")
@@ -214,7 +217,9 @@ class _SileroWrapper:
 
             if not _torch_repo_cached():
                 # Skip TorchHub when offline to avoid hanging on git clone
-                if override is not True and not _can_reach_host("github.com", timeout=3.0):
+                if override is not True and not _can_reach_host(
+                    "github.com", timeout=3.0
+                ):
                     logger.info(
                         "Silero VAD TorchHub repo not cached and GitHub unreachable; "
                         "falling back to energy VAD"
@@ -275,8 +280,12 @@ class _SileroWrapper:
                 onnx_path = os.getenv("SILERO_VAD_ONNX_PATH")
                 if not onnx_path:
                     candidates = [
-                        WINDOWS_MODELS_ROOT / "silero_vad.onnx" if WINDOWS_MODELS_ROOT else None,
-                        WINDOWS_MODELS_ROOT / "silero" / "vad.onnx" if WINDOWS_MODELS_ROOT else None,
+                        WINDOWS_MODELS_ROOT / "silero_vad.onnx"
+                        if WINDOWS_MODELS_ROOT
+                        else None,
+                        WINDOWS_MODELS_ROOT / "silero" / "vad.onnx"
+                        if WINDOWS_MODELS_ROOT
+                        else None,
                         Path.cwd() / "models" / "silero_vad.onnx",
                         Path.cwd() / "models" / "silero" / "vad.onnx",
                     ]
@@ -304,15 +313,25 @@ class _SileroWrapper:
 
                     for inp in inputs:
                         lower = inp.name.lower()
-                        if self._onnx_input_name is None and (lower == "input" or lower.endswith("/input") or "input" in lower):
+                        if self._onnx_input_name is None and (
+                            lower == "input"
+                            or lower.endswith("/input")
+                            or "input" in lower
+                        ):
                             self._onnx_input_name = inp.name
                         elif self._onnx_state_name is None and "state" in lower:
                             self._onnx_state_name = inp.name
                             try:
-                                self._onnx_state_shape = _resolve_state_shape(tuple(getattr(inp, "shape", ())))
+                                self._onnx_state_shape = _resolve_state_shape(
+                                    tuple(getattr(inp, "shape", ()))
+                                )
                             except Exception:
                                 self._onnx_state_shape = (2, 1, 128)
-                        elif self._onnx_sr_name is None and (lower == "sr" or "sample_rate" in lower or "samplerate" in lower):
+                        elif self._onnx_sr_name is None and (
+                            lower == "sr"
+                            or "sample_rate" in lower
+                            or "samplerate" in lower
+                        ):
                             self._onnx_sr_name = inp.name
 
                     if self._onnx_input_name is None and inputs:
@@ -321,7 +340,9 @@ class _SileroWrapper:
                         for inp in inputs:
                             if "state" in inp.name.lower():
                                 self._onnx_state_name = inp.name
-                                self._onnx_state_shape = _resolve_state_shape(tuple(getattr(inp, "shape", ())))
+                                self._onnx_state_shape = _resolve_state_shape(
+                                    tuple(getattr(inp, "shape", ()))
+                                )
                                 break
                     if self._onnx_sr_name is None:
                         for inp in inputs:
@@ -371,15 +392,18 @@ class _SileroWrapper:
         override = _bool_env("SILERO_VAD_TORCH")
         should_try_torch = override is True
         if override is None:
-            should_try_torch = _torch_repo_cached() or _can_reach_host("github.com", timeout=3.0)
+            should_try_torch = _torch_repo_cached() or _can_reach_host(
+                "github.com", timeout=3.0
+            )
 
         if should_try_torch and _load_torch():
             return
         if should_try_torch:
             logger.info("Silero VAD Torch backend unavailable; proceeding without it")
         else:
-            logger.info("Silero VAD Torch backend skipped (offline/disabled); using fallbacks")
-
+            logger.info(
+                "Silero VAD Torch backend skipped (offline/disabled); using fallbacks"
+            )
 
     # ------------------------------------------------------------------
     def _detect_with_onnx(
@@ -399,7 +423,9 @@ class _SileroWrapper:
             audio = audio.reshape(-1)
 
         if sr != 16000:
-            audio = scipy.signal.resample_poly(audio, 16000, sr).astype(np.float32, copy=False)
+            audio = scipy.signal.resample_poly(audio, 16000, sr).astype(
+                np.float32, copy=False
+            )
             sr = 16000
 
         if audio.size == 0:
@@ -438,7 +464,9 @@ class _SileroWrapper:
             chunk = audio[offset : offset + chunk_size]
             offset += chunk_size
             chunk = chunk.reshape(batch_size, -1)
-            window = np.concatenate([context, chunk], axis=1).astype(np.float32, copy=False)
+            window = np.concatenate([context, chunk], axis=1).astype(
+                np.float32, copy=False
+            )
 
             feeds: Dict[str, np.ndarray] = {self._onnx_input_name: window}
             if self._onnx_state_name:
@@ -472,7 +500,9 @@ class _SileroWrapper:
                 and self._onnx_state_output_index < len(ort_outs)
             ):
                 try:
-                    state_out = np.asarray(ort_outs[self._onnx_state_output_index], dtype=np.float32)
+                    state_out = np.asarray(
+                        ort_outs[self._onnx_state_output_index], dtype=np.float32
+                    )
                     state = state_out.reshape(tuple(state_shape))
                 except Exception:
                     state = np.zeros(tuple(state_shape), dtype=np.float32)
@@ -536,7 +566,10 @@ class _SileroWrapper:
         if self.session is not None:
             try:
                 return self._detect_with_onnx(
-                    wav, sr, min_speech_sec=min_speech_sec, min_silence_sec=min_silence_sec
+                    wav,
+                    sr,
+                    min_speech_sec=min_speech_sec,
+                    min_silence_sec=min_silence_sec,
                 )
             except Exception as e:  # pragma: no cover - inference issues
                 logger.warning(f"Silero ONNX VAD failed: {e}")
@@ -585,10 +618,15 @@ class _ECAPAWrapper:
                     model_path = Path(env_path)
                 else:
                     candidates = [
-                        WINDOWS_MODELS_ROOT / "ecapa_tdnn.onnx" if WINDOWS_MODELS_ROOT else None,
+                        WINDOWS_MODELS_ROOT / "ecapa_tdnn.onnx"
+                        if WINDOWS_MODELS_ROOT
+                        else None,
                         Path.cwd() / "models" / "ecapa_tdnn.onnx",
                     ]
-                    model_path = next((cand for cand in candidates if cand and Path(cand).exists()), None)
+                    model_path = next(
+                        (cand for cand in candidates if cand and Path(cand).exists()),
+                        None,
+                    )
                     if model_path is None:
                         for cand in candidates:
                             if cand:
@@ -603,7 +641,6 @@ class _ECAPAWrapper:
         except Exception as e:
             logger.error(f"ECAPA ONNX model unavailable: {e}")
             self.session = None
-
 
     def embed_batch(
         self, batch: List[np.ndarray], sr: int
@@ -637,7 +674,9 @@ class _ECAPAWrapper:
                 if mel.shape[0] > max_frames:
                     max_frames = mel.shape[0]
 
-            pad = np.zeros((len(batch), max_frames, mel_specs[0].shape[1]), dtype=np.float32)
+            pad = np.zeros(
+                (len(batch), max_frames, mel_specs[0].shape[1]), dtype=np.float32
+            )
             for i, mel in enumerate(mel_specs):
                 pad[i, : mel.shape[0], :] = mel.astype(np.float32)
 
@@ -845,7 +884,11 @@ def _energy_vad_fallback(
 class SpeakerDiarizer:
     def __init__(self, config: DiarizationConfig):
         self.config = config
-        self.vad = _SileroWrapper(config.vad_threshold, config.speech_pad_sec, backend=getattr(config, "vad_backend", "auto"))
+        self.vad = _SileroWrapper(
+            config.vad_threshold,
+            config.speech_pad_sec,
+            backend=getattr(config, "vad_backend", "auto"),
+        )
         self.ecapa = _ECAPAWrapper(config.ecapa_model_path)
 
         self.registry = None
@@ -878,9 +921,9 @@ class SpeakerDiarizer:
         if wav.ndim > 1:
             wav = np.mean(wav, axis=0)
         if sr != self.config.target_sr:
-            wav = scipy.signal.resample_poly(
-                wav, self.config.target_sr, sr
-            ).astype(np.float32)
+            wav = scipy.signal.resample_poly(wav, self.config.target_sr, sr).astype(
+                np.float32
+            )
             sr = self.config.target_sr
         else:
             wav = wav.astype(np.float32)
@@ -1098,7 +1141,9 @@ class SpeakerDiarizer:
                                 )
 
                     if span_votes:
-                        dominant_speaker = max(span_votes.items(), key=lambda x: x[1])[0]
+                        dominant_speaker = max(span_votes.items(), key=lambda x: x[1])[
+                            0
+                        ]
 
                         # Aggregate embeddings for windows belonging to this span
                         emb_list = [
@@ -1188,7 +1233,9 @@ class SpeakerDiarizer:
                 last_duration = last.end - last.start
                 seg_duration = seg.end - seg.start
                 if last.embedding is not None and seg.embedding is not None:
-                    pooled = last.embedding * last_duration + seg.embedding * seg_duration
+                    pooled = (
+                        last.embedding * last_duration + seg.embedding * seg_duration
+                    )
                     norm = np.linalg.norm(pooled)
                     last.embedding = pooled / (norm + 1e-8) if norm > 0 else pooled
                 last.end = seg.end

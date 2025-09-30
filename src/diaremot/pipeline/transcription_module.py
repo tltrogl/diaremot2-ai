@@ -1,5 +1,5 @@
 # transcription_module.py
-    # Optimized, async-enabled transcription module with modern Python patterns
+# Optimized, async-enabled transcription module with modern Python patterns
 # Designed for high-throughput pipeline integration
 
 from __future__ import annotations
@@ -483,9 +483,7 @@ class AsyncTranscriber:
                 pass
         try:
             model_concurrency_value = (
-                int(model_concurrency)
-                if model_concurrency is not None
-                else 1
+                int(model_concurrency) if model_concurrency is not None else 1
             )
         except Exception:
             model_concurrency_value = 1
