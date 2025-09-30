@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from importlib import metadata as importlib_metadata
-from typing import Any, Iterable, Iterator
+from typing import Any, Iterator
 
 try:  # pragma: no cover - packaging may not be installed in some runtimes
     from packaging.version import Version
@@ -13,7 +13,9 @@ except Exception:  # pragma: no cover - fallback if packaging missing
 from .pipeline_config import CORE_DEPENDENCY_REQUIREMENTS
 
 
-def _iter_dependency_status() -> Iterator[tuple[str, str, Any, str | None, Exception | None, Exception | None]]:
+def _iter_dependency_status() -> Iterator[
+    tuple[str, str, Any, str | None, Exception | None, Exception | None]
+]:
     for mod, min_ver in CORE_DEPENDENCY_REQUIREMENTS.items():
         import_error: Exception | None = None
         metadata_error: Exception | None = None
@@ -39,7 +41,14 @@ def _verify_core_dependencies(require_versions: bool = False) -> tuple[bool, lis
 
     issues: list[str] = []
 
-    for mod, min_ver, module, version, import_error, metadata_error in _iter_dependency_status():
+    for (
+        mod,
+        min_ver,
+        module,
+        version,
+        import_error,
+        metadata_error,
+    ) in _iter_dependency_status():
         if import_error is not None or module is None:
             issues.append(f"Missing or failed to import: {mod} ({import_error})")
             continue
@@ -67,7 +76,14 @@ def _verify_core_dependencies(require_versions: bool = False) -> tuple[bool, lis
 def _dependency_health_summary() -> dict[str, dict[str, Any]]:
     summary: dict[str, dict[str, Any]] = {}
 
-    for mod, min_ver, module, version, import_error, metadata_error in _iter_dependency_status():
+    for (
+        mod,
+        min_ver,
+        module,
+        version,
+        import_error,
+        metadata_error,
+    ) in _iter_dependency_status():
         entry: dict[str, Any] = {"required_min": min_ver}
 
         if import_error is not None or module is None:
@@ -129,4 +145,3 @@ __all__ = [
     "diagnostics",
     "verify_dependencies",
 ]
-

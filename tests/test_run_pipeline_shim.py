@@ -63,12 +63,16 @@ def test_shim_delegates_functions(monkeypatch, shim):
     assert config == {"config": {"beam_size": 2}}
     assert calls["build"] == {"beam_size": 2}
 
-    result = module.run_pipeline("input.wav", "out", config={"beam": 3}, clear_cache=True)
+    result = module.run_pipeline(
+        "input.wav", "out", config={"beam": 3}, clear_cache=True
+    )
     assert result == {"status": "ok"}
     assert calls["run"] == ("input.wav", "out", {"beam": 3}, True)
 
     with pytest.warns(RuntimeWarning, match="allow_reprocess"):
-        resume_payload = module.resume("ckpt.json", outdir="out", config={"foo": 1}, allow_reprocess=True)
+        resume_payload = module.resume(
+            "ckpt.json", outdir="out", config={"foo": 1}, allow_reprocess=True
+        )
     assert resume_payload == {"resume": True}
     assert calls["resume"] == ("ckpt.json", "out", {"foo": 1})
 

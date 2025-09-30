@@ -5,8 +5,12 @@ from unittest import mock
 
 import pytest
 
-np = pytest.importorskip("numpy")
-if getattr(np, "__stub__", False):
+try:
+    import numpy as np
+except ModuleNotFoundError:  # pragma: no cover - exercised only when numpy missing
+    pytest.skip("numpy is required for silero wrapper tests", allow_module_level=True)
+
+if getattr(np, "__stub__", False) or not hasattr(np, "ones"):
     pytest.skip("numpy not available", allow_module_level=True)
 
 
@@ -19,7 +23,9 @@ if str(SRC_ROOT) not in sys.path:
 if "librosa" not in sys.modules:
     librosa_stub = SimpleNamespace(
         util=SimpleNamespace(frame=lambda *args, **kwargs: np.zeros((0,))),
-        feature=SimpleNamespace(melspectrogram=lambda *args, **kwargs: np.zeros((1, 1))),
+        feature=SimpleNamespace(
+            melspectrogram=lambda *args, **kwargs: np.zeros((1, 1))
+        ),
         power_to_db=lambda x, ref=1.0: x,
     )
     sys.modules["librosa"] = librosa_stub
@@ -29,7 +35,7 @@ if "scipy" not in sys.modules:
     sys.modules["scipy"] = SimpleNamespace(signal=scipy_signal)
     sys.modules["scipy.signal"] = scipy_signal
 
-from diaremot.pipeline.speaker_diarization import _SileroWrapper
+from diaremot.pipeline.speaker_diarization import _SileroWrapper  # noqa: E402
 
 
 class _DummyTensor:

@@ -143,7 +143,9 @@ class PipelineCheckpointManager:
         self, audio_file: str, stage: ProcessingStage, file_hash: Optional[str] = None
     ) -> Path:
         """Get metadata file path"""
-        checkpoint_path = self._get_checkpoint_path(audio_file, stage, file_hash=file_hash)
+        checkpoint_path = self._get_checkpoint_path(
+            audio_file, stage, file_hash=file_hash
+        )
         return checkpoint_path.with_suffix(".meta")
 
     def create_checkpoint(
@@ -187,7 +189,9 @@ class PipelineCheckpointManager:
                 # Save metadata (convert enum to string for JSON serialization)
                 with open(metadata_path, "w") as f:
                     metadata_dict = asdict(metadata)
-                    metadata_dict['stage'] = metadata.stage.value  # Convert enum to string
+                    metadata_dict["stage"] = (
+                        metadata.stage.value
+                    )  # Convert enum to string
                     json.dump(metadata_dict, f, indent=2)
 
                 self.logger.info(f"Checkpoint created: {stage.value} ({progress:.1f}%)")

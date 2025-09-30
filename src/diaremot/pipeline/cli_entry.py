@@ -8,7 +8,11 @@ from pathlib import Path
 from typing import Any
 
 from .config import build_pipeline_config
-from .orchestrator import AudioAnalysisPipelineV2, clear_pipeline_cache, config_verify_dependencies
+from .orchestrator import (
+    AudioAnalysisPipelineV2,
+    clear_pipeline_cache,
+    config_verify_dependencies,
+)
 from .speaker_diarization import DiarizationConfig
 
 
@@ -100,7 +104,9 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         help="Path to intent classifier model assets",
     )
     parser.add_argument("--beam-size", type=int, default=1, help="ASR beam search size")
-    parser.add_argument("--temperature", type=float, default=0.0, help="ASR decoding temperature")
+    parser.add_argument(
+        "--temperature", type=float, default=0.0, help="ASR decoding temperature"
+    )
     parser.add_argument(
         "--no-speech-threshold",
         type=float,
@@ -229,7 +235,9 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _args_to_config(args: argparse.Namespace, *, ignore_tx_cache: bool) -> dict[str, Any]:
+def _args_to_config(
+    args: argparse.Namespace, *, ignore_tx_cache: bool
+) -> dict[str, Any]:
     return {
         "registry_path": args.registry_path,
         "ahc_distance_threshold": args.ahc_distance_threshold,
@@ -270,7 +278,9 @@ def _args_to_config(args: argparse.Namespace, *, ignore_tx_cache: bool) -> dict[
     }
 
 
-def _handle_cache_clear(requested: bool, *, cache_root: Path, ignore_tx_cache: bool) -> bool:
+def _handle_cache_clear(
+    requested: bool, *, cache_root: Path, ignore_tx_cache: bool
+) -> bool:
     if not requested:
         return ignore_tx_cache
     try:
@@ -278,7 +288,9 @@ def _handle_cache_clear(requested: bool, *, cache_root: Path, ignore_tx_cache: b
         print("Cache cleared successfully.")
         return True
     except PermissionError:
-        print("Warning: Could not fully clear cache due to permissions. Ignoring cached results.")
+        print(
+            "Warning: Could not fully clear cache due to permissions. Ignoring cached results."
+        )
         return True
     except RuntimeError as exc:
         print(f"Warning: Cache clear failed: {exc}. Ignoring cached results.")
@@ -295,7 +307,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.verify_deps:
         ok, problems = config_verify_dependencies(bool(args.strict_dependency_versions))
         if ok:
-            suffix = " with required versions" if args.strict_dependency_versions else ""
+            suffix = (
+                " with required versions" if args.strict_dependency_versions else ""
+            )
             print(f"All core dependencies are importable{suffix}.")
             return 0
         print("Dependency verification failed\n  - " + "\n  - ".join(problems))

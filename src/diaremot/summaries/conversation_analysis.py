@@ -123,7 +123,9 @@ def analyze_conversation_flow(
         # Interruption rate per minute
         try:
             interrupt_rate = (
-                sum(interrupts.values()) / duration_minutes if duration_minutes > 0 else 0.0
+                sum(interrupts.values()) / duration_minutes
+                if duration_minutes > 0
+                else 0.0
             )
             interrupts_per_speaker = {
                 spk: (cnt / duration_minutes if duration_minutes > 0 else 0.0)

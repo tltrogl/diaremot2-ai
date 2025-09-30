@@ -3,7 +3,12 @@ from __future__ import annotations
 import json
 import logging
 
-from diaremot.pipeline.logging_utils import CoreLogger, JSONLWriter, RunStats, StageGuard
+from diaremot.pipeline.logging_utils import (
+    CoreLogger,
+    JSONLWriter,
+    RunStats,
+    StageGuard,
+)
 
 
 def test_jsonl_writer_appends_records(tmp_path) -> None:
