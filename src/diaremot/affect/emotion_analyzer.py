@@ -20,13 +20,14 @@
 
 from __future__ import annotations
 
+import importlib.util
 import logging
 import math
 import os
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Optional, Tuple
 
 # Optional heavy deps are imported lazily inside methods.
 # librosa is cheap enough; used for fallbacks and basic features.
@@ -125,14 +126,6 @@ GOEMOTIONS_AMBIGUOUS = {"confusion", "curiosity", "realization", "surprise"}
 # --------------------------
 
 
-def _softmax(x: np.ndarray) -> np.ndarray:
-    x = np.asarray(x, dtype=np.float64)
-    x = x - np.max(x)
-    e = np.exp(x)
-    s = e.sum() or 1.0
-    return (e / s).astype(np.float64)
-
-
 def _entropy(probs: Dict[str, float]) -> float:
     p = np.clip(np.array(list(probs.values()), dtype=np.float64), 1e-12, 1.0)
     return float(-np.sum(p * np.log(p)))
@@ -203,22 +196,6 @@ def _trim_max_len(audio: np.ndarray, sr: int, max_sec: float = 30.0) -> np.ndarr
     return audio[:nmax] if audio.size > nmax else audio
 
 
-def _text_tokens(text: str) -> List[str]:
-    if not text:
-        return []
-    out, buf = [], []
-    for ch in text:
-        if ch.isalnum() or ch in ["'", "-"]:
-            buf.append(ch.lower())
-        else:
-            if buf:
-                out.append("".join(buf))
-                buf = []
-    if buf:
-        out.append("".join(buf))
-    return out
-
-
 # --------------------------
 # Dataclass (internal use)
 # --------------------------
@@ -282,10 +259,28 @@ class EmotionIntentAnalyzer:
         self.ser_model_name = "Dpngtm/wav2vec2-emotion-recognition"
         self.intent_model_name = "facebook/bart-large-mnli"
 
+        backend = (affect_backend or "auto").lower()
+        backend_aliases = {
+            "pt": "torch",
+            "pytorch": "torch",
+            "torch": "torch",
+            "onnx": "onnx",
+        }
+        if backend in backend_aliases:
+            backend = backend_aliases[backend]
+        elif backend == "auto":
+            backend = (
+                "onnx"
+                if importlib.util.find_spec("onnxruntime") is not None
+                else "torch"
+            )
+        else:
+            logger.warning("Unknown affect backend '%s'; defaulting to torch", backend)
+            backend = "torch"
+
         # Lazy handles
         self._vad_processor = None
         self._vad_model = None
-        a = None  # noqa
         self._vad_idx = None  # {'valence': i, 'arousal': j, 'dominance': k}
 
         self._ser_processor = None
@@ -296,7 +291,7 @@ class EmotionIntentAnalyzer:
         self._text_session = None  # ONNX runtime session
         self._text_tokenizer = None
         self._intent_pipeline = None
-        self.affect_backend = (affect_backend or "auto").lower()
+        self.affect_backend = backend
         self.affect_text_model_dir = affect_text_model_dir
         self.affect_intent_model_dir = affect_intent_model_dir
 
@@ -567,10 +562,13 @@ class EmotionIntentAnalyzer:
                 self._ser_session = create_onnx_session(model_path)
             except Exception as e:
                 logger.warning(
-                    f"SER ONNX model unavailable ({e}); will use fallback"
+                    f"SER ONNX model unavailable ({e}); falling back to torch"
                 )
                 self._ser_processor = None
                 self._ser_session = None
+                self.affect_backend = "torch"
+                self._lazy_ser()
+                return
         else:
             if self._ser_model is not None and self._ser_processor is not None:
                 return
@@ -590,9 +588,7 @@ class EmotionIntentAnalyzer:
                     self.ser_model_name
                 )
             except Exception as e:
-                logger.warning(
-                    f"SER model unavailable ({e}); will use fallback"
-                )
+                logger.warning(f"SER model unavailable ({e}); will use fallback")
                 self._ser_processor = None
                 self._ser_model = None
 
@@ -722,10 +718,13 @@ class EmotionIntentAnalyzer:
                 self._text_session = create_onnx_session(model_path)
             except Exception as e:
                 logger.warning(
-                    f"Text ONNX model unavailable ({e}); will use fallback"
+                    f"Text ONNX model unavailable ({e}); falling back to torch"
                 )
                 self._text_session = None
                 self._text_tokenizer = None
+                self.affect_backend = "torch"
+                self._lazy_text()
+                return
         else:
             if self._text_pipeline is not None:
                 return
@@ -753,9 +752,7 @@ class EmotionIntentAnalyzer:
                     or not text.strip()
                 ):
                     raise RuntimeError("text model missing or text empty")
-                enc = self._text_tokenizer(
-                    text, return_tensors="np", truncation=True
-                )
+                enc = self._text_tokenizer(text, return_tensors="np", truncation=True)
                 ort_inputs = {k: v for k, v in enc.items()}
                 logits = self._text_session.run(None, ort_inputs)[0]
                 if logits.ndim == 2:
@@ -864,7 +861,9 @@ class EmotionIntentAnalyzer:
             )
         except Exception as e:
             if self.affect_backend == "onnx":
-                logger.info("Intent ONNX backend not implemented; using transformer pipeline fallback")
+                logger.info(
+                    "Intent ONNX backend not implemented; using transformer pipeline fallback"
+                )
             logger.warning(f"Intent model unavailable ({e}); will use fallback")
             self._intent_pipeline = None
 
@@ -968,10 +967,12 @@ class EmotionIntentAnalyzer:
             + ser_probs.get("disgusted", 0.0)
         )
         ser_neu = ser_probs.get("neutral", 0.0) + ser_probs.get("calm", 0.0)
-        ser_label = max(
-            {"positive": ser_pos, "negative": ser_neg, "neutral": ser_neu},
-            key=lambda k: {"positive": ser_pos, "negative": ser_neg, "neutral": ser_neu}[k],
-        )
+        ser_polarity = {
+            "positive": ser_pos,
+            "negative": ser_neg,
+            "neutral": ser_neu,
+        }
+        ser_label = max(ser_polarity, key=ser_polarity.get)
 
         # Text polarity
         text_label = max(pol, key=pol.get) if pol else "neutral"
@@ -984,15 +985,23 @@ class EmotionIntentAnalyzer:
         if ser_label == "neutral" and text_label != "neutral":
             return f"text-dominant-{text_label}"
 
-        v_sign_text = 1 if text_label == "positive" else (-1 if text_label == "negative" else 0)
+        v_sign_text = (
+            1 if text_label == "positive" else (-1 if text_label == "negative" else 0)
+        )
         v_sign_audio = 1 if v > 0.15 else (-1 if v < -0.15 else 0)
         aligned = (v_sign_text == v_sign_audio) or (v_sign_text == 0 and abs(v) < 0.15)
-        polarity_tag = text_label if text_label in ("positive", "negative") else ser_label
-        return (
+        polarity_tag = (
+            text_label if text_label in ("positive", "negative") else ser_label
+        )
+        hint = (
             f"affect-convergent-{polarity_tag}"
             if aligned
             else f"affect-divergent-{polarity_tag}"
         )
+        arousal_level = "high" if a > 0.4 else "low" if a < -0.4 else None
+        if arousal_level:
+            hint = f"{hint} | arousal-{arousal_level}"
+        return hint
 
 
 # End class

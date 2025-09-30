@@ -18,7 +18,9 @@ app = typer.Typer(
     help="""High level CLI wrapper for the DiaRemot audio pipeline.\n\nThe CLI is now organised into domain-centric groups. For example:\n\n  • diaremot asr run --input sample.wav --outdir outputs/run1\n  • diaremot vad debug --input sample.wav\n  • diaremot report gen --manifest outputs/run1/manifest.json""",
     rich_markup_mode="markdown",
 )
-asr_app = typer.Typer(help="Automatic speech recognition, diarization and affect pipeline commands.")
+asr_app = typer.Typer(
+    help="Automatic speech recognition, diarization and affect pipeline commands."
+)
 vad_app = typer.Typer(help="Voice activity detection tooling.")
 report_app = typer.Typer(help="Reporting and summary generation utilities.")
 system_app = typer.Typer(help="System level diagnostics and maintenance commands.")
@@ -120,7 +122,9 @@ def _normalise_path(value: Optional[Path]) -> Optional[str]:
     return str(value.expanduser().resolve())
 
 
-def _merge_configs(profile_overrides: Dict[str, Any], cli_overrides: Dict[str, Any]) -> Dict[str, Any]:
+def _merge_configs(
+    profile_overrides: Dict[str, Any], cli_overrides: Dict[str, Any]
+) -> Dict[str, Any]:
     merged: Dict[str, Any] = dict(profile_overrides)
     defaults = _default_config().model_dump(mode="python")
     for key, value in cli_overrides.items():
@@ -132,7 +136,28 @@ def _merge_configs(profile_overrides: Dict[str, Any], cli_overrides: Dict[str, A
     return merged
 
 
-def _validate_assets(input_path: Path, output_dir: Path, config: PipelineConfig) -> None:
+def _manifest_output_root(manifest_path: Path, manifest_data: Dict[str, Any]) -> Path:
+    root_value = manifest_data.get("out_dir")
+    if root_value:
+        root_path = Path(root_value).expanduser()
+        if not root_path.is_absolute():
+            root_path = (manifest_path.parent / root_path).resolve()
+        return root_path
+    return manifest_path.parent.resolve()
+
+
+def _resolve_manifest_path(root: Path, value: Any) -> Optional[Path]:
+    if not value:
+        return None
+    path = Path(value).expanduser()
+    if not path.is_absolute():
+        path = (root / path).resolve()
+    return path
+
+
+def _validate_assets(
+    input_path: Path, output_dir: Path, config: PipelineConfig
+) -> None:
     errors: List[str] = []
 
     if not input_path.exists():
@@ -231,20 +256,30 @@ def _common_options(**kwargs: Any) -> Dict[str, Any]:
 @asr_app.command("run")
 def asr_run(
     input: Path = typer.Option(..., "--input", "-i", help="Path to input audio file."),
-    outdir: Path = typer.Option(..., "--outdir", "-o", help="Directory to write outputs."),
+    outdir: Path = typer.Option(
+        ..., "--outdir", "-o", help="Directory to write outputs."
+    ),
     profile: Optional[str] = typer.Option(
         None,
         "--profile",
         help=f"Configuration profile to load ({', '.join(BUILTIN_PROFILES)} or path to JSON).",
     ),
-    registry_path: Path = typer.Option(Path("speaker_registry.json"), help="Speaker registry path."),
-    ahc_distance_threshold: float = typer.Option(0.12, help="Agglomerative clustering distance threshold."),
-    speaker_limit: Optional[int] = typer.Option(None, help="Maximum number of speakers to keep."),
+    registry_path: Path = typer.Option(
+        Path("speaker_registry.json"), help="Speaker registry path."
+    ),
+    ahc_distance_threshold: float = typer.Option(
+        0.12, help="Agglomerative clustering distance threshold."
+    ),
+    speaker_limit: Optional[int] = typer.Option(
+        None, help="Maximum number of speakers to keep."
+    ),
     whisper_model: str = typer.Option(
         "faster-whisper-tiny.en", help="Whisper/Faster-Whisper model identifier."
     ),
     asr_backend: str = typer.Option("faster", help="ASR backend", show_default=True),
-    asr_compute_type: str = typer.Option("float32", help="CT2 compute type for faster-whisper."),
+    asr_compute_type: str = typer.Option(
+        "float32", help="CT2 compute type for faster-whisper."
+    ),
     asr_cpu_threads: int = typer.Option(1, help="CPU threads for ASR backend."),
     language: Optional[str] = typer.Option(None, help="Override ASR language"),
     language_mode: str = typer.Option("auto", help="Language detection mode"),
@@ -266,12 +301,20 @@ def asr_run(
         help="Skip affect analysis.",
         is_flag=True,
     ),
-    affect_backend: str = typer.Option("onnx", help="Affect backend (auto/torch/onnx)."),
-    affect_text_model_dir: Optional[Path] = typer.Option(None, help="Path to GoEmotions model directory."),
-    affect_intent_model_dir: Optional[Path] = typer.Option(None, help="Path to intent model directory."),
+    affect_backend: str = typer.Option(
+        "onnx", help="Affect backend (auto/torch/onnx)."
+    ),
+    affect_text_model_dir: Optional[Path] = typer.Option(
+        None, help="Path to GoEmotions model directory."
+    ),
+    affect_intent_model_dir: Optional[Path] = typer.Option(
+        None, help="Path to intent model directory."
+    ),
     beam_size: int = typer.Option(1, help="Beam size for ASR decoding."),
     temperature: float = typer.Option(0.0, help="Sampling temperature for ASR."),
-    no_speech_threshold: float = typer.Option(0.50, help="No-speech threshold for Whisper."),
+    no_speech_threshold: float = typer.Option(
+        0.50, help="No-speech threshold for Whisper."
+    ),
     noise_reduction: bool = typer.Option(
         False,
         "--noise-reduction",
@@ -289,14 +332,26 @@ def asr_run(
         "--chunk-enabled",
         help="Set automatic chunking of long files (true/false).",
     ),
-    chunk_threshold_minutes: float = typer.Option(30.0, help="Chunking activation threshold."),
+    chunk_threshold_minutes: float = typer.Option(
+        30.0, help="Chunking activation threshold."
+    ),
     chunk_size_minutes: float = typer.Option(20.0, help="Chunk size in minutes."),
-    chunk_overlap_seconds: float = typer.Option(30.0, help="Overlap between chunks in seconds."),
+    chunk_overlap_seconds: float = typer.Option(
+        30.0, help="Overlap between chunks in seconds."
+    ),
     vad_threshold: float = typer.Option(0.30, help="Silero VAD probability threshold."),
-    vad_min_speech_sec: float = typer.Option(0.8, help="Minimum detected speech duration."),
-    vad_min_silence_sec: float = typer.Option(0.8, help="Minimum detected silence duration."),
-    vad_speech_pad_sec: float = typer.Option(0.2, help="Padding added around VAD speech regions."),
-    vad_backend: str = typer.Option("auto", help="Silero VAD backend (auto/torch/onnx)."),
+    vad_min_speech_sec: float = typer.Option(
+        0.8, help="Minimum detected speech duration."
+    ),
+    vad_min_silence_sec: float = typer.Option(
+        0.8, help="Minimum detected silence duration."
+    ),
+    vad_speech_pad_sec: float = typer.Option(
+        0.2, help="Padding added around VAD speech regions."
+    ),
+    vad_backend: str = typer.Option(
+        "auto", help="Silero VAD backend (auto/torch/onnx)."
+    ),
     disable_energy_vad_fallback: bool = typer.Option(
         False,
         "--disable-energy-fallback",
@@ -305,9 +360,13 @@ def asr_run(
     ),
     energy_gate_db: float = typer.Option(-33.0, help="Energy VAD gating threshold."),
     energy_hop_sec: float = typer.Option(0.01, help="Energy VAD hop length."),
-    asr_window_sec: int = typer.Option(480, help="Maximum audio length per ASR window."),
+    asr_window_sec: int = typer.Option(
+        480, help="Maximum audio length per ASR window."
+    ),
     asr_segment_timeout: float = typer.Option(300.0, help="Timeout per ASR segment."),
-    asr_batch_timeout: float = typer.Option(1200.0, help="Timeout for a batch of ASR segments."),
+    asr_batch_timeout: float = typer.Option(
+        1200.0, help="Timeout for a batch of ASR segments."
+    ),
     cpu_diarizer: bool = typer.Option(
         False,
         "--cpu-diarizer",
@@ -390,20 +449,30 @@ app.command("run")(asr_run)
 @asr_app.command("resume")
 def asr_resume(
     input: Path = typer.Option(..., "--input", "-i", help="Original input audio file."),
-    outdir: Path = typer.Option(..., "--outdir", "-o", help="Output directory used in the previous run."),
+    outdir: Path = typer.Option(
+        ..., "--outdir", "-o", help="Output directory used in the previous run."
+    ),
     profile: Optional[str] = typer.Option(
         None,
         "--profile",
         help=f"Configuration profile to load ({', '.join(BUILTIN_PROFILES)} or path to JSON).",
     ),
-    registry_path: Path = typer.Option(Path("speaker_registry.json"), help="Speaker registry path."),
-    ahc_distance_threshold: float = typer.Option(0.12, help="Agglomerative clustering distance threshold."),
-    speaker_limit: Optional[int] = typer.Option(None, help="Maximum number of speakers to keep."),
+    registry_path: Path = typer.Option(
+        Path("speaker_registry.json"), help="Speaker registry path."
+    ),
+    ahc_distance_threshold: float = typer.Option(
+        0.12, help="Agglomerative clustering distance threshold."
+    ),
+    speaker_limit: Optional[int] = typer.Option(
+        None, help="Maximum number of speakers to keep."
+    ),
     whisper_model: str = typer.Option(
         "faster-whisper-tiny.en", help="Whisper/Faster-Whisper model identifier."
     ),
     asr_backend: str = typer.Option("faster", help="ASR backend", show_default=True),
-    asr_compute_type: str = typer.Option("float32", help="CT2 compute type for faster-whisper."),
+    asr_compute_type: str = typer.Option(
+        "float32", help="CT2 compute type for faster-whisper."
+    ),
     asr_cpu_threads: int = typer.Option(1, help="CPU threads for ASR backend."),
     language: Optional[str] = typer.Option(None, help="Override ASR language"),
     language_mode: str = typer.Option("auto", help="Language detection mode"),
@@ -419,12 +488,20 @@ def asr_resume(
         help="Skip affect analysis.",
         is_flag=True,
     ),
-    affect_backend: str = typer.Option("onnx", help="Affect backend (auto/torch/onnx)."),
-    affect_text_model_dir: Optional[Path] = typer.Option(None, help="Path to GoEmotions model directory."),
-    affect_intent_model_dir: Optional[Path] = typer.Option(None, help="Path to intent model directory."),
+    affect_backend: str = typer.Option(
+        "onnx", help="Affect backend (auto/torch/onnx)."
+    ),
+    affect_text_model_dir: Optional[Path] = typer.Option(
+        None, help="Path to GoEmotions model directory."
+    ),
+    affect_intent_model_dir: Optional[Path] = typer.Option(
+        None, help="Path to intent model directory."
+    ),
     beam_size: int = typer.Option(1, help="Beam size for ASR decoding."),
     temperature: float = typer.Option(0.0, help="Sampling temperature for ASR."),
-    no_speech_threshold: float = typer.Option(0.50, help="No-speech threshold for Whisper."),
+    no_speech_threshold: float = typer.Option(
+        0.50, help="No-speech threshold for Whisper."
+    ),
     noise_reduction: bool = typer.Option(
         False,
         "--noise-reduction",
@@ -442,14 +519,26 @@ def asr_resume(
         "--chunk-enabled",
         help="Set automatic chunking of long files (true/false).",
     ),
-    chunk_threshold_minutes: float = typer.Option(30.0, help="Chunking activation threshold."),
+    chunk_threshold_minutes: float = typer.Option(
+        30.0, help="Chunking activation threshold."
+    ),
     chunk_size_minutes: float = typer.Option(20.0, help="Chunk size in minutes."),
-    chunk_overlap_seconds: float = typer.Option(30.0, help="Overlap between chunks in seconds."),
+    chunk_overlap_seconds: float = typer.Option(
+        30.0, help="Overlap between chunks in seconds."
+    ),
     vad_threshold: float = typer.Option(0.30, help="Silero VAD probability threshold."),
-    vad_min_speech_sec: float = typer.Option(0.8, help="Minimum detected speech duration."),
-    vad_min_silence_sec: float = typer.Option(0.8, help="Minimum detected silence duration."),
-    vad_speech_pad_sec: float = typer.Option(0.2, help="Padding added around VAD speech regions."),
-    vad_backend: str = typer.Option("auto", help="Silero VAD backend (auto/torch/onnx)."),
+    vad_min_speech_sec: float = typer.Option(
+        0.8, help="Minimum detected speech duration."
+    ),
+    vad_min_silence_sec: float = typer.Option(
+        0.8, help="Minimum detected silence duration."
+    ),
+    vad_speech_pad_sec: float = typer.Option(
+        0.2, help="Padding added around VAD speech regions."
+    ),
+    vad_backend: str = typer.Option(
+        "auto", help="Silero VAD backend (auto/torch/onnx)."
+    ),
     disable_energy_vad_fallback: bool = typer.Option(
         False,
         "--disable-energy-fallback",
@@ -458,9 +547,13 @@ def asr_resume(
     ),
     energy_gate_db: float = typer.Option(-33.0, help="Energy VAD gating threshold."),
     energy_hop_sec: float = typer.Option(0.01, help="Energy VAD hop length."),
-    asr_window_sec: int = typer.Option(480, help="Maximum audio length per ASR window."),
+    asr_window_sec: int = typer.Option(
+        480, help="Maximum audio length per ASR window."
+    ),
     asr_segment_timeout: float = typer.Option(300.0, help="Timeout per ASR segment."),
-    asr_batch_timeout: float = typer.Option(1200.0, help="Timeout for a batch of ASR segments."),
+    asr_batch_timeout: float = typer.Option(
+        1200.0, help="Timeout for a batch of ASR segments."
+    ),
     cpu_diarizer: bool = typer.Option(
         False,
         "--cpu-diarizer",
@@ -534,7 +627,9 @@ app.command("resume")(asr_resume)
 
 
 @system_app.command("diagnostics")
-def diagnostics(strict: bool = typer.Option(False, help="Require minimum dependency versions.")) -> None:
+def diagnostics(
+    strict: bool = typer.Option(False, help="Require minimum dependency versions."),
+) -> None:
     """Run dependency diagnostics and emit a JSON summary."""
 
     result = core_diagnostics(require_versions=strict)
@@ -584,35 +679,47 @@ def _load_speakers_csv(path: Path) -> List[Dict[str, Any]]:
 
 @report_app.command("gen")
 def report_gen(
-    manifest: Path = typer.Option(..., "--manifest", "-m", help="Manifest JSON from a pipeline run."),
-    outdir: Optional[Path] = typer.Option(None, "--outdir", help="Override output directory."),
-    format: List[str] = typer.Option(["pdf"], "--format", "-f", help="Formats to (re)generate: pdf or html."),
-    force: bool = typer.Option(False, "--force", help="Regenerate even if the target file already exists."),
+    manifest: Path = typer.Option(
+        ..., "--manifest", "-m", help="Manifest JSON from a pipeline run."
+    ),
+    outdir: Optional[Path] = typer.Option(
+        None, "--outdir", help="Override output directory."
+    ),
+    format: List[str] = typer.Option(
+        ["pdf"], "--format", "-f", help="Formats to (re)generate: pdf or html."
+    ),
+    force: bool = typer.Option(
+        False, "--force", help="Regenerate even if the target file already exists."
+    ),
 ) -> None:
     try:
         manifest_data = json.loads(manifest.read_text())
     except json.JSONDecodeError as exc:
-        raise typer.BadParameter(f"Manifest '{manifest}' is not valid JSON: {exc}") from exc
+        raise typer.BadParameter(
+            f"Manifest '{manifest}' is not valid JSON: {exc}"
+        ) from exc
 
     outputs = manifest_data.get("outputs", {}) or {}
-    base_outdir = outdir or Path(manifest_data.get("out_dir", manifest.parent))
-    base_outdir = base_outdir.expanduser().resolve()
+    output_root = _manifest_output_root(manifest, manifest_data)
+    base_outdir = Path(outdir).expanduser().resolve() if outdir else output_root
     base_outdir.mkdir(parents=True, exist_ok=True)
 
     segments: List[Dict[str, Any]] = []
-    segments_path = outputs.get("jsonl")
+    segments_path = _resolve_manifest_path(output_root, outputs.get("jsonl"))
     if segments_path:
-        segments = _load_segments_jsonl(Path(segments_path))
-    if not segments and outputs.get("csv"):
-        segments = _load_segments_csv(Path(outputs["csv"]))
+        segments = _load_segments_jsonl(segments_path)
+    if not segments:
+        csv_path = _resolve_manifest_path(output_root, outputs.get("csv"))
+        if csv_path:
+            segments = _load_segments_csv(csv_path)
 
     if not segments:
         raise typer.BadParameter("Manifest does not reference any segment outputs.")
 
     speakers_summary: List[Dict[str, Any]] = []
-    speakers_path = outputs.get("speakers_summary")
+    speakers_path = _resolve_manifest_path(output_root, outputs.get("speakers_summary"))
     if speakers_path:
-        speakers_summary = _load_speakers_csv(Path(speakers_path))
+        speakers_summary = _load_speakers_csv(speakers_path)
 
     if not speakers_summary:
         from .summaries.speakers_summary_builder import build_speakers_summary
@@ -620,10 +727,10 @@ def report_gen(
         speakers_summary = build_speakers_summary(segments, {}, {})
 
     overlap_stats: Dict[str, Any] = {}
-    qc_path = outputs.get("qc_report")
-    if qc_path and Path(qc_path).exists():
+    qc_path = _resolve_manifest_path(output_root, outputs.get("qc_report"))
+    if qc_path and qc_path.exists():
         try:
-            qc_data = json.loads(Path(qc_path).read_text())
+            qc_data = json.loads(qc_path.read_text())
             overlap_stats = qc_data.get("overlap_stats", {}) or {}
         except Exception:
             overlap_stats = {}
@@ -631,7 +738,9 @@ def report_gen(
     formats = {fmt.lower() for fmt in format}
     unknown_formats = formats - _REPORT_FORMATS
     if unknown_formats:
-        raise typer.BadParameter(f"Unsupported report format(s): {', '.join(sorted(unknown_formats))}")
+        raise typer.BadParameter(
+            f"Unsupported report format(s): {', '.join(sorted(unknown_formats))}"
+        )
 
     results: Dict[str, str] = {}
     file_id = manifest_data.get("file_id") or base_outdir.name
@@ -674,12 +783,24 @@ def report_gen(
 @vad_app.command("debug")
 def vad_debug(
     input: Path = typer.Option(..., "--input", "-i", help="Audio file to analyse."),
-    threshold: float = typer.Option(0.30, "--threshold", help="Silero probability threshold."),
-    min_speech: float = typer.Option(0.8, "--min-speech", help="Minimum detected speech duration."),
-    min_silence: float = typer.Option(0.8, "--min-silence", help="Minimum detected silence duration."),
-    pad: float = typer.Option(0.2, "--pad", help="Padding added around VAD speech regions."),
-    backend: str = typer.Option("auto", "--backend", help="Backend to use: auto/torch/onnx."),
-    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON."),
+    threshold: float = typer.Option(
+        0.30, "--threshold", help="Silero probability threshold."
+    ),
+    min_speech: float = typer.Option(
+        0.8, "--min-speech", help="Minimum detected speech duration."
+    ),
+    min_silence: float = typer.Option(
+        0.8, "--min-silence", help="Minimum detected silence duration."
+    ),
+    pad: float = typer.Option(
+        0.2, "--pad", help="Padding added around VAD speech regions."
+    ),
+    backend: str = typer.Option(
+        "auto", "--backend", help="Backend to use: auto/torch/onnx."
+    ),
+    json_output: bool = typer.Option(
+        False, "--json", help="Emit machine-readable JSON."
+    ),
 ) -> None:
     if not input.exists():
         raise typer.BadParameter(f"Input file '{input}' does not exist.")
@@ -700,8 +821,12 @@ def vad_debug(
 
     wav, sr = librosa.load(str(input), sr=cfg.target_sr, mono=True)
     wav = np.asarray(wav, dtype=np.float32)
-    detector = _SileroWrapper(cfg.vad_threshold, cfg.speech_pad_sec, backend=cfg.vad_backend)
-    speech_regions = detector.detect(wav, sr, cfg.vad_min_speech_sec, cfg.vad_min_silence_sec)
+    detector = _SileroWrapper(
+        cfg.vad_threshold, cfg.speech_pad_sec, backend=cfg.vad_backend
+    )
+    speech_regions = detector.detect(
+        wav, sr, cfg.vad_min_speech_sec, cfg.vad_min_silence_sec
+    )
 
     segments = [
         {
