@@ -1,25 +1,24 @@
+"""DiaRemot package entry point with lazy-loading helpers."""
 
-"""
-DiaRemot: Enhanced Speech ML Analysis Package
-Optimized lazy-loading with comprehensive integration
-"""
-
-__version__ = "2.1.0"
-__author__ = "DiaRemot ML Team"
+from __future__ import annotations
 
 import importlib
 import logging
 import os
 import sys
+import time
 import types
 from pathlib import Path
-from typing import Optional, Dict, Any, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 from .io.download_utils import download_file
 
+__version__ = "2.1.0"
+__author__ = "DiaRemot ML Team"
+
+
 # Module caches for lazy loading
-_cached_modules = {}
-_logger = logging.getLogger(__name__)
+_cached_modules: Dict[str, Any] = {}
 
 _LEGACY_MODULE_ALIASES = {
     "audio_pipeline_core": "diaremot.pipeline.audio_pipeline_core",
@@ -76,8 +75,8 @@ for _legacy_name, _target in _LEGACY_MODULE_ALIASES.items():
     _install_legacy_alias(_legacy_name, _target)
 
 
-def _get_or_create_logger():
-    """Get package logger with appropriate configuration"""
+def _get_or_create_logger() -> logging.Logger:
+    """Return the package logger, configuring it on first use."""
     logger = logging.getLogger("diaremot")
     if not logger.handlers:
         handler = logging.StreamHandler()
@@ -90,7 +89,7 @@ def _get_or_create_logger():
 
 
 def get_preprocessor(config: Optional[Dict[str, Any]] = None):
-    """Get AudioPreprocessor with configuration"""
+    """Return an ``AudioPreprocessor`` instance configured for CPU use."""
     if "preprocessor" not in _cached_modules:
         try:
             from .pipeline.audio_preprocessing import (
@@ -115,7 +114,7 @@ def get_preprocessor(config: Optional[Dict[str, Any]] = None):
 
 
 def get_diarizer(config: Optional[Dict[str, Any]] = None):
-    """Get SpeakerDiarizer with configuration and registry integration"""
+    """Return a ``SpeakerDiarizer`` instance with optional overrides."""
     if "diarizer" not in _cached_modules:
         try:
             from .pipeline.speaker_diarization import (
@@ -140,7 +139,7 @@ def get_diarizer(config: Optional[Dict[str, Any]] = None):
 
 
 def get_transcriber(config: Optional[Dict[str, Any]] = None):
-    """Get AudioTranscriber with CPU optimization"""
+    """Return an ``AudioTranscriber`` configured for CPU-only inference."""
     if "transcriber" not in _cached_modules:
         try:
             from .pipeline.transcription_module import (
@@ -172,7 +171,7 @@ def get_transcriber(config: Optional[Dict[str, Any]] = None):
 
 
 def get_pipeline(config: Optional[Dict[str, Any]] = None):
-    """Get enhanced AudioAnalysisPipelineV2 with full integration"""
+    """Return the ``AudioAnalysisPipelineV2`` entry point."""
     if "pipeline" not in _cached_modules:
         try:
             from .pipeline.audio_pipeline_core import AudioAnalysisPipelineV2
@@ -188,7 +187,7 @@ def get_pipeline(config: Optional[Dict[str, Any]] = None):
 
 
 def get_registry_manager(registry_path: Optional[str] = None):
-    """Get thread-safe speaker registry manager"""
+    """Return the speaker registry manager used across the pipeline."""
     if "registry" not in _cached_modules:
         try:
             from .io.speaker_registry_manager import SpeakerRegistryManager
@@ -209,7 +208,7 @@ def get_registry_manager(registry_path: Optional[str] = None):
 
 
 def get_checkpoint_manager(checkpoint_dir: Optional[str] = None):
-    """Get pipeline checkpoint manager for resume functionality"""
+    """Return the pipeline checkpoint manager for resume support."""
     if "checkpoint" not in _cached_modules:
         try:
             from .pipeline.pipeline_checkpoint_system import (
@@ -236,7 +235,7 @@ def get_checkpoint_manager(checkpoint_dir: Optional[str] = None):
 def create_integrated_pipeline(
     config: Optional[Dict[str, Any]] = None,
 ) -> Tuple[Any, Dict[str, Any]]:
-    """Create fully integrated pipeline with all components"""
+    """Construct the pipeline alongside the ancillary managers."""
     config = config or {}
 
     # Initialize core components
@@ -259,9 +258,9 @@ def create_integrated_pipeline(
 
 # Package health check
 def validate_system() -> Dict[str, Any]:
-    """Comprehensive system validation"""
+    """Run a comprehensive system validation for the public API."""
     status = {
-        "timestamp": __import__("time").strftime("%Y-%m-%d %H:%M:%S"),
+        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
         "version": __version__,
         "components": {},
         "critical_issues": [],
