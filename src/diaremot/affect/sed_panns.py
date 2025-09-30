@@ -1,18 +1,18 @@
-"""This module is optional. If panns_inference/librosa are unavailable, it
-degrades gracefully and returns no tags."""
+"""Optional background sound tagging via PANNs models."""
 
 from __future__ import annotations
 
 import csv
+from contextlib import contextmanager
 from dataclasses import dataclass
 import logging
-from pathlib import Path
 import os
-from typing import Any, Dict, Optional, Tuple, List
-from contextlib import contextmanager
+from pathlib import Path
 import sys
+from typing import TYPE_CHECKING, Any, Optional
 
 import numpy as np
+
 from ..io.onnx_utils import create_onnx_session
 
 if os.name == "nt":
@@ -32,29 +32,34 @@ else:
 logger = logging.getLogger(__name__)
 
 try:  # pragma: no cover - optional dependency
-    import librosa  # type: ignore
+    import librosa  # type: ignore[import-not-found]
 
     _HAVE_LIBROSA = True
 except Exception:  # pragma: no cover - env dependent
     _HAVE_LIBROSA = False
 
-try:
-    import onnxruntime as ort  # type: ignore
+try:  # pragma: no cover - optional dependency
+    import onnxruntime as ort  # type: ignore[import-not-found]
 
     _HAVE_ORT = True
 except Exception:  # pragma: no cover - env dependent
     _HAVE_ORT = False
-    ort = None  # type: ignore
+    ort = None  # type: ignore[assignment]
 
 try:
     # Cheap check without importing (avoids triggering wget in panns_inference)
-    import importlib.util as _ilu  # type: ignore
+    import importlib.util as _ilu  # type: ignore[import-not-found]
 
     _HAVE_PANNS = _ilu.find_spec("panns_inference") is not None
 except Exception:
     _HAVE_PANNS = False
-AudioTagging = None  # type: ignore
-labels = []  # type: ignore
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from panns_inference import AudioTagging as _PannsAudioTagging
+else:  # pragma: no cover - runtime fallback
+    _PannsAudioTagging = Any
+
+labels: list[str] = []
 
 
 _NOISE_KEYWORDS = (
@@ -111,9 +116,9 @@ class PANNSEventTagger:
             else:
                 backend = "none"
         self.backend = backend
-        self._tagger: Optional[AudioTagging] = None  # type: ignore
+        self._tagger: Optional[_PannsAudioTagging] = None
         self._session: Optional["ort.InferenceSession"] = None
-        self._labels: Optional[List[str]] = None
+        self._labels: Optional[list[str]] = None
         self.available = True
         self._ensure_model()
         if not self.available:
@@ -140,7 +145,7 @@ class PANNSEventTagger:
                             with lp.open() as f:
                                 reader = csv.DictReader(f)
                                 self._labels = [
-                                    row.get("display_name", "") for row in reader
+                                    str(row.get("display_name", "")) for row in reader
                                 ]
                             return
                         except Exception as exc:
@@ -156,7 +161,7 @@ class PANNSEventTagger:
                         os.getenv("HF_HOME"),
                         os.getenv("HUGGINGFACE_HUB_CACHE"),
                     ]
-                    for root in [Path(p) for p in env_roots if p]:
+                    for root in (Path(p) for p in env_roots if p):
                         try:
                             if not root.exists():
                                 continue
@@ -180,10 +185,14 @@ class PANNSEventTagger:
                                 self._session = create_onnx_session(mp)
                                 with lp.open() as f:
                                     reader = csv.DictReader(f)
-                                    self._labels = [row.get("display_name", "") for row in reader]
+                                    self._labels = [
+                                        row.get("display_name", "") for row in reader
+                                    ]
                                 return
                         except Exception as exc:
-                            logger.info("Failed loading ONNX from env root %s: %s", root, exc)
+                            logger.info(
+                                "Failed loading ONNX from env root %s: %s", root, exc
+                            )
                 if self._session is None or not self._labels:
                     logger.info(
                         "PANNs ONNX assets not found locally; skipping remote download fallback"
@@ -217,8 +226,13 @@ class PANNSEventTagger:
                     cand = self.cfg.model_dir / "class_labels_indices.csv"
                     if cand.exists():
                         src_labels = cand
-                if src_labels and not (home_panns / "class_labels_indices.csv").exists():
-                    (home_panns / "class_labels_indices.csv").write_bytes(src_labels.read_bytes())
+                if (
+                    src_labels
+                    and not (home_panns / "class_labels_indices.csv").exists()
+                ):
+                    (home_panns / "class_labels_indices.csv").write_bytes(
+                        src_labels.read_bytes()
+                    )
             except Exception:
                 pass
 
@@ -274,7 +288,7 @@ class PANNSEventTagger:
         else:
             self.available = False
 
-    def _resample_to_32k(self, audio: np.ndarray, sr: int) -> Tuple[np.ndarray, int]:
+    def _resample_to_32k(self, audio: np.ndarray, sr: int) -> tuple[np.ndarray, int]:
         if sr == 32000:
             return audio.astype(np.float32, copy=False), sr
         if _HAVE_LIBROSA:
@@ -286,8 +300,7 @@ class PANNSEventTagger:
             except Exception:
                 pass
         if sr == 16000:
-            y = np.repeat(audio.astype(np.float32), 2)
-            return y, 32000
+            return np.repeat(audio.astype(np.float32), 2), 32000
         ratio = 32000 / float(sr)
         new_len = int(round(len(audio) * ratio))
         if new_len <= 1:
@@ -297,7 +310,7 @@ class PANNSEventTagger:
         y = np.interp(x_new, x_old, audio).astype(np.float32)
         return y, 32000
 
-    def tag(self, audio_16k_mono: np.ndarray, sr: int) -> Optional[Dict[str, Any]]:
+    def tag(self, audio_16k_mono: np.ndarray, sr: int) -> Optional[dict[str, Any]]:
         if not self.available:
             return None
         if audio_16k_mono is None or audio_16k_mono.size == 0:
@@ -313,10 +326,7 @@ class PANNSEventTagger:
         total_sec = len(y_in) / float(sr)
         if self.cfg.max_eval_sec and total_sec > self.cfg.max_eval_sec:
             max_samples = int(self.cfg.max_eval_sec * sr)
-            if (
-                self.cfg.eval_strategy == "uniform"
-                and (self.cfg.max_eval_sec or 0) > 0
-            ):
+            if self.cfg.eval_strategy == "uniform" and (self.cfg.max_eval_sec or 0) > 0:
                 # Take N uniform slices totaling max_eval_sec
                 slices = 5
                 seg_len = max_samples // slices
@@ -353,7 +363,7 @@ class PANNSEventTagger:
             except Exception:
                 return None
             # Prefer labels from the tagger; fallback to imported default
-            map_labels = getattr(self._tagger, "labels", labels) or []  # type: ignore
+            map_labels = list(getattr(self._tagger, "labels", labels)) or []  # type: ignore[arg-type]
 
         if clip.size == 0:
             return None

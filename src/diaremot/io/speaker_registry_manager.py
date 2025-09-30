@@ -1,8 +1,9 @@
-"""Thread-safe wrapper around the SpeakerRegistry implementation.
+"""Thread-safe convenience wrapper around the diarization speaker registry.
 
 This module provides a lightweight manager facade that keeps access to the
-underlying :class:`diaremot.pipeline.speaker_diarization.SpeakerRegistry` serialized across
-threads and offers a small set of convenience helpers (auto-flush, reload).
+underlying :class:`diaremot.pipeline.speaker_diarization.SpeakerRegistry`
+serialised across threads and offers a small set of convenience helpers
+(auto-flush, reload).
 
 The public factory :func:`diaremot.get_registry_manager` wires to this
 manager so callers consistently receive a functional registry even though the
@@ -13,7 +14,7 @@ from __future__ import annotations
 
 import threading
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 
 class SpeakerRegistryManager:
@@ -58,19 +59,21 @@ class SpeakerRegistryManager:
             if self.auto_flush:
                 self._registry.save()
 
-    def match(self, centroid: Any) -> Tuple[Optional[str], float]:
+    def match(self, centroid: Any) -> tuple[str | None, float]:
         with self._lock:
             return self._registry.match(centroid)
 
-    def get_speakers(self) -> Dict[str, Dict[str, Any]]:
+    def get_speakers(self) -> dict[str, dict[str, Any]]:
         """Return a shallow copy of the stored speakers."""
 
         with self._lock:
             # ``SpeakerRegistry`` keeps the payload in ``_speakers``; copy it to
             # avoid leaking a mutable reference.
-            return {k: dict(v) for k, v in getattr(self._registry, "_speakers", {}).items()}
+            return {
+                k: dict(v) for k, v in getattr(self._registry, "_speakers", {}).items()
+            }
 
-    def metadata(self) -> Dict[str, Any]:
+    def metadata(self) -> dict[str, Any]:
         with self._lock:
             return dict(getattr(self._registry, "_metadata", {}))
 

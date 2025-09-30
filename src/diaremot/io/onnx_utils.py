@@ -1,12 +1,15 @@
-"""ONNX model utilities: fetch/caching and runtime session creation."""
+"""Helpers for retrieving and loading ONNX models consistently."""
 
 from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Union
+from typing import TYPE_CHECKING
 
 from ..utils.hash import hash_file
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    import onnxruntime as ort
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +22,7 @@ def _check_sha256(path: Path, sha256: str) -> None:
 
 
 def ensure_onnx_model(
-    path_or_hf_id: Union[str, Path],
+    path_or_hf_id: str | Path,
     *,
     sha256: str | None = None,
     local_files_only: bool = False,
@@ -51,7 +54,9 @@ def ensure_onnx_model(
 
         if ident.startswith("hf://"):
             repo_id, filename = ident[5:].rsplit("/", 1)
-        elif "/" in ident and not ident.startswith("./") and not ident.startswith("../"):
+        elif (
+            "/" in ident and not ident.startswith("./") and not ident.startswith("../")
+        ):
             repo_id, filename = ident.rsplit("/", 1)
         else:
             raise FileNotFoundError(ident)
@@ -68,8 +73,8 @@ def ensure_onnx_model(
 
 
 def create_onnx_session(
-    model_path: Union[str, Path], *, cpu_only: bool = True, threads: int = 1
-):
+    model_path: str | Path, *, cpu_only: bool = True, threads: int = 1
+) -> "ort.InferenceSession":
     """Create an ONNX Runtime session with consistent CPU behaviour."""
     import onnxruntime as ort
 
