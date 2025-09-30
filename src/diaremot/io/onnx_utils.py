@@ -1,4 +1,4 @@
-"""Helpers for retrieving and loading ONNX models consistently."""
+"""Utilities for ensuring and loading ONNX Runtime models."""
 
 from __future__ import annotations
 
