@@ -33,7 +33,30 @@ def run_overlap(
             "overlap_total_sec": float(overlap.get("overlap_total_sec", 0.0)),
             "overlap_ratio": float(overlap.get("overlap_ratio", 0.0)),
         }
-        per_speaker = overlap.get("per_speaker", {}) or {}
+
+        per_speaker_map: dict[str, dict[str, float | int]] = {}
+        for speaker_id, values in (overlap.get("by_speaker") or {}).items():
+            if not isinstance(values, dict):
+                continue
+            made = int(float(values.get("interruptions", 0) or 0))
+            per_speaker_map[str(speaker_id)] = {
+                "made": made,
+                "received": 0,
+                "overlap_sec": float(values.get("overlap_sec", 0.0) or 0.0),
+            }
+
+        for item in overlap.get("interruptions", []) or []:
+            if not isinstance(item, dict):
+                continue
+            interrupted = item.get("interrupted")
+            if interrupted in (None, ""):
+                continue
+            slot = per_speaker_map.setdefault(
+                str(interrupted), {"made": 0, "received": 0, "overlap_sec": 0.0}
+            )
+            slot["received"] = int(slot.get("received", 0)) + 1
+
+        per_speaker = per_speaker_map
     except (AttributeError, RuntimeError, ValueError) as exc:
         pipeline.corelog.warn(
             "[overlap] skipped: "

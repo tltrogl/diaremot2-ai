@@ -8,6 +8,7 @@ from diaremot.pipeline.orchestrator import AudioAnalysisPipelineV2
 from diaremot.pipeline.outputs import default_affect
 from diaremot.pipeline.stages import PIPELINE_STAGES, PipelineState
 from diaremot.pipeline.stages import dependency_check
+from diaremot.pipeline.stages.summaries import run_overlap
 
 
 def test_stage_registry_order():
@@ -158,3 +159,47 @@ def test_stage_services_execute_full_cycle(tmp_path, monkeypatch, stub_pipeline)
     assert state.overlap_stats is not None
     assert isinstance(state.speakers_summary, list)
     assert pipeline.stats.config_snapshot.get("dependency_ok") is True
+
+
+def test_run_overlap_maps_interruptions(tmp_path, stub_pipeline):
+    pipeline = stub_pipeline
+
+    sample_overlap = {
+        "overlap_total_sec": 4.0,
+        "overlap_ratio": 0.4,
+        "by_speaker": {
+            "S1": {"overlap_sec": 2.5, "interruptions": 2},
+            "S2": {"overlap_sec": 1.5, "interruptions": 1},
+        },
+        "interruptions": [
+            {"interrupter": "S1", "interrupted": "S2"},
+            {"interrupter": "S1", "interrupted": "S2"},
+            {"interrupter": "S2", "interrupted": "S1"},
+        ],
+    }
+
+    class _StubParalinguistics:
+        def compute_overlap_and_interruptions(self, turns):
+            assert turns == state.turns
+            return sample_overlap
+
+    pipeline.paralinguistics_module = _StubParalinguistics()
+
+    out_dir = tmp_path / "out"
+    state = PipelineState(input_audio_path="audio.wav", out_dir=out_dir)
+    state.turns = [
+        {"start": 0.0, "end": 1.0, "speaker_id": "S1"},
+        {"start": 1.0, "end": 2.0, "speaker_id": "S2"},
+    ]
+
+    with StageGuard(pipeline.corelog, pipeline.stats, "overlap_interruptions") as guard:
+        run_overlap(pipeline, state, guard)
+
+    assert state.overlap_stats == {
+        "overlap_total_sec": 4.0,
+        "overlap_ratio": 0.4,
+    }
+    assert state.per_speaker_interrupts == {
+        "S1": {"made": 2, "received": 1, "overlap_sec": 2.5},
+        "S2": {"made": 1, "received": 2, "overlap_sec": 1.5},
+    }

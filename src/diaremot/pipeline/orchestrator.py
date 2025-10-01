@@ -628,7 +628,6 @@ class AudioAnalysisPipelineV2:
         state = PipelineState(input_audio_path=input_audio_path, out_dir=outp)
 
         try:
- codex/refactor-audio-processing-pipeline-structure
             for stage in PIPELINE_STAGES:
                 with StageGuard(self.corelog, self.stats, stage.name) as guard:
                     stage.runner(self, state, guard)
