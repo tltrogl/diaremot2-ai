@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 import subprocess
 import time
@@ -498,6 +499,7 @@ class AudioAnalysisPipelineV2:
                         "wpm": float(d.get("wpm", 0.0) or 0.0),
                         "pause_count": int(d.get("pause_count", 0) or 0),
                         "pause_time_s": float(d.get("pause_time_s", 0.0) or 0.0),
+                        "pause_ratio": float(d.get("pause_ratio", 0.0) or 0.0),
                         "f0_mean_hz": float(d.get("f0_mean_hz", 0.0) or 0.0),
                         "f0_std_hz": float(d.get("f0_std_hz", 0.0) or 0.0),
                         "loudness_rms": float(d.get("loudness_rms", 0.0) or 0.0),
@@ -533,6 +535,7 @@ class AudioAnalysisPipelineV2:
                 "wpm": float(wpm),
                 "pause_count": 0,
                 "pause_time_s": 0.0,
+                "pause_ratio": 0.0,
                 "f0_mean_hz": 0.0,
                 "f0_std_hz": 0.0,
                 "loudness_rms": float(loud),
@@ -625,6 +628,7 @@ class AudioAnalysisPipelineV2:
         state = PipelineState(input_audio_path=input_audio_path, out_dir=outp)
 
         try:
+ codex/refactor-audio-processing-pipeline-structure
             for stage in PIPELINE_STAGES:
                 with StageGuard(self.corelog, self.stats, stage.name) as guard:
                     stage.runner(self, state, guard)
@@ -632,6 +636,7 @@ class AudioAnalysisPipelineV2:
             self.corelog.error(f"Pipeline failed with unhandled error: {exc}")
             if not state.segments_final and state.norm_tx:
                 state.segments_final = [
+
                     ensure_segment_keys(
                         {
                             "file_id": self.stats.file_id,

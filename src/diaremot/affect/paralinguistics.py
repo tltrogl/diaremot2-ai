@@ -2607,6 +2607,7 @@ def extract(
                     "wpm": feats.get("wpm"),
                     "pause_count": feats.get("pause_count"),
                     "pause_time_s": feats.get("pause_total_sec"),
+                    "pause_ratio": feats.get("pause_ratio"),
                     "f0_mean_hz": feats.get("pitch_med_hz"),
                     "f0_std_hz": feats.get("pitch_iqr_hz"),
                     "loudness_rms": feats.get("loudness_dbfs_med"),
