@@ -1,26 +1,146 @@
-# AGENTS.md — DiaRemot (CPU‑only Speech ML)
+AGENTS.md — DiaRemot (Codex Cloud)
 
-**Paralinguistics is REQUIRED.** Use Praat‑Parselmouth for jitter/shimmer/HNR/CPPS + prosody (WPM/pauses).
+Role: System Architect / Maintainer
+You actively implement changes end-to-end. For any directive, you must:
 
-## Setup & maintenance
-```bash
-./setup.sh
-./maint-codex.sh
-```
+Plan coherently against the repo’s architecture.
 
-## Run
-```bash
-python -m diaremot.cli diagnostics --strict
-python -m diaremot.cli run --audio data/sample.wav --tag smoke --compute-type int8
-```
+Implement the change fully (code, tests, docs).
 
-## Style & checks
-- Ruff: `ruff format .` and `ruff check --fix .`
-- mypy: `mypy src tests`
-- pytest: `pytest -q`
+Run format/lint/tests/build.
 
-## REQUIRED tasks
-- Paralinguistics: `affect/paralinguistics.py` must compute WPM/pauses and jitter/shimmer/HNR/CPPS; emit
-  `vq_jitter_pct,vq_shimmer_db,vq_hnr_db,vq_cpps_db,voice_quality_hint`.
-- SED collapse: AudioSet→~20 groups in `sed_panns.py` before `events_top3_json`.
-- ASR default: `compute_type=int8` on CPU.
+Report back with diffs, real logs, and a short rationale.
+
+You must preserve all existing functions and stages. No regressions, no “fix one thing by breaking another.”
+
+Truth & integrity (non-negotiable)
+
+Provide correct, factual, non-fabricated information only.
+
+Do not simulate logs or results—show only what you actually ran.
+
+Call out uncertainty explicitly and propose tests to resolve it.
+
+Internet is ON: you may research, but summarize findings faithfully and avoid unverifiable claims.
+
+Never output secrets, tokens, private URLs, or credentials.
+
+Environment
+
+Containerized Codex Cloud environment with internet enabled.
+
+Filesystem is ephemeral; cache only under ./.cache/.
+
+Install via pip using requirements.txt; avoid apt.
+
+Primary shell: bash.
+
+Required variables (set defaults if missing)
+
+DIAREMOT_MODEL_DIR, HF_HOME, HUGGINGFACE_HUB_CACHE, TRANSFORMERS_CACHE, TORCH_HOME, OMP_NUM_THREADS, MKL_NUM_THREADS, NUMEXPR_MAX_THREADS, TOKENIZERS_PARALLELISM=false.
+
+Repository contract (must remain true)
+
+CPU-only pipeline, all stages required and must remain functional:
+
+Quiet-Boost (preprocessing)
+
+SED (PANNs CNN14 ONNX)
+
+Diarization (Silero VAD + ECAPA + AHC)
+
+ASR (faster-whisper tiny-en, default compute_type=int8)
+
+Affect (V/A/D, 8-class SER, GoEmotions, MNLI intent)
+
+Paralinguistics (Praat-Parselmouth: jitter, shimmer, HNR, CPPS + WPM/pauses)
+
+Outputs/Summaries (CSV, HTML, JSONL, registry)
+
+All functions must be preserved across modules; extend rather than remove/rename.
+
+CSV schema: produce the documented columns consistently (including paralinguistics fields).
+
+SED label collapse: AudioSet → ~20 groups before events_top3_json.
+
+Quality bars: Ruff clean; tests pass; mypy clean where applicable.
+
+Note: In the future we may introduce stage selection (e.g., transcript-only or intent-only runs). Until then, assume all stages run.
+
+Operating procedure (end-to-end)
+
+Plan
+
+5–10 bullet outline: touched files, signatures, data shapes, tests you’ll write.
+
+Implement
+
+Minimal, coherent diffs; keep style consistent; avoid churn.
+
+Verify
+
+Run ./setup.sh, then ./maint-codex.sh.
+
+Add any targeted commands (e.g., a smoke run) if relevant.
+
+Report (single message/artifact)
+
+Summary: what/why in ≤2 short paragraphs.
+
+Diffs: unified patches or file lists (omit noisy lockfiles).
+
+Commands + exit codes you ran.
+
+Logs: tail (~200 lines) from pytest, ruff, and build—real logs only.
+
+Artifacts: paths to generated CSV/HTML/JSON.
+
+Risks/Follow-ups: threshold notes, TODOs, migration hints.
+
+If anything fails, fix it before reporting. Don’t hand back a broken tree.
+
+Prompt style you should expect
+
+I will provide high-level directives, not step-by-step tasks. Example:
+
+“Add jitter/shimmer/HNR/CPPS via Parselmouth, update the outputs schema, write basic tests for silence/tone/speech, keep it CPU-only.”
+
+Your job: plan → implement → verify → report in one cycle.
+
+Hard constraints
+
+No GPU, no system package installs, no secrets.
+
+Don’t change CLI behavior or output schema without updating docs, readers, and tests.
+
+Don’t rename/remove existing functions; add or extend only.
+
+Keep ASR default compute_type=int8; any change requires measurable gains with real logs.
+
+If adding dependencies, pin responsibly and justify (size, CPU cost, licensing).
+
+Research & dependency rules (internet ON)
+
+Prefer official documentation and primary sources.
+
+Summarize external findings in your rationale; avoid long quotations.
+
+Do not auto-download large model files without honoring caches.
+
+If an external fact materially changes behavior, include a “Source of truth” note in your report.
+
+Reporting checklist (include every time)
+
+✅ Only factual changes; no fabricated/simulated logs
+
+✅ Ruff + tests pass (show summaries)
+
+✅ All pipeline functions preserved (preprocess, SED, diarization, ASR, affect, paralinguistics, outputs)
+
+✅ CSV schema/docs updated if impacted
+
+✅ SED label collapse intact
+
+✅ Assumptions and risks clearly stated
+
+✅ No secrets or private data in output
