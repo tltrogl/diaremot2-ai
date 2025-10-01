@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import os
+from typing import Iterable
 
 __all__ = [
     "WINDOWS_MODELS_ROOT",
@@ -13,11 +14,64 @@ __all__ = [
 ]
 
 
-def configure_local_cache_env() -> None:
-    """Ensure all cache directories live under the repository's ``.cache`` folder."""
+PROJECT_ROOT_MARKERS = ("pyproject.toml", ".git")
 
-    cache_root = (Path(__file__).resolve().parents[3] / ".cache").resolve()
-    cache_root.mkdir(parents=True, exist_ok=True)
+
+def _find_project_root(start: Path) -> Path | None:
+    """Walk upward from ``start`` until a project marker is found."""
+
+    current = start
+    if current.is_file():
+        current = current.parent
+    for candidate in [current, *current.parents]:
+        for marker in PROJECT_ROOT_MARKERS:
+            if (candidate / marker).exists():
+                return candidate
+    return None
+
+
+def _candidate_cache_roots(script_path: Path) -> Iterable[Path]:
+    project_root = _find_project_root(script_path)
+    if project_root is not None:
+        yield project_root / ".cache"
+    else:
+        yield Path.cwd() / ".cache"
+        yield Path.home() / ".cache" / "diaremot"
+
+
+def _ensure_writable_directory(path: Path) -> bool:
+    """Return ``True`` when ``path`` can be created and written to."""
+
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        return False
+
+    probe = path / ".cache_write_test"
+    try:
+        probe.touch(exist_ok=True)
+    except OSError:
+        return False
+    else:
+        try:
+            probe.unlink(missing_ok=True)
+        except OSError:
+            return False
+    return os.access(path, os.W_OK | os.X_OK)
+
+
+def configure_local_cache_env() -> None:
+    """Ensure all cache directories resolve to a writable, local cache root."""
+
+    cache_root = None
+    for candidate in _candidate_cache_roots(Path(__file__).resolve()):
+        resolved = candidate.resolve()
+        if _ensure_writable_directory(resolved):
+            cache_root = resolved
+            break
+    if cache_root is None:
+        raise PermissionError("Unable to locate a writable cache directory for DiaRemot")
+
     targets = {
         "HF_HOME": cache_root / "hf",
         "HUGGINGFACE_HUB_CACHE": cache_root / "hf",
