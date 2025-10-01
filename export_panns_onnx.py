@@ -1,11 +1,12 @@
 #!/usr/bin/env python
 """Export a PANNs checkpoint (CNN14 variants) to ONNX for offline SED inference."""
+
 from __future__ import annotations
 
 import argparse
 import sys
 from pathlib import Path
-from typing import Iterable, List, Sequence, Tuple
+from typing import List, Sequence, Tuple
 
 import torch
 
@@ -184,7 +185,9 @@ def export_model(args: argparse.Namespace) -> None:
         try:
             from onnxruntime.quantization import QuantType, quantize_dynamic
         except Exception as exc:  # pragma: no cover - optional
-            print(f"[warn] onnxruntime.quantization unavailable ({exc}); skipping INT8 export")
+            print(
+                f"[warn] onnxruntime.quantization unavailable ({exc}); skipping INT8 export"
+            )
             return
 
         int8_path = out_path.with_suffix(".int8.onnx")

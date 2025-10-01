@@ -1,9 +1,19 @@
 from pathlib import Path
 
-import numpy as np
-from scipy.io import wavfile
+import pytest
+
+try:
+    import numpy as np
+    from scipy.io import wavfile
+except ModuleNotFoundError:  # pragma: no cover - exercised only when deps missing
+    pytest.skip(
+        "numpy and scipy.io are required for diarization tests", allow_module_level=True
+    )
 
 from diaremot.pipeline import speaker_diarization as sd
+
+if getattr(np, "__stub__", False) or not hasattr(np, "array"):
+    pytest.skip("numpy not available", allow_module_level=True)
 
 
 def test_default_threshold_merges_single_speaker(monkeypatch):

@@ -5,7 +5,12 @@ import types
 import unittest
 from pathlib import Path
 
-import numpy as np
+import pytest
+
+try:
+    import numpy as np
+except ModuleNotFoundError:  # pragma: no cover - exercised only when numpy missing
+    pytest.skip("numpy is required for speaker registry tests", allow_module_level=True)
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 SRC_ROOT = PROJECT_ROOT / "src"
@@ -36,9 +41,12 @@ def _install_test_stubs() -> None:
 
 _install_test_stubs()
 
-from diaremot.pipeline.speaker_diarization import SpeakerRegistry
+from diaremot.pipeline.speaker_diarization import SpeakerRegistry  # noqa: E402
 
-import diaremot
+import diaremot  # noqa: E402
+
+if getattr(np, "__stub__", False) or not hasattr(np, "zeros"):
+    pytest.skip("numpy not available", allow_module_level=True)
 
 
 class SpeakerRegistrySchemaTest(unittest.TestCase):

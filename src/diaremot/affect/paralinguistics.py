@@ -1,19 +1,17 @@
-# paralinguistics.py
-# Production-optimized paralinguistic feature extraction with enhanced CPU performance
-# Version 2.1.0 - Full pipeline integration with advanced voice quality analysis
-
-"""Paralinguistic feature extraction utilities.
+"""Production-optimized paralinguistic feature extraction utilities.
 
 Provides advanced speech metrics such as words per minute (WPM) and syllables
-per second (SPS). Both metrics are stored with two-decimal precision.
+per second (SPS). Both metrics are stored with two-decimal precision. The
+module targets CPU-only deployments and includes enhanced voice-quality
+analysis.
 """
 
 from __future__ import annotations
 
 import json
-import warnings
-import time
 import os
+import time
+import warnings
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from functools import lru_cache
@@ -2609,6 +2607,7 @@ def extract(
                     "wpm": feats.get("wpm"),
                     "pause_count": feats.get("pause_count"),
                     "pause_time_s": feats.get("pause_total_sec"),
+                    "pause_ratio": feats.get("pause_ratio"),
                     "f0_mean_hz": feats.get("pitch_med_hz"),
                     "f0_std_hz": feats.get("pitch_iqr_hz"),
                     "loudness_rms": feats.get("loudness_dbfs_med"),

@@ -3,7 +3,15 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-import numpy as np
+import pytest
+
+try:
+    import numpy as np
+except ModuleNotFoundError:  # pragma: no cover - exercised only when numpy missing
+    pytest.skip("numpy is required for silero wrapper tests", allow_module_level=True)
+
+if getattr(np, "__stub__", False) or not hasattr(np, "ones"):
+    pytest.skip("numpy not available", allow_module_level=True)
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -27,7 +35,7 @@ if "scipy" not in sys.modules:
     sys.modules["scipy"] = SimpleNamespace(signal=scipy_signal)
     sys.modules["scipy.signal"] = scipy_signal
 
-from diaremot.pipeline.speaker_diarization import _SileroWrapper
+from diaremot.pipeline.speaker_diarization import _SileroWrapper  # noqa: E402
 
 
 class _DummyTensor:

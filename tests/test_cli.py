@@ -3,8 +3,12 @@ import sys
 from pathlib import Path
 
 import pytest
-import typer
-from typer.testing import CliRunner
+
+try:
+    import typer
+    from typer.testing import CliRunner
+except ModuleNotFoundError:  # pragma: no cover - exercised only without typer installed
+    pytest.skip("typer is required for CLI tests", allow_module_level=True)
 
 # Ensure the src layout is importable when running tests directly from the repo root.
 TESTS_ROOT = Path(__file__).resolve().parents[1]
