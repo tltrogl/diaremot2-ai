@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import runpy
 from typing import Any
 
 import pytest
@@ -141,3 +142,27 @@ def test_main_runs_pipeline(
     assert recorded["input"] == str(audio)
     assert recorded["out"] == str(outdir)
     assert recorded["config"]["ignore_tx_cache"] is True
+
+
+@pytest.mark.parametrize(
+    "module_name",
+    [
+        "diaremot.pipeline.audio_pipeline_core",
+        "audio_pipeline_core",
+    ],
+)
+def test_audio_pipeline_core_main_guard(monkeypatch: pytest.MonkeyPatch, module_name: str) -> None:
+    import diaremot.pipeline.cli_entry as cli_entry_module
+
+    recorded: dict[str, Any] = {}
+
+    def fake_main(argv: list[str]) -> int:
+        recorded["argv"] = list(argv)
+        return 42
+
+    monkeypatch.setattr(cli_entry_module, "main", fake_main)
+    with pytest.raises(SystemExit) as excinfo:
+        runpy.run_module(module_name, run_name="__main__")
+
+    assert excinfo.value.code == 42
+    assert recorded["argv"] == []
