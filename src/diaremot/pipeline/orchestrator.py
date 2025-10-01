@@ -384,12 +384,17 @@ class AudioAnalysisPipelineV2:
                     intent_labels=cfg.get("intent_labels", INTENT_LABELS_DEFAULT),
                 )
 
-            # Optional background SED / noise tagger
+            # Background SED / noise tagger (required in the default pipeline)
             self.sed_tagger = None
             try:
-                if PANNSEventTagger is not None and bool(cfg.get("enable_sed", True)):
+                sed_enabled = bool(cfg.get("enable_sed", True))
+                if PANNSEventTagger is not None and sed_enabled:
                     self.sed_tagger = PANNSEventTagger(
                         SEDConfig() if SEDConfig else None
+                    )
+                elif not sed_enabled:
+                    self.corelog.warn(
+                        "[sed] disabled via configuration; pipeline outputs will lack background tags"
                     )
             except Exception:
                 self.sed_tagger = None

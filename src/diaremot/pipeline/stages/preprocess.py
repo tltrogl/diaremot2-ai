@@ -1,4 +1,4 @@
-"""Preprocessing stages (audio + optional background SED)."""
+"""Preprocessing stages (audio + background SED tagging)."""
 
 from __future__ import annotations
 
@@ -144,7 +144,7 @@ def run_background_sed(
     ) as exc:
         pipeline.corelog.warn(
             "[sed] tagging skipped: "
-            f"{exc}. Install sed_panns dependencies or disable background SED."
+            f"{exc}. Install sed_panns dependencies; background SED is required."
         )
     finally:
         guard.done()

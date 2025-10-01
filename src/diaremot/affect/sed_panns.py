@@ -32,14 +32,14 @@ else:
 
 logger = logging.getLogger(__name__)
 
-try:  # pragma: no cover - optional dependency
+try:  # pragma: no cover - auxiliary dependency
     import librosa  # type: ignore[import-not-found]
 
     _HAVE_LIBROSA = True
 except Exception:  # pragma: no cover - env dependent
     _HAVE_LIBROSA = False
 
-try:  # pragma: no cover - optional dependency detection
+try:  # pragma: no cover - dependency detection
     import importlib.util as _ort_util  # type: ignore[import-not-found]
 
     _HAVE_ORT = _ort_util.find_spec("onnxruntime") is not None
@@ -86,7 +86,7 @@ EvalStrategy = Literal["head", "uniform"]
 
 @dataclass
 class SEDConfig:
-    """Configuration for optional sound event detection."""
+    """Configuration for the sound event detection stage."""
 
     top_k: int = 3
     run_on_suspect_only: bool = True
