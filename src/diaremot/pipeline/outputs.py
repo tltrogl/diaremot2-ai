@@ -25,12 +25,18 @@ SEGMENT_COLUMNS = [
     "text_emotions_full_json",
     "intent_top",
     "intent_top3_json",
+    "events_top3_json",
+    "noise_tag",
+    "asr_logprob_avg",
+    "snr_db",
+    "snr_db_sed",
+    "wpm",
+    "duration_s",
+    "words",
+    "pause_ratio",
     "low_confidence_ser",
     "vad_unstable",
     "affect_hint",
-    "asr_logprob_avg",
-    "snr_db",
-    "wpm",
     "pause_count",
     "pause_time_s",
     "f0_mean_hz",
@@ -73,14 +79,15 @@ def default_affect() -> dict[str, Any]:
 
 
 def ensure_segment_keys(seg: dict[str, Any]) -> dict[str, Any]:
+    defaults: dict[str, Any] = {
+        "events_top3_json": "[]",
+        "low_confidence_ser": False,
+        "vad_unstable": False,
+        "error_flags": "",
+    }
     for key in SEGMENT_COLUMNS:
         if key not in seg:
-            if key == "error_flags":
-                seg[key] = ""
-            elif key in {"low_confidence_ser", "vad_unstable"}:
-                seg[key] = False
-            else:
-                seg[key] = None
+            seg[key] = defaults.get(key, None)
     return seg
 
 

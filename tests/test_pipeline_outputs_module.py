@@ -19,6 +19,12 @@ def test_ensure_segment_keys_populates_defaults() -> None:
     ensure_segment_keys(seg)
     for key in SEGMENT_COLUMNS:
         assert key in seg
+    assert seg["events_top3_json"] == "[]"
+    assert seg["noise_tag"] is None
+    assert seg["snr_db_sed"] is None
+    assert seg["duration_s"] is None
+    assert seg["words"] is None
+    assert seg["pause_ratio"] is None
 
 
 def test_writers_produce_files(tmp_path) -> None:
@@ -30,6 +36,7 @@ def test_writers_produce_files(tmp_path) -> None:
             "speaker_id": "S1",
             "speaker_name": "Speaker 1",
             "text": "hello",
+            "events_top3_json": "[]",
         }
     ]
     ensure_segment_keys(segments[0])
@@ -42,7 +49,9 @@ def test_writers_produce_files(tmp_path) -> None:
     write_segments_jsonl(jsonl_path, segments)
     write_timeline_csv(timeline_path, segments)
 
-    assert "speaker_id" in csv_path.read_text(encoding="utf-8")
+    csv_header = csv_path.read_text(encoding="utf-8")
+    assert "speaker_id" in csv_header
+    assert "events_top3_json" in csv_header
     json_lines = jsonl_path.read_text(encoding="utf-8").strip().splitlines()
     assert json.loads(json_lines[0])["speaker_id"] == "S1"
     assert "speaker_id" in timeline_path.read_text(encoding="utf-8")
