@@ -244,6 +244,31 @@ class EmotionAnalysisResult:
 # --------------------------
 
 
+def _resolve_intent_model_dir(
+    explicit_dir: Optional[str],
+) -> Optional[str]:
+    """Resolve the intent model directory with environment overrides."""
+
+    if explicit_dir:
+        return str(Path(explicit_dir).expanduser())
+
+    env_override = os.environ.get("DIAREMOT_INTENT_MODEL_DIR")
+    if env_override:
+        return str(Path(env_override).expanduser())
+
+    model_root = os.environ.get("DIAREMOT_MODEL_DIR")
+    if model_root:
+        candidate = Path(model_root).expanduser() / "bart"
+        if candidate.exists():
+            return str(candidate)
+
+    default_windows = Path(r"D:\diaremot\diaremot2-1\models\bart")
+    if default_windows.exists():
+        return str(default_windows)
+
+    return None
+
+
 class EmotionIntentAnalyzer:
     def __init__(
         self,
@@ -298,7 +323,9 @@ class EmotionIntentAnalyzer:
         self._intent_pipeline = None
         self.affect_backend = (affect_backend or "auto").lower()
         self.affect_text_model_dir = affect_text_model_dir
-        self.affect_intent_model_dir = affect_intent_model_dir
+        self.affect_intent_model_dir = _resolve_intent_model_dir(
+            affect_intent_model_dir
+        )
 
     # -------- public API: unified --------
     def analyze(self, wav: np.ndarray, sr: int, text: str) -> Dict[str, object]:
