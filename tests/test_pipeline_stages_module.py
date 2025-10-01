@@ -1,0 +1,160 @@
+import types
+
+import numpy as np
+import pytest
+
+from diaremot.pipeline.logging_utils import StageGuard
+from diaremot.pipeline.orchestrator import AudioAnalysisPipelineV2
+from diaremot.pipeline.outputs import default_affect
+from diaremot.pipeline.stages import PIPELINE_STAGES, PipelineState
+from diaremot.pipeline.stages import dependency_check
+
+
+def test_stage_registry_order():
+    names = [stage.name for stage in PIPELINE_STAGES]
+    assert names == [
+        "dependency_check",
+        "preprocess",
+        "background_sed",
+        "diarize",
+        "transcribe",
+        "paralinguistics",
+        "affect_and_assemble",
+        "overlap_interruptions",
+        "conversation_analysis",
+        "speaker_rollups",
+        "outputs",
+    ]
+
+
+@pytest.fixture
+def stub_pipeline(tmp_path, monkeypatch):
+    def _stub_init(self, cfg):
+        class _StubPreprocessor:
+            def process_file(self, *_args, **_kwargs):
+                return (
+                    np.zeros(16000, dtype=np.float32),
+                    16000,
+                    types.SimpleNamespace(snr_db=25.0),
+                )
+
+        class _StubDiarizer:
+            def diarize_audio(self, *_args, **_kwargs):
+                return [
+                    {
+                        "start": 0.0,
+                        "end": 1.0,
+                        "speaker": "S1",
+                        "speaker_name": "Speaker_1",
+                    }
+                ]
+
+        class _StubTranscriber:
+            def transcribe_segments(self, wav, sr, segments):
+                out = []
+                for seg in segments:
+                    out.append(
+                        types.SimpleNamespace(
+                            start_time=seg["start_time"],
+                            end_time=seg["end_time"],
+                            speaker_id=seg["speaker_id"],
+                            speaker_name=seg["speaker_name"],
+                            text="hello world",
+                            asr_logprob_avg=0.0,
+                            snr_db=20.0,
+                        )
+                    )
+                return out
+
+            def get_model_info(self):
+                return {"fallback_triggered": False}
+
+        class _StubAffect:
+            def analyze(self, **_kwargs):
+                return default_affect()
+
+        self.pp_conf = types.SimpleNamespace(
+            target_sr=16000, denoise="spectral_sub_soft", loudness_mode="asr"
+        )
+        self.pre = _StubPreprocessor()
+        self.diar_conf = types.SimpleNamespace(
+            registry_path=str(tmp_path / "registry.json"),
+            ahc_distance_threshold=0.12,
+            speaker_limit=None,
+            vad_threshold=0.22,
+            vad_min_speech_sec=0.40,
+            vad_min_silence_sec=0.40,
+            speech_pad_sec=0.15,
+            energy_gate_db=-33.0,
+            energy_hop_sec=0.01,
+        )
+        self.diar = _StubDiarizer()
+        self.tx = _StubTranscriber()
+        self.affect = _StubAffect()
+        self.sed_tagger = None
+        self.html = types.SimpleNamespace(render_to_html=lambda *args, **kwargs: None)
+        self.pdf = types.SimpleNamespace(render_to_pdf=lambda *args, **kwargs: None)
+        self.stats.models.update(
+            {
+                "preprocessor": "StubPreprocessor",
+                "diarizer": "StubDiarizer",
+                "transcriber": "StubTranscriber",
+                "affect": "StubAffect",
+            }
+        )
+        self.stats.config_snapshot = {
+            "transcribe_failed": False,
+            "dependency_ok": True,
+            "dependency_summary": {},
+        }
+
+    monkeypatch.setattr(AudioAnalysisPipelineV2, "_init_components", _stub_init)
+
+    pipeline = AudioAnalysisPipelineV2(
+        config={
+            "log_dir": str(tmp_path / "logs"),
+            "checkpoint_dir": str(tmp_path / "chk"),
+            "cache_root": tmp_path / "cache",
+        }
+    )
+    pipeline.stats.file_id = "sample.wav"
+    return pipeline
+
+
+def test_stage_services_execute_full_cycle(tmp_path, monkeypatch, stub_pipeline):
+    pipeline = stub_pipeline
+
+    monkeypatch.setattr(
+        dependency_check,
+        "dependency_health_summary",
+        lambda: {"core": {"status": "ok"}},
+    )
+
+    captured = {}
+
+    def _capture_outputs(
+        self,
+        _input_audio_path,
+        _outp,
+        segments_final,
+        speakers_summary,
+        *_rest,
+    ):
+        captured["segments"] = segments_final
+        captured["speakers"] = speakers_summary
+
+    monkeypatch.setattr(AudioAnalysisPipelineV2, "_write_outputs", _capture_outputs)
+
+    out_dir = tmp_path / "out"
+    state = PipelineState(input_audio_path="dummy.wav", out_dir=out_dir)
+
+    for stage in PIPELINE_STAGES:
+        with StageGuard(pipeline.corelog, pipeline.stats, stage.name) as guard:
+            stage.runner(pipeline, state, guard)
+
+    assert captured["segments"], "affect stage should produce segments"
+    assert captured["segments"][0]["text"] == "hello world"
+    assert state.norm_tx and state.turns
+    assert state.overlap_stats is not None
+    assert isinstance(state.speakers_summary, list)
+    assert pipeline.stats.config_snapshot.get("dependency_ok") is True
