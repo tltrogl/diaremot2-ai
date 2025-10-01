@@ -32,40 +32,36 @@ You must preserve **all existing functions and stages**. No regressions, no “f
 ---
 
 ## Repository contract (must remain true)
-- **CPU-only** pipeline, **all stages required** and must remain functional:
-  1) **Quiet-Boost** (preprocessing)
-  2) **SED** (PANNs CNN14 ONNX)
-  3) **Diarization** (Silero VAD + ECAPA + AHC)
-  4) **ASR** (faster-whisper `tiny-en`, default `compute_type=int8`)
-  5) **Affect** (V/A/D, 8-class SER, GoEmotions, MNLI intent)
-  6) **Paralinguistics** (Praat-Parselmouth: jitter, shimmer, HNR, CPPS + WPM/pauses)
-  7) **Outputs/Summaries** (CSV, HTML, JSONL, registry)
-- **All functions must be preserved** across modules; extend rather than remove/rename.
-- **CSV schema**: produce the documented columns consistently (including paralinguistics fields).
-- **SED label collapse**: AudioSet → ~20 groups before `events_top3_json`.
+- **CPU-only** pipeline, **all stages required** and must remain functional:  
+  1) **Quiet-Boost** (preprocessing)  
+  2) **SED** (PANNs CNN14 ONNX)  
+  3) **Diarization** (Silero VAD + ECAPA + AHC)  
+  4) **ASR** (faster-whisper `tiny-en`, default `compute_type=int8`)  
+  5) **Affect** (V/A/D, 8-class SER, GoEmotions, MNLI intent)  
+  6) **Paralinguistics** (Praat-Parselmouth: jitter, shimmer, HNR, CPPS + WPM/pauses)  
+  7) **Outputs/Summaries** (CSV, HTML, JSONL, registry)  
+- **All functions must be preserved** across modules; extend rather than remove/rename.  
+- **CSV schema**: produce the documented columns consistently (including paralinguistics fields).  
+- **SED label collapse**: AudioSet → ~20 groups before `events_top3_json`.  
 - **Quality bars:** Ruff clean; tests pass; mypy clean where applicable.
 
-> Note: Stage selection (e.g., “transcription-only” or “intent-only”) will come later. For now, **run all stages**.
+> Stage selection (e.g., transcript-only) will come later. For now, **run all stages**.
 
 ---
 
 ## Operating procedure (end-to-end)
-1) **Plan**
-   - 5–10 bullet outline: touched files, signatures, data shapes, tests you’ll write.
-2) **Implement**
-   - Minimal, coherent diffs; keep style consistent; avoid churn.
-3) **Verify**
-   - Run `./setup.sh`, then `./maint-codex.sh`.
-   - Add any targeted commands (e.g., a smoke run) if relevant.
-4) **Report** (single message/artifact)
-   - **Summary**: what/why in ≤2 short paragraphs.
-   - **Diffs**: unified patches or file lists (omit noisy lockfiles).
-   - **Commands + exit codes** you ran.
-   - **Logs**: tail (~200 lines) from `pytest`, `ruff`, and build—**real logs only**.
-   - **Artifacts**: paths to generated CSV/HTML/JSON.
-   - **Risks/Follow-ups**: threshold notes, TODOs, migration hints.
+1) **Plan** — 5–10 bullets: touched files, signatures, data shapes, tests.  
+2) **Implement** — minimal, coherent diffs; keep style consistent; avoid churn.  
+3) **Verify** — run `./setup.sh`, then `./maint-codex.sh`; add a smoke run if relevant.  
+4) **Report** (single message/artifact)  
+   - **Summary** (≤2 short paragraphs)  
+   - **Diffs** (unified patches or file list)  
+   - **Commands + exit codes** actually run  
+   - **Logs**: tail (~200 lines) from `pytest`, `ruff`, build — **real logs only**  
+   - **Artifacts**: paths to generated CSV/HTML/JSON  
+   - **Risks/Follow-ups** (threshold notes, TODOs, migration hints)
 
-If anything fails, **fix it before reporting**. Don’t hand back a broken tree.
+If anything fails, **fix it before reporting**.
 
 ---
 
@@ -79,27 +75,27 @@ Your job: **plan → implement → verify → report** in one cycle.
 ---
 
 ## Hard constraints
-- No GPU, no system package installs, no secrets.
-- Don’t change CLI behavior or output schema without updating docs, readers, and tests.
-- Don’t rename/remove existing functions; **add or extend** only.
-- Keep ASR default `compute_type=int8`; any change requires measurable gains with real logs.
+- No GPU, no system package installs, no secrets.  
+- Don’t change CLI behavior or output schema without updating docs, readers, and tests.  
+- Don’t rename/remove existing functions; **add or extend** only.  
+- Keep ASR default `compute_type=int8`; any change requires measurable gains with real logs.  
 - If adding dependencies, pin responsibly and justify (size, CPU cost, licensing).
 
 ---
 
 ## Research & dependency rules (internet ON)
-- Prefer **official documentation** and **primary sources**.
-- Summarize external findings in your rationale; avoid long quotations.
-- Do not auto-download large model files without honoring caches.
+- Prefer **official documentation** and **primary sources**.  
+- Summarize external findings in your rationale; avoid long quotations.  
+- Do not auto-download large model files without honoring caches.  
 - If an external fact materially changes behavior, include a **“Source of truth”** note in your report.
 
 ---
 
 ## Reporting checklist (include every time)
-- ✅ Only factual changes; **no fabricated/simulated logs**
-- ✅ Ruff + tests pass (show summaries)
-- ✅ **All pipeline functions preserved** (preprocess, SED, diarization, ASR, affect, paralinguistics, outputs)
-- ✅ CSV schema/docs updated if impacted
-- ✅ SED label collapse intact
-- ✅ Assumptions and risks clearly stated
+- ✅ Only factual changes; **no fabricated/simulated logs**  
+- ✅ Ruff + tests pass (show summaries)  
+- ✅ **All pipeline functions preserved** (preprocess, SED, diarization, ASR, affect, paralinguistics, outputs)  
+- ✅ CSV schema/docs updated if impacted  
+- ✅ SED label collapse intact  
+- ✅ Assumptions and risks clearly stated  
 - ✅ No secrets or private data in output
