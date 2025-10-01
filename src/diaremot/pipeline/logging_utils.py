@@ -128,12 +128,6 @@ def _fmt_hms_ms(milliseconds: float) -> str:
 
 class StageGuard(AbstractContextManager["StageGuard"]):
     _OPTIONAL_STAGE_EXCEPTION_MAP = {
-        "background_sed": (
-            ImportError,
-            ModuleNotFoundError,
-            FileNotFoundError,
-            OSError,
-        ),
         "registry_update": (
             FileNotFoundError,
             PermissionError,
@@ -245,7 +239,7 @@ class StageGuard(AbstractContextManager["StageGuard"]):
                     if stage == "affect_and_assemble":
                         return "Install emotion/intent model dependencies or run with --disable_affect."
                     if stage == "background_sed":
-                        return "Provide SED models locally or disable background SED tagging."
+                        return "Install and configure SED dependencies; this stage is required."
                     if stage == "overlap_interruptions":
                         return "Install paralinguistics extras for overlap metrics or skip this stage."
                     if stage == "conversation_analysis":
