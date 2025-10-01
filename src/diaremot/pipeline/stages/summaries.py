@@ -35,25 +35,43 @@ def run_overlap(
         }
 
         per_speaker_map: dict[str, dict[str, float | int]] = {}
+        made_provided: set[str] = set()
+
+        def _ensure_entry(key: str) -> dict[str, float | int]:
+            return per_speaker_map.setdefault(
+                key, {"made": 0, "received": 0, "overlap_sec": 0.0}
+            )
+
         for speaker_id, values in (overlap.get("by_speaker") or {}).items():
             if not isinstance(values, dict):
                 continue
-            made = int(float(values.get("interruptions", 0) or 0))
-            per_speaker_map[str(speaker_id)] = {
-                "made": made,
-                "received": 0,
-                "overlap_sec": float(values.get("overlap_sec", 0.0) or 0.0),
-            }
+            key = str(speaker_id)
+            slot = _ensure_entry(key)
+            slot["overlap_sec"] = float(values.get("overlap_sec", 0.0) or 0.0)
+
+            made_raw = values.get("made", values.get("interruptions"))
+            try:
+                made_val = int(float(made_raw))
+            except (TypeError, ValueError):
+                made_val = 0
+            slot["made"] = made_val
+            made_provided.add(key)
 
         for item in overlap.get("interruptions", []) or []:
             if not isinstance(item, dict):
                 continue
+
+            interrupter = item.get("interrupter")
+            if interrupter not in (None, ""):
+                key = str(interrupter)
+                slot = _ensure_entry(key)
+                if key not in made_provided:
+                    slot["made"] = int(slot.get("made", 0)) + 1
+
             interrupted = item.get("interrupted")
             if interrupted in (None, ""):
                 continue
-            slot = per_speaker_map.setdefault(
-                str(interrupted), {"made": 0, "received": 0, "overlap_sec": 0.0}
-            )
+            slot = _ensure_entry(str(interrupted))
             slot["received"] = int(slot.get("received", 0)) + 1
 
         per_speaker = per_speaker_map

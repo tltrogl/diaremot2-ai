@@ -175,6 +175,7 @@ def test_run_overlap_maps_interruptions(tmp_path, stub_pipeline):
             {"interrupter": "S1", "interrupted": "S2"},
             {"interrupter": "S1", "interrupted": "S2"},
             {"interrupter": "S2", "interrupted": "S1"},
+            {"interrupter": "S3", "interrupted": "S1"},
         ],
     }
 
@@ -200,6 +201,7 @@ def test_run_overlap_maps_interruptions(tmp_path, stub_pipeline):
         "overlap_ratio": 0.4,
     }
     assert state.per_speaker_interrupts == {
-        "S1": {"made": 2, "received": 1, "overlap_sec": 2.5},
+        "S1": {"made": 2, "received": 2, "overlap_sec": 2.5},
         "S2": {"made": 1, "received": 2, "overlap_sec": 1.5},
+        "S3": {"made": 1, "received": 0, "overlap_sec": 0.0},
     }
