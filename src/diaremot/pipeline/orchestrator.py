@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import math
 import os
 import subprocess
 import time
@@ -601,6 +602,7 @@ class AudioAnalysisPipelineV2:
                         "wpm": float(d.get("wpm", 0.0) or 0.0),
                         "pause_count": int(d.get("pause_count", 0) or 0),
                         "pause_time_s": float(d.get("pause_time_s", 0.0) or 0.0),
+                        "pause_ratio": float(d.get("pause_ratio", 0.0) or 0.0),
                         "f0_mean_hz": float(d.get("f0_mean_hz", 0.0) or 0.0),
                         "f0_std_hz": float(d.get("f0_std_hz", 0.0) or 0.0),
                         "loudness_rms": float(d.get("loudness_rms", 0.0) or 0.0),
@@ -636,6 +638,7 @@ class AudioAnalysisPipelineV2:
                 "wpm": float(wpm),
                 "pause_count": 0,
                 "pause_time_s": 0.0,
+                "pause_ratio": 0.0,
                 "f0_mean_hz": 0.0,
                 "f0_std_hz": 0.0,
                 "loudness_rms": float(loud),
@@ -1196,6 +1199,8 @@ class AudioAnalysisPipelineV2:
                             "text": d.get("text", ""),
                             "asr_logprob_avg": d.get("asr_logprob_avg"),
                             "snr_db": d.get("snr_db"),
+                            "words": d.get("words"),
+                            "duration": d.get("duration"),
                             "error_flags": d.get("error_flags", ""),
                         }
                     )
@@ -1219,6 +1224,8 @@ class AudioAnalysisPipelineV2:
                             "text": d.get("text", ""),
                             "asr_logprob_avg": d.get("asr_logprob_avg"),
                             "snr_db": d.get("snr_db"),
+                            "words": d.get("words"),
+                            "duration": d.get("duration"),
                             "error_flags": "",
                         }
                     )
@@ -1280,6 +1287,32 @@ class AudioAnalysisPipelineV2:
                         )
                         text = seg.get("text") or ""
 
+                        duration_val = seg.get("duration")
+                        try:
+                            duration_val = (
+                                float(duration_val)
+                                if duration_val is not None
+                                else None
+                            )
+                        except (TypeError, ValueError):
+                            duration_val = None
+                        duration_val = (
+                            duration_val
+                            if duration_val is not None and duration_val >= 0.0
+                            else max(0.0, end - start)
+                        )
+
+                        words_raw = seg.get("words")
+                        word_count = 0
+                        if isinstance(words_raw, (list, tuple)):
+                            word_count = len(words_raw)
+                        elif isinstance(words_raw, dict):
+                            word_count = len(words_raw)
+                        elif isinstance(words_raw, str):
+                            word_count = len(words_raw.split())
+                        if word_count == 0 and text:
+                            word_count = len(text.split())
+
                         aff = self._affect_unified(clip, sr, text)
                         v = aff["vad"].get("valence", 0.0)
                         a = aff["vad"].get("arousal", 0.0)
@@ -1302,6 +1335,45 @@ class AudioAnalysisPipelineV2:
                         hint = aff.get("affect_hint", "neutral-status")
 
                         pm = para_metrics.get(i, {})
+                        pause_ratio = pm.get("pause_ratio", 0.0)
+                        try:
+                            pause_ratio = float(pause_ratio)
+                        except (TypeError, ValueError):
+                            pause_ratio = 0.0
+
+                        events_json_val = seg.get("events_top3_json")
+                        if not events_json_val:
+                            events_payload = seg.get("events_top3")
+                            if events_payload:
+                                events_json_val = json.dumps(
+                                    events_payload, ensure_ascii=False
+                                )
+                        if not events_json_val:
+                            if sed_info and sed_info.get("top") is not None:
+                                events_json_val = json.dumps(
+                                    sed_info.get("top") or [], ensure_ascii=False
+                                )
+                            else:
+                                events_json_val = json.dumps([], ensure_ascii=False)
+
+                        noise_tag = seg.get("noise_tag")
+                        if noise_tag is None and sed_info:
+                            noise_tag = sed_info.get("dominant_label")
+
+                        snr_db_sed = seg.get("snr_db_sed")
+                        if snr_db_sed is None and sed_info:
+                            try:
+                                noise_score = float(sed_info.get("noise_score", 0.0) or 0.0)
+                            except (TypeError, ValueError):
+                                noise_score = None
+                            if noise_score is not None and noise_score > 0:
+                                if noise_score < 1.0:
+                                    signal_ratio = max(1.0 - noise_score, 1e-6)
+                                    snr_linear = signal_ratio / max(noise_score, 1e-6)
+                                else:
+                                    snr_linear = 1.0 / max(noise_score, 1e-6)
+                                snr_db_sed = 10.0 * math.log10(max(snr_linear, 1e-6))
+
                         row = {
                             "file_id": self.stats.file_id,
                             "start": start,
@@ -1326,12 +1398,18 @@ class AudioAnalysisPipelineV2:
                             "intent_top3_json": json.dumps(
                                 intent_top3, ensure_ascii=False
                             ),
+                            "events_top3_json": events_json_val,
+                            "noise_tag": noise_tag,
                             "low_confidence_ser": low_ser,
                             "vad_unstable": bool(vad_unstable),
                             "affect_hint": hint,
                             "asr_logprob_avg": seg.get("asr_logprob_avg"),
                             "snr_db": seg.get("snr_db"),
+                            "snr_db_sed": snr_db_sed,
                             "wpm": pm.get("wpm", 0.0),
+                            "duration_s": duration_val,
+                            "words": int(word_count),
+                            "pause_ratio": pause_ratio,
                             "pause_count": pm.get("pause_count", 0),
                             "pause_time_s": pm.get("pause_time_s", 0.0),
                             "f0_mean_hz": pm.get("f0_mean_hz", 0.0),

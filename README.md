@@ -73,3 +73,10 @@ asr_logprob_avg,snr_db,snr_db_sed,
 wpm,duration_s,words,pause_ratio,
 vq_jitter_pct,vq_shimmer_db,vq_hnr_db,vq_cpps_db,voice_quality_hint
 ```
+
+`events_top3_json` carries the top-k AudioSet clusters detected globally or per
+segment (when available), `noise_tag` surfaces the dominant background class,
+and `snr_db_sed` converts the SED noise score into an approximate SNR value for
+triage. The CSV also exposes normalized segment duration, token counts, and the
+pause ratio derived from paralinguistics, keeping downstream consumers aligned
+with the contract.
