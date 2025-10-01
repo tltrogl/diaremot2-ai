@@ -7,7 +7,14 @@ root continue to function. The real implementation lives under ``src/``.
 
 from __future__ import annotations
 
+import sys
+
 import diaremot.pipeline.audio_pipeline_core as _core
+from diaremot.pipeline import cli_entry as _cli_entry
 from diaremot.pipeline.audio_pipeline_core import *  # noqa: F401,F403
 
 __all__ = getattr(_core, "__all__", [])
+
+
+if __name__ == "__main__":  # pragma: no cover - exercised via explicit tests
+    sys.exit(_cli_entry.main(sys.argv[1:]))

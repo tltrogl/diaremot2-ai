@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import sys
+
+from . import cli_entry
 from .cli_entry import _args_to_config, _build_arg_parser, main
 from .config import (
     CORE_DEPENDENCY_REQUIREMENTS,
@@ -65,3 +68,7 @@ __all__ = [
     "write_speakers_summary",
     "write_timeline_csv",
 ]
+
+
+if __name__ == "__main__":  # pragma: no cover - exercised via explicit tests
+    sys.exit(cli_entry.main(sys.argv[1:]))
