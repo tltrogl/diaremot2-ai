@@ -32,11 +32,24 @@ def _find_project_root(start: Path) -> Path | None:
 
 def _candidate_cache_roots(script_path: Path) -> Iterable[Path]:
     project_root = _find_project_root(script_path)
+    candidates: list[Path] = []
     if project_root is not None:
-        yield project_root / ".cache"
-    else:
-        yield Path.cwd() / ".cache"
-        yield Path.home() / ".cache" / "diaremot"
+        candidates.append(project_root / ".cache")
+
+    candidates.extend(
+        [
+            Path.cwd() / ".cache",
+            Path.home() / ".cache" / "diaremot",
+        ]
+    )
+
+    seen: set[str] = set()
+    for candidate in candidates:
+        key = str(candidate)
+        if key in seen:
+            continue
+        seen.add(key)
+        yield candidate
 
 
 def _ensure_writable_directory(path: Path) -> bool:
@@ -64,7 +77,8 @@ def configure_local_cache_env() -> None:
     """Ensure all cache directories resolve to a writable, local cache root."""
 
     cache_root = None
-    for candidate in _candidate_cache_roots(Path(__file__).resolve()):
+    script_path = Path(__file__).resolve()
+    for candidate in _candidate_cache_roots(script_path):
         resolved = candidate.resolve()
         if _ensure_writable_directory(resolved):
             cache_root = resolved

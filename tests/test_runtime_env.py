@@ -63,3 +63,61 @@ def test_configure_local_cache_env_site_packages(monkeypatch, tmp_path):
         target_value = Path(runtime_env.os.environ[env_name]).resolve()
         expected_path = expected_root if subdir is None else (expected_root / subdir).resolve()
         assert target_value == expected_path
+
+
+def test_configure_local_cache_env_repo_cache_fallback(monkeypatch, tmp_path):
+    """Project installs should fall back when the repo cache directory is unwritable."""
+
+    for name in (
+        "HF_HOME",
+        "HUGGINGFACE_HUB_CACHE",
+        "TRANSFORMERS_CACHE",
+        "TORCH_HOME",
+        "XDG_CACHE_HOME",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+    repo_root = tmp_path / "repo"
+    repo_root.mkdir()
+    (repo_root / "pyproject.toml").write_text("")
+
+    script_path = repo_root / "src" / "diaremot" / "pipeline" / "runtime_env.py"
+    script_path.parent.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(runtime_env, "__file__", str(script_path))
+
+    work_dir = tmp_path / "work"
+    work_dir.mkdir()
+    monkeypatch.chdir(work_dir)
+
+    home_dir = tmp_path / "home"
+    home_dir.mkdir()
+    monkeypatch.setattr(Path, "home", lambda: home_dir)
+
+    blocked_repo_cache = (repo_root / ".cache").resolve()
+    attempted: list[Path] = []
+    original_ensure = runtime_env._ensure_writable_directory
+
+    def tracking_ensure(path: Path) -> bool:
+        attempted.append(path)
+        if path == blocked_repo_cache:
+            return False
+        return original_ensure(path)
+
+    monkeypatch.setattr(runtime_env, "_ensure_writable_directory", tracking_ensure)
+
+    runtime_env.configure_local_cache_env()
+
+    expected_root = (work_dir / ".cache").resolve()
+    assert attempted[0] == blocked_repo_cache
+    assert attempted[1] == expected_root
+
+    for env_name, subdir in {
+        "HF_HOME": "hf",
+        "HUGGINGFACE_HUB_CACHE": "hf",
+        "TRANSFORMERS_CACHE": "transformers",
+        "TORCH_HOME": "torch",
+        "XDG_CACHE_HOME": None,
+    }.items():
+        target_value = Path(runtime_env.os.environ[env_name]).resolve()
+        expected_path = expected_root if subdir is None else (expected_root / subdir).resolve()
+        assert target_value == expected_path
