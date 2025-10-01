@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # DiaRemot — maintenance for Codex Cloud (internet ON)
-# format → lint → test → build → diagnostics → CSV schema check
+# format → lint → typecheck → test → build → diagnostics → smoke-run → CSV schema check
 set -Eeuo pipefail
 
 log() { printf '\n==> %s\n' "$*"; }
@@ -32,6 +32,7 @@ else
   echo "::notice:: ruff not installed; skipping format/lint"
 fi
 
+# ---------- Type check ----------
 log "Type check (mypy)"
 if command -v mypy >/dev/null 2>&1; then
   mypy src || true
@@ -42,7 +43,6 @@ fi
 # ---------- Tests ----------
 log "Tests (pytest)"
 if command -v pytest >/dev/null 2>&1; then
-  # -q keeps logs compact; remove -q if you need verbose
   pytest -q || (echo "::error:: pytest failed" && exit 1)
 else
   echo "::notice:: pytest not installed; skipping tests"
@@ -56,60 +56,87 @@ $PYTHON -m build || true
 log "Diagnostics"
 json
 
-# ---------- CSV Schema Guard ----------
-# This guard ensures the primary CSV contains all required columns.
-# You can specify the CSV explicitly via OUTPUT_CSV, or we’ll try to find the common filename.
-#
-# Env knobs:
-#   OUTPUT_CSV=/path/to/diarized_transcript_with_emotion.csv
-#   ALLOW_MISSING_CSV=true   # if true, skip check when no CSV is found
-#   EXTRA_REQUIRED_COLS="colA,colB"  # comma-separated additional required columns
-#
-log "CSV schema check"
-: "${ALLOW_MISSING_CSV:=false}"
-: "${OUTPUT_CSV:=}"
+# ---------- Smoke run (synthesize audio → full pipeline) ----------
+SMOKE_DIR="${SMOKE_DIR:-/tmp/diaremot_smoke}"
+SMOKE_WAV="$SMOKE_DIR/audio.wav"
+mkdir -p "$SMOKE_DIR"
 
-# Find a plausible output CSV if not provided
+log "Synthesize 16 kHz mono WAV (silence→tone→noise→silence) at: $SMOKE_WAV"
+$PYTHON - <<'PY'
+import numpy as np, soundfile as sf, os
+sr = 16000
+def seg_silence(d): return np.zeros(int(d*sr), dtype=np.float32)
+def seg_tone(d, f=220.0, a=0.15):
+    t = np.arange(int(d*sr))/sr
+    return (a*np.sin(2*np.pi*f*t)).astype(np.float32)
+def seg_noise(d, a=0.02):
+    return (a*np.random.randn(int(d*sr))).astype(np.float32)
+
+x = np.concatenate([
+    seg_silence(1.0),
+    seg_tone(3.0, 220.0, 0.15),
+    seg_noise(1.0, 0.02),
+    seg_silence(1.0),
+])
+os.makedirs(os.environ["SMOKE_DIR"], exist_ok=True)
+sf.write(os.environ["SMOKE_DIR"] + "/audio.wav", x, sr, subtype="PCM_16")
+print("wrote:", os.environ["SMOKE_DIR"] + "/audio.wav")
+PY
+
+log "Run pipeline (CPU-only, int8 ASR) on smoke WAV"
+set +e
+$PYTHON -m diaremot.cli run \
+  --audio "$SMOKE_WAV" \
+  --tag smoke \
+  --compute-type int8
+PIPE_STATUS=$?
+set -e
+if [[ $PIPE_STATUS -ne 0 ]]; then
+  echo "::error:: pipeline run failed on smoke sample (exit $PIPE_STATUS)"
+  exit 1
+fi
+
+# Try to locate the newest primary CSV
+log "Locate output CSV"
+: "${OUTPUT_CSV:=}"
 if [[ -z "${OUTPUT_CSV}" ]]; then
-  # Search by typical name anywhere under repo, newest first
+  # newest diarized_transcript_with_emotion.csv anywhere under repo
   mapfile -t CANDIDATES < <(ls -1t **/diarized_transcript_with_emotion.csv 2>/dev/null || true)
   if [[ ${#CANDIDATES[@]} -gt 0 ]]; then
     OUTPUT_CSV="${CANDIDATES[0]}"
-    echo "::notice:: OUTPUT_CSV not set; using ${OUTPUT_CSV}"
-  fi
-fi
-
-REQUIRED_BASE="file_id,start,end,speaker_id,speaker_name,text,valence,arousal,dominance,emotion_top,emotion_scores_json,text_emotions_top5_json,text_emotions_full_json,intent_top,intent_top3_json,events_top3_json,noise_tag,asr_logprob_avg,snr_db,snr_db_sed,wpm,duration_s,words,pause_ratio,vq_jitter_pct,vq_shimmer_db,vq_hnr_db,vq_cpps_db,voice_quality_hint"
-# Append optional extras if requested
-if [[ -n "${EXTRA_REQUIRED_COLS:-}" ]]; then
-  REQUIRED_BASE="${REQUIRED_BASE},${EXTRA_REQUIRED_COLS}"
-fi
-
-if [[ -z "${OUTPUT_CSV}" ]]; then
-  if [[ "${ALLOW_MISSING_CSV}" == "true" ]]; then
-    echo "::notice:: No output CSV found; skipping schema check"
-    exit 0
+    echo "::notice:: using OUTPUT_CSV=${OUTPUT_CSV}"
   else
-    echo "::error:: No output CSV found and ALLOW_MISSING_CSV=false"
+    echo "::error:: No diarized_transcript_with_emotion.csv found after smoke run"
     exit 2
   fi
 fi
+export OUTPUT_CSV
 
-# Inline Python to validate header
-$PYTHON - <<PY
+# ---------- CSV Schema Guard ----------
+log "CSV schema check"
+REQUIRED_BASE="file_id,start,end,speaker_id,speaker_name,text,valence,arousal,dominance,emotion_top,emotion_scores_json,text_emotions_top5_json,text_emotions_full_json,intent_top,intent_top3_json,events_top3_json,noise_tag,asr_logprob_avg,snr_db,snr_db_sed,wpm,duration_s,words,pause_ratio,vq_jitter_pct,vq_shimmer_db,vq_hnr_db,vq_cpps_db,voice_quality_hint"
+# Allow override or additions
+: "${EXTRA_REQUIRED_COLS:=}"
+if [[ -n "$EXTRA_REQUIRED_COLS" ]]; then
+  REQUIRED_BASE="${REQUIRED_BASE},${EXTRA_REQUIRED_COLS}"
+fi
+export REQUIRED_BASE
+
+$PYTHON - <<'PY'
 import csv, sys, os
-csv_path = os.environ.get("OUTPUT_CSV")
+csv_path = os.environ["OUTPUT_CSV"]
 required = [c.strip() for c in os.environ["REQUIRED_BASE"].split(",") if c.strip()]
-if not os.path.isfile(csv_path):
+try:
+    with open(csv_path, "r", encoding="utf-8") as f:
+        reader = csv.reader(f)
+        header = next(reader, None)
+except FileNotFoundError:
     print(f"::error:: CSV not found: {csv_path}")
     sys.exit(3)
-with open(csv_path, "r", encoding="utf-8") as f:
-    reader = csv.reader(f)
-    try:
-        header = next(reader)
-    except StopIteration:
-        print(f"::error:: CSV is empty: {csv_path}")
-        sys.exit(3)
+
+if not header:
+    print(f"::error:: CSV is empty: {csv_path}")
+    sys.exit(3)
 
 missing = [c for c in required if c not in header]
 if missing:
@@ -118,13 +145,7 @@ if missing:
     print("Header:", ",".join(header))
     sys.exit(4)
 
-# Extra: sanity on ordering (warn only)
-order_warnings = []
-for col in ("file_id","start","end","speaker_id","speaker_name","text"):
-    if col in header and header.index(col) > 10:
-        order_warnings.append(col)
-if order_warnings:
-    print(f"::notice:: Unusual column ordering for: {', '.join(order_warnings)}")
-
 print(f"::notice:: CSV schema OK: {csv_path}")
 PY
+
+log "maint-codex.sh finished successfully."
