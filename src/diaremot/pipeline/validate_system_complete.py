@@ -32,7 +32,7 @@ def set_cpu_environment():
     os.environ["CUDA_VISIBLE_DEVICES"] = ""
     os.environ["TORCH_DEVICE"] = "cpu"
     os.environ["WHISPER_DEVICE"] = "cpu"
-    os.environ["WHISPER_COMPUTE_TYPE"] = "float32"
+    os.environ["WHISPER_COMPUTE_TYPE"] = "int8"
     print("✓ CPU-only environment configured")
 
 

@@ -51,7 +51,7 @@ class PipelineConfig:
     speaker_limit: int | None = None
     whisper_model: str = "faster-whisper-tiny.en"
     asr_backend: str = "faster"
-    compute_type: str = "float32"
+    compute_type: str = "int8"
     cpu_threads: int = 1
     language: str | None = None
     language_mode: str = "auto"

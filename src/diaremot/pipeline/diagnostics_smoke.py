@@ -35,7 +35,7 @@ SMOKE_TEST_PIPELINE_OVERRIDES: Dict[str, Any] = {
 
 SMOKE_TEST_TRANSCRIBE_KWARGS: Dict[str, Any] = {
     "model_size": "faster-whisper-tiny.en",
-    "compute_type": "float32",
+    "compute_type": "int8",
     "beam_size": 1,
     "temperature": 0.0,
     "no_speech_threshold": 0.6,

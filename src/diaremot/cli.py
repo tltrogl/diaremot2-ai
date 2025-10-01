@@ -8,7 +8,7 @@ from functools import lru_cache
 from importlib import import_module
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 import typer
 
@@ -277,8 +277,11 @@ def asr_run(
         "faster-whisper-tiny.en", help="Whisper/Faster-Whisper model identifier."
     ),
     asr_backend: str = typer.Option("faster", help="ASR backend", show_default=True),
-    asr_compute_type: str = typer.Option(
-        "float32", help="CT2 compute type for faster-whisper."
+    asr_compute_type: Literal["float32", "int8", "int8_float16"] = typer.Option(
+        "int8",
+        help="CT2 compute type for faster-whisper.",
+        case_sensitive=False,
+        show_default=True,
     ),
     asr_cpu_threads: int = typer.Option(1, help="CPU threads for ASR backend."),
     language: Optional[str] = typer.Option(None, help="Override ASR language"),
@@ -470,8 +473,11 @@ def asr_resume(
         "faster-whisper-tiny.en", help="Whisper/Faster-Whisper model identifier."
     ),
     asr_backend: str = typer.Option("faster", help="ASR backend", show_default=True),
-    asr_compute_type: str = typer.Option(
-        "float32", help="CT2 compute type for faster-whisper."
+    asr_compute_type: Literal["float32", "int8", "int8_float16"] = typer.Option(
+        "int8",
+        help="CT2 compute type for faster-whisper.",
+        case_sensitive=False,
+        show_default=True,
     ),
     asr_cpu_threads: int = typer.Option(1, help="CPU threads for ASR backend."),
     language: Optional[str] = typer.Option(None, help="Override ASR language"),

@@ -55,7 +55,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--asr-compute-type",
-        default="float32",
+        default="int8",
         choices=["float32", "int8", "int8_float16"],
         help="Compute precision for ASR backend",
     )
