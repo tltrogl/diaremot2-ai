@@ -1,31 +1,26 @@
-# AGENTS.md — Quality, Automation & CI
+# AGENTS.md — DiaRemot (CPU‑only Speech ML)
 
-## Goals
-- Keep code formatted and linted
-- Prevent doc drift and broken installs
-- One-command maintenance flows (Windows/PS and POSIX)
+**Paralinguistics is REQUIRED.** Use Praat‑Parselmouth for jitter/shimmer/HNR/CPPS + prosody (WPM/pauses).
 
-## Tools
-- **Ruff** for lint + format
-- **PyTest** for tests
-- **FFmpeg** presence required
-
-## Pre-commit (recommended)
+## Setup & maintenance
 ```bash
-pip install pre-commit
-pre-commit install
+./setup.sh
+./maint-codex.sh
 ```
-Hooks:
-- ruff (lint + format)
-- end-of-file-fixer, trailing-whitespace
 
-## CI (suggested)
-- OS: ubuntu-latest, windows-latest
-- Python: 3.11
-- Steps: setup-python, cache pip, `pip install -r requirements.txt -e .`,
-  then `ruff format --check . && ruff check . && pytest -q`
+## Run
+```bash
+python -m diaremot.cli diagnostics --strict
+python -m diaremot.cli run --audio data/sample.wav --tag smoke --compute-type int8
+```
 
-## Release
-- Bump version when ready in pyproject
-- `python -m build`, then publish
-- Re-run import scan to update `requirements.txt` if modules changed
+## Style & checks
+- Ruff: `ruff format .` and `ruff check --fix .`
+- mypy: `mypy src tests`
+- pytest: `pytest -q`
+
+## REQUIRED tasks
+- Paralinguistics: `affect/paralinguistics.py` must compute WPM/pauses and jitter/shimmer/HNR/CPPS; emit
+  `vq_jitter_pct,vq_shimmer_db,vq_hnr_db,vq_cpps_db,voice_quality_hint`.
+- SED collapse: AudioSet→~20 groups in `sed_panns.py` before `events_top3_json`.
+- ASR default: `compute_type=int8` on CPU.
