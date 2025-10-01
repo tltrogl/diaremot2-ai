@@ -14,7 +14,7 @@ DEFAULT_PIPELINE_CONFIG: dict[str, Any] = {
     "speaker_limit": None,
     "whisper_model": "faster-whisper-tiny.en",
     "asr_backend": "faster",
-    "compute_type": "float32",
+    "compute_type": "int8",
     "cpu_threads": 1,
     "language": None,
     "language_mode": "auto",

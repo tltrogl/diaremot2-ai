@@ -155,8 +155,9 @@ def get_transcriber(config: Optional[Dict[str, Any]] = None):
 
     AudioTranscriber, create_transcriber = _cached_modules["transcriber"]
 
-    # Force CPU-only configuration
-    cpu_config = {"device": "cpu", "compute_type": "float32", **(config or {})}
+    # Force CPU-only configuration and prefer int8 quantisation unless overridden
+    cpu_config = {"device": "cpu", **(config or {})}
+    cpu_config.setdefault("compute_type", "int8")
 
     # Default model selection: allow overriding via env var DIAREMOT_MODEL
     try:
