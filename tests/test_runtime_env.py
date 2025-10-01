@@ -65,6 +65,7 @@ def test_configure_local_cache_env_site_packages(monkeypatch, tmp_path):
         assert target_value == expected_path
 
 
+codex/update-cache_env-to-reuse-search-logic
 def test_cache_env_import_handles_readonly_prefix(monkeypatch, tmp_path):
     """Pipeline cache helper should fall back when interpreter prefix is read-only."""
 
@@ -77,6 +78,7 @@ def test_cache_env_import_handles_readonly_prefix(monkeypatch, tmp_path):
     ):
         monkeypatch.delenv(name, raising=False)
 
+ codex/update-cache_env-to-reuse-search-logic
     fake_prefix = tmp_path / "prefix" / "lib" / "python3.11"
     fake_site_packages = fake_prefix / "site-packages" / "diaremot" / "pipeline"
     fake_site_packages.mkdir(parents=True, exist_ok=True)
@@ -90,6 +92,7 @@ def test_cache_env_import_handles_readonly_prefix(monkeypatch, tmp_path):
     home_dir.mkdir()
     monkeypatch.setattr(Path, "home", lambda: home_dir)
 
+codex/update-cache_env-to-reuse-search-logic
     blocked_prefix = fake_prefix.resolve()
     original_mkdir = Path.mkdir
 
@@ -114,6 +117,7 @@ def test_cache_env_import_handles_readonly_prefix(monkeypatch, tmp_path):
         "TORCH_HOME": "torch",
         "XDG_CACHE_HOME": None,
     }.items():
+codex/update-cache_env-to-reuse-search-logic
         value = Path(runtime_env.os.environ[env_name]).resolve()
         expected_path = expected_root if subdir is None else (expected_root / subdir).resolve()
         assert value == expected_path
