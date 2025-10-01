@@ -39,3 +39,8 @@ tests/test_run_pipeline_shim.py
 tests/test_silero_wrapper.py
 tests/test_speaker_registry.py
 tests/test_stageguard.py
+
+
+
+
+

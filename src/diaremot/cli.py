@@ -557,7 +557,7 @@ def resume(
 
 @app.command()
 def diagnostics(
-    strict: bool = typer.Option(False, help="Require minimum dependency versions.")
+    strict: bool = typer.Option(False, help="Require minimum dependency versions."),
 ):
     """Run dependency diagnostics and emit a JSON summary."""
 

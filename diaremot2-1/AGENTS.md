@@ -58,3 +58,4 @@ Expected contents in `--outdir`:
 
 ## License
 Proprietary (match `pyproject.toml`).
+

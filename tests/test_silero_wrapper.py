@@ -88,3 +88,9 @@ def test_silero_wrapper_detect_onnx_shapes():
         assert isinstance(start, float)
         assert isinstance(end, float)
         assert start <= end
+
+
+
+
+
+

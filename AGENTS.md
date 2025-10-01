@@ -2,20 +2,18 @@
 
 ## Setup
 - **Setup script**: `./setup.sh`  (cold container)
-- **Maintenance**: `./maintenance.sh` (warm cache)
-- **Python**: 3.11 (repo supports 3.9–3.11 per pins)
+- **Maintenance**: `./maint-codex.sh` (warm container check)
+- **Python**: 3.11 (repo pins support 3.9–3.11)
 
-## Run — choose ONE and delete the rest
+## Run — choose ONE
 ```bash
-# Preferred: CLI
-python -m diaremot.cli run --input "samples/" --out "outputs/run1"
+# Preferred: CLI (single file)
+python -m diaremot.cli run --input "data/sample.wav" --outdir "outputs/run1"
 
-# If console scripts are installed:
-# diaremot run --input "samples/" --out "outputs/run1"
-
-# Alternate (legacy module entry if you call it directly):
-# python -m diaremot.pipeline.run_pipeline --input "samples/" --out "outputs/run1"
+# Or: directory of wavs
+# python -m diaremot.cli run --input "samples/" --outdir "outputs/run1"
 ```
+
 Diagnostics:
 ```bash
 python -m diaremot.cli diagnostics
@@ -25,4 +23,4 @@ python -m diaremot.cli diagnostics
 ## Expectations
 - Models present under `$DIAREMOT_MODEL_DIR` (default `/opt/models`) per README.
 - Agent has **no internet**; all fetching is done in `setup.sh`.
-- On failure, exit non‑zero.
+- On failure, exit non-zero.

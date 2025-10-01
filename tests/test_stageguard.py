@@ -518,3 +518,4 @@ def test_cpu_diarizer_uses_optimized_wrapper(tmp_path, monkeypatch):
     assert isinstance(pipeline.diar, cpu_module.CPUOptimizedSpeakerDiarizer)
     assert isinstance(pipeline.diar.base, _TrackingSpeakerDiarizer)
     assert pipeline.diar.config.max_speakers == 3
+

@@ -62,3 +62,9 @@ def test_default_threshold_merges_single_speaker(monkeypatch):
 
     assert len(segments) == 1
     assert {seg["speaker"] for seg in segments} == {"Speaker_1"}
+
+
+
+
+
+

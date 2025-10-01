@@ -94,3 +94,9 @@ Optional (for release download in setup):
 - **Maintenance**: `./maintenance.sh` — quick health/import check
 - **Internet**: Agent **OFF** (deterministic). Setup can fetch if needed.
 - **AGENTS.md** shows concrete run commands via the CLI.
+
+
+
+
+
+

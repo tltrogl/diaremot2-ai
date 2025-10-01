@@ -26,3 +26,9 @@ python -m diaremot.cli diagnostics
 - Models present under `$DIAREMOT_MODEL_DIR` (default `/opt/models`) per README.
 - Agent has **no internet**; all fetching is done in `setup.sh`.
 - On failure, exit non‑zero.
+
+
+
+
+
+

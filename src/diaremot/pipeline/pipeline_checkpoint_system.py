@@ -146,7 +146,9 @@ class PipelineCheckpointManager:
         self, audio_file: str, stage: ProcessingStage, file_hash: Optional[str] = None
     ) -> Path:
         """Get metadata file path"""
-        checkpoint_path = self._get_checkpoint_path(audio_file, stage, file_hash=file_hash)
+        checkpoint_path = self._get_checkpoint_path(
+            audio_file, stage, file_hash=file_hash
+        )
         return checkpoint_path.with_suffix(".meta")
 
     def create_checkpoint(

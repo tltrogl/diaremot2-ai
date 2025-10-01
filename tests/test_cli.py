@@ -128,3 +128,9 @@ def test_diagnostics_entrypoint_accepts_strict(
     assert result.exit_code == 0, result.stdout
     assert json.loads(result.stdout) == {"status": "ok"}
     assert captured["strict"] is True
+
+
+
+
+
+

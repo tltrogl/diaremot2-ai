@@ -11,3 +11,4 @@ import diaremot.pipeline.audio_pipeline_core as _core
 from diaremot.pipeline.audio_pipeline_core import *  # noqa: F401,F403
 
 __all__ = getattr(_core, "__all__", [])
+
