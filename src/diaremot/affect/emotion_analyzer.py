@@ -221,27 +221,97 @@ class EmotionAnalysisResult:
 # --------------------------
 
 
+_HF_MODEL_WEIGHT_PATTERNS = (
+    "pytorch_model.bin",
+    "pytorch_model.bin.index.json",
+    "pytorch_model-*.bin",
+    "model.safetensors",
+    "model-*.safetensors",
+    "tf_model.h5",
+    "model.ckpt.index",
+    "flax_model.msgpack",
+)
+
+
+def _is_hf_model_dir(path: Path) -> bool:
+    if not path.is_dir():
+        return False
+    if not (path / "config.json").exists():
+        return False
+    for pattern in _HF_MODEL_WEIGHT_PATTERNS:
+        if any(path.glob(pattern)):
+            return True
+    return False
+
+
+def _locate_hf_model_dir(base: Path, max_depth: int = 2) -> Optional[Path]:
+    """Search breadth-first for a Hugging Face model directory containing weights."""
+
+    try:
+        base = base.expanduser().resolve()
+    except Exception:
+        base = base.expanduser()
+
+    if not base.exists():
+        return None
+
+    queue: List[Tuple[Path, int]] = [(base, 0)]
+    seen: set[Path] = set()
+
+    while queue:
+        current, depth = queue.pop(0)
+        if current in seen:
+            continue
+        seen.add(current)
+
+        if _is_hf_model_dir(current):
+            return current
+
+        if depth >= max_depth:
+            continue
+
+        try:
+            for child in current.iterdir():
+                if child.is_dir():
+                    queue.append((child, depth + 1))
+        except Exception:
+            continue
+
+    return None
+
+
 def _resolve_intent_model_dir(
     explicit_dir: Optional[str],
 ) -> Optional[str]:
     """Resolve the intent model directory with environment overrides."""
 
     if explicit_dir:
-        return str(Path(explicit_dir).expanduser())
+        explicit_path = Path(explicit_dir).expanduser()
+        located = _locate_hf_model_dir(explicit_path)
+        if located:
+            return str(located)
+        if not explicit_path.exists():
+            # Caller provided a model identifier instead of a local directory.
+            return explicit_dir
 
     env_override = os.environ.get("DIAREMOT_INTENT_MODEL_DIR")
     if env_override:
-        return str(Path(env_override).expanduser())
+        env_path = Path(env_override).expanduser()
+        located = _locate_hf_model_dir(env_path)
+        if located:
+            return str(located)
 
     model_root = os.environ.get("DIAREMOT_MODEL_DIR")
     if model_root:
         candidate = Path(model_root).expanduser() / "bart"
-        if candidate.exists():
-            return str(candidate)
+        located = _locate_hf_model_dir(candidate)
+        if located:
+            return str(located)
 
     default_windows = Path(r"D:\diaremot\diaremot2-1\models\bart")
-    if default_windows.exists():
-        return str(default_windows)
+    located = _locate_hf_model_dir(default_windows)
+    if located:
+        return str(located)
 
     return None
 
