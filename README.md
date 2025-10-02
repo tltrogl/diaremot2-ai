@@ -25,7 +25,7 @@ Outputs:
 - **Tone (V/A/D)**: `audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim`.
 - **Speech emotion (8‑class)**: `Dpngtm/wav2vec2-emotion-recognition`.
 - **Text emotions (28)**: `SamLowe/roberta-base-go_emotions` (full distribution; keep top‑5).
-- **Intent**: `facebook/bart-large-mnli` (zero‑shot over fixed intents).
+- **Intent**: Prefers local ONNX exports (e.g., `model_uint8.onnx` under `affect_intent_model_dir` such as `D:\\diaremot\\diaremot2-1\\models\\bart\\`) and falls back to the `facebook/bart-large-mnli` Hugging Face pipeline when no ONNX asset is available.
 - **SED**: PANNs CNN14 (ONNX) on onnxruntime; 1.0s frames, 0.5s hop; median filter 3–5; hysteresis 0.50/0.35; `min_dur=0.30s`; `merge_gap≤0.20s`; collapse AudioSet→~20 labels.
 - **Paralinguistics (REQUIRED)**: **Praat‑Parselmouth** for jitter/shimmer/HNR/CPPS + prosody (WPM/pauses).
 
