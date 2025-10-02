@@ -56,6 +56,9 @@ python -m diaremot.cli run --audio data/sample.wav --tag smoke --compute-type in
 ## Environment variables
 
 - `DIAREMOT_MODEL_DIR` — models root (e.g., `/workspace/models`).
+- `DIAREMOT_INTENT_MODEL_DIR` — optional override for the intent (BART) model. Defaults to
+  `<DIAREMOT_MODEL_DIR>/bart` when present, and automatically falls back to
+  `D:\diaremot\diaremot2-1\models\bart\` on Windows installs if that folder exists.
 - `HF_HOME`, `HUGGINGFACE_HUB_CACHE`, `TRANSFORMERS_CACHE`, `TORCH_HOME` — `./.cache/`.
 - Threads: `OMP_NUM_THREADS`, `MKL_NUM_THREADS`, `NUMEXPR_MAX_THREADS`.
 - `TOKENIZERS_PARALLELISM=false`.
