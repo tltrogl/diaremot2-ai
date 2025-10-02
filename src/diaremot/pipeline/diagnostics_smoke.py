@@ -25,7 +25,7 @@ DEFAULT_DURATION_SECONDS = 1.0
 
 # Shared fast-path configuration overrides for diagnostics flows.
 SMOKE_TEST_PIPELINE_OVERRIDES: Dict[str, Any] = {
-    "whisper_model": "faster-whisper-tiny.en",
+    "whisper_model": "tiny.en",
     "noise_reduction": False,
     "beam_size": 1,
     "temperature": 0.0,
@@ -34,7 +34,7 @@ SMOKE_TEST_PIPELINE_OVERRIDES: Dict[str, Any] = {
 }
 
 SMOKE_TEST_TRANSCRIBE_KWARGS: Dict[str, Any] = {
-    "model_size": "faster-whisper-tiny.en",
+    "model_size": "tiny.en",
     "compute_type": "int8",
     "beam_size": 1,
     "temperature": 0.0,

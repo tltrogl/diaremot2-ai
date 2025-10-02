@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 from diaremot.pipeline.logging_utils import StageGuard
+
 from diaremot.pipeline.orchestrator import AudioAnalysisPipelineV2
 from diaremot.pipeline.outputs import default_affect
 from diaremot.pipeline.stages import PIPELINE_STAGES, PipelineState
@@ -16,6 +17,7 @@ def test_stage_registry_order():
     assert names == [
         "dependency_check",
         "preprocess",
+        "auto_tune",
         "background_sed",
         "diarize",
         "transcribe",
@@ -26,6 +28,58 @@ def test_stage_registry_order():
         "speaker_rollups",
         "outputs",
     ]
+
+
+def test_pipeline_init_recovers_missing_affect(tmp_path, monkeypatch):
+    import diaremot.pipeline.orchestrator as orch
+
+    class _StubPreprocessor:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+    class _StubDiarizer:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+    class _StubTranscriber:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+    class _StubHTML:
+        def render_to_html(self, *_args, **_kwargs):
+            return "out.html"
+
+    class _StubPDF:
+        def render_to_pdf(self, *_args, **_kwargs):
+            return "out.pdf"
+
+    def _boom(*_args, **_kwargs):
+        raise NameError("backend")
+
+    monkeypatch.setattr(orch, "AudioPreprocessor", _StubPreprocessor)
+    monkeypatch.setattr(orch, "SpeakerDiarizer", _StubDiarizer)
+    monkeypatch.setattr(orch, "PANNSEventTagger", None)
+    monkeypatch.setattr(orch, "HTMLSummaryGenerator", _StubHTML)
+    monkeypatch.setattr(orch, "PDFSummaryGenerator", _StubPDF)
+    monkeypatch.setattr(orch, "EmotionIntentAnalyzer", _boom)
+    monkeypatch.setattr(
+        "diaremot.pipeline.transcription_module.AudioTranscriber",
+        _StubTranscriber,
+    )
+
+    pipeline = AudioAnalysisPipelineV2(
+        config={
+            "log_dir": str(tmp_path / "logs"),
+            "checkpoint_dir": str(tmp_path / "chk"),
+            "cache_root": tmp_path / "cache",
+        }
+    )
+
+    # Attributes should exist even when analyzer construction fails
+    assert hasattr(pipeline, "affect")
+    assert pipeline.affect is None
+    assert hasattr(pipeline, "html") and pipeline.html is not None
+    assert hasattr(pipeline, "pdf") and pipeline.pdf is not None
 
 
 @pytest.fixture
@@ -95,6 +149,9 @@ def stub_pipeline(tmp_path, monkeypatch):
         self.sed_tagger = None
         self.html = types.SimpleNamespace(render_to_html=lambda *args, **kwargs: None)
         self.pdf = types.SimpleNamespace(render_to_pdf=lambda *args, **kwargs: None)
+        from diaremot.pipeline.auto_tuner import AutoTuner
+
+        self.auto_tuner = AutoTuner()
         self.stats.models.update(
             {
                 "preprocessor": "StubPreprocessor",
@@ -107,6 +164,7 @@ def stub_pipeline(tmp_path, monkeypatch):
             "transcribe_failed": False,
             "dependency_ok": True,
             "dependency_summary": {},
+            "auto_tune": {"metrics": {}, "notes": ["pending"], "applied": {"diarization": {}, "asr": {}}},
         }
 
     monkeypatch.setattr(AudioAnalysisPipelineV2, "_init_components", _stub_init)
@@ -159,6 +217,9 @@ def test_stage_services_execute_full_cycle(tmp_path, monkeypatch, stub_pipeline)
     assert state.overlap_stats is not None
     assert isinstance(state.speakers_summary, list)
     assert pipeline.stats.config_snapshot.get("dependency_ok") is True
+    assert "auto_tune" in pipeline.stats.config_snapshot
+    assert state.tuning_summary
+    assert state.tuning_history
 
 
 def test_run_overlap_maps_interruptions(tmp_path, stub_pipeline):

@@ -41,6 +41,8 @@ class PipelineState:
     vad_unstable: bool = False
     para_metrics: dict[int, dict[str, Any]] = field(default_factory=dict)
     dependency_summary: dict[str, Any] | None = None
+    tuning_summary: dict[str, Any] = field(default_factory=dict)
+    tuning_history: list[dict[str, Any]] = field(default_factory=list)
 
 
 StageRunner = Callable[["AudioAnalysisPipelineV2", PipelineState, Any], None]

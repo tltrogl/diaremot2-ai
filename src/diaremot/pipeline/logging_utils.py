@@ -81,14 +81,20 @@ class CoreLogger:
         record.update(fields)
         self.jsonl.emit(record)
 
-    def info(self, message: str) -> None:
-        self.log.info(message)
+    def info(self, message: str, *args: Any, **kwargs: Any) -> None:
+        """Log an informational message forwarding formatting arguments."""
 
-    def warn(self, message: str) -> None:
-        self.log.warning(message)
+        self.log.info(message, *args, **kwargs)
 
-    def error(self, message: str) -> None:
-        self.log.error(message)
+    def warn(self, message: str, *args: Any, **kwargs: Any) -> None:
+        """Log a warning message forwarding formatting arguments."""
+
+        self.log.warning(message, *args, **kwargs)
+
+    def error(self, message: str, *args: Any, **kwargs: Any) -> None:
+        """Log an error message forwarding formatting arguments."""
+
+        self.log.error(message, *args, **kwargs)
 
 
 def _fmt_hms(seconds: float) -> str:
@@ -138,6 +144,10 @@ class StageGuard(AbstractContextManager["StageGuard"]):
             ModuleNotFoundError,
         ),
         "affect_and_assemble": (
+            ImportError,
+            ModuleNotFoundError,
+        ),
+        "background_sed": (
             ImportError,
             ModuleNotFoundError,
         ),

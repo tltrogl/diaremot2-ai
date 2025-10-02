@@ -64,90 +64,38 @@ export DIAREMOT_MODEL_DIR=/opt/models         # Linux/macOS
 ### 4) Run the pipeline
 
 ```bash
-# via CLI (preferred)
-python -m diaremot.cli run --input data/sample.wav --outdir outputs/run1
-
-# If console scripts are installed:
-# diaremot run --input data/sample.wav --outdir outputs/run1
-
-# Desktop GUI launcher
-# python -m diaremot.gui.app
-# or, if installed as a script:
-# diaremot-gui
+./setup.sh
+./maint-codex.sh
+python -m diaremot.cli run --audio data/sample.wav --tag smoke --compute-type int8
 ```
-
-For a Start Menu–friendly executable on Windows, see the packaging workflow below.
-
----
-
-## Build a Windows desktop executable
-
-Use PyInstaller to bundle the Tkinter GUI into a single-folder distribution.
-Run from an activated virtual environment on Windows so collected DLLs match
-the target platform.
-
-```powershell
-python -m pip install --upgrade pip
-python -m pip install .[desktop]
-pyinstaller packaging/diaremot_gui.spec --noconfirm
-```
-
-Artifacts are written to `dist/DiaRemotDesktop/`. Ship that folder (or a zip)
-alongside your models directory and a shortcut that runs `DiaRemotDesktop.exe`.
-Before first launch, ensure `DIAREMOT_MODEL_DIR` points to the directory that
-contains the ONNX and CT2 assets.
-
-Entrypoints are provided by `src/diaremot/cli.py` and `[project.scripts]` in `pyproject.toml`.
-`run_pipeline` and `resume` are also proxied through the CLI.
-
----
-
-## Models (single source of truth)
-
-All model files live under **`$DIAREMOT_MODEL_DIR`** (default `/opt/models`). Layout must be:
-
-```
-{MODEL_DIR}/silero_vad.onnx
-{MODEL_DIR}/ecapa_onnx/ecapa_tdnn.onnx
-{MODEL_DIR}/panns/model.onnx
-{MODEL_DIR}/panns/class_labels_indices.csv
-{MODEL_DIR}/goemotions-onnx/model.onnx
-{MODEL_DIR}/ser8-onnx/model.onnx        # or model.int8.onnx
-{MODEL_DIR}/faster-whisper-tiny.en/model.bin
-{MODEL_DIR}/bart/model_uint8.onnx       # or model.onnx
-# BART tokenizer assets (required offline)
-{MODEL_DIR}/bart/tokenizer.json         # or merges.txt + vocab.json
-{MODEL_DIR}/bart/tokenizer_config.json
-{MODEL_DIR}/bart/special_tokens_map.json
-{MODEL_DIR}/bart/config.json
-```
-
-Ship models via one of:
-1. **Repo**: include `models/` or `models.zip` in repo root.
-2. **Release**: upload `models.zip` as a GitHub Release asset; `setup.sh` downloads it.
-3. **Custom host**: download during `setup.sh` with checksum verification.
-
-**Codex note:** models persist in the warm container cache (~12h).
-
----
 
 ## Environment variables
 
-- `DIAREMOT_MODEL_DIR` (default `/opt/models`) — base directory above
-- `OMP_NUM_THREADS=1` — avoid CPU oversubscription
-- `TOKENIZERS_PARALLELISM=false` — silence HF tokenizer parallelism
-- `HF_HOME=/opt/cache/hf` — Hugging Face cache path (optional)
+- `DIAREMOT_MODEL_DIR` — models root (e.g., `/workspace/models`).
+- `DIAREMOT_INTENT_MODEL_DIR` — optional override for the intent (BART) model. Defaults to
+  `<DIAREMOT_MODEL_DIR>/bart` when present, and automatically falls back to
+  `D:\diaremot\diaremot2-1\models\bart\` on Windows installs if that folder exists.
+- `HF_HOME`, `HUGGINGFACE_HUB_CACHE`, `TRANSFORMERS_CACHE`, `TORCH_HOME` — `./.cache/`.
+- Threads: `OMP_NUM_THREADS`, `MKL_NUM_THREADS`, `NUMEXPR_MAX_THREADS`.
+- `TOKENIZERS_PARALLELISM=false`.
 
-Optional (for release download in setup):
-- `MODEL_RELEASE_URL` — direct URL to `models.zip`
-- `MODEL_RELEASE_SHA256` — SHA256 for integrity check
+## CSV schema (primary)
 
----
+```
+file_id,start,end,speaker_id,speaker_name,text,
+valence,arousal,dominance,
+emotion_top,emotion_scores_json,
+text_emotions_top5_json,text_emotions_full_json,
+intent_top,intent_top3_json,
+events_top3_json,noise_tag,
+asr_logprob_avg,snr_db,snr_db_sed,
+wpm,duration_s,words,pause_ratio,
+vq_jitter_pct,vq_shimmer_db,vq_hnr_db,vq_cpps_db,voice_quality_hint
+```
 
-## Codex Cloud settings
-
-- **Base image**: `universal` (Python 3.11)
-- **Setup script**: `./setup.sh` — installs deps, stages `models/` into `/opt/models`
-- **Maintenance**: `./maint-codex.sh` — quick health/import check
-- **Internet**: Agent **OFF** (deterministic). `setup.sh` performs any required fetches.
-- **AGENTS.md** contains concrete run/diagnostic commands.
+`events_top3_json` carries the top-k AudioSet clusters detected globally or per
+segment (when available), `noise_tag` surfaces the dominant background class,
+and `snr_db_sed` converts the SED noise score into an approximate SNR value for
+triage. The CSV also exposes normalized segment duration, token counts, and the
+pause ratio derived from paralinguistics, keeping downstream consumers aligned
+with the contract.

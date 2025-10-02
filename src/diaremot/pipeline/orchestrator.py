@@ -22,6 +22,7 @@ from ..summaries.html_summary_generator import HTMLSummaryGenerator
 from ..summaries.pdf_summary_generator import PDFSummaryGenerator
 from ..summaries.speakers_summary_builder import build_speakers_summary
 from .audio_preprocessing import AudioPreprocessor, PreprocessConfig
+from .auto_tuner import AutoTuner
 from .pipeline_checkpoint_system import PipelineCheckpointManager, ProcessingStage
 from .speaker_diarization import DiarizationConfig, SpeakerDiarizer
 from .config import (
@@ -228,6 +229,27 @@ class AudioAnalysisPipelineV2:
 
     def _init_components(self, cfg: dict[str, Any]):
         """Initialize pipeline components with graceful error handling"""
+
+        # Ensure attributes exist even if initialization fails part-way
+        self.pre = None
+        self.diar = None
+        self.tx = None
+        self.affect = None
+        self.sed_tagger = None
+        self.html = None
+        self.pdf = None
+
+        affect_kwargs: dict[str, Any] = {
+            "text_emotion_model": cfg.get(
+                "text_emotion_model", "SamLowe/roberta-base-go_emotions"
+            ),
+            "intent_labels": cfg.get("intent_labels", INTENT_LABELS_DEFAULT),
+            "affect_backend": cfg.get("affect_backend", "auto"),
+            "affect_text_model_dir": cfg.get("affect_text_model_dir"),
+            "affect_intent_model_dir": cfg.get("affect_intent_model_dir"),
+            "analyzer_threads": cfg.get("affect_threads"),
+        }
+
         try:
             # Preprocessor
             denoise_mode = (
@@ -382,10 +404,12 @@ class AudioAnalysisPipelineV2:
                         "text_emotion_model", "SamLowe/roberta-base-go_emotions"
                     ),
                     intent_labels=cfg.get("intent_labels", INTENT_LABELS_DEFAULT),
+                    affect_backend=cfg.get("affect_backend", "auto"),
+                    affect_text_model_dir=cfg.get("affect_text_model_dir"),
+                    affect_intent_model_dir=cfg.get("affect_intent_model_dir"),
                 )
 
             # Background SED / noise tagger (required in the default pipeline)
-            self.sed_tagger = None
             try:
                 sed_enabled = bool(cfg.get("enable_sed", True))
                 if PANNSEventTagger is not None and sed_enabled:
@@ -432,38 +456,48 @@ class AudioAnalysisPipelineV2:
                 "temperature": cfg.get("temperature", 0.0),
                 "no_speech_threshold": cfg.get("no_speech_threshold", 0.50),
                 "intent_labels": cfg.get("intent_labels", INTENT_LABELS_DEFAULT),
+                "affect_backend": (
+                    getattr(self.affect, "affect_backend", None)
+                    if self.affect is not None
+                    else "disabled"
+                ),
             }
 
         except Exception as e:
             self.corelog.error(f"Component initialization error: {e}")
             # Ensure minimal components exist even on init failure
             try:
-                if not hasattr(self, "pre"):
+                if getattr(self, "pre", None) is None:
                     self.pre = AudioPreprocessor(PreprocessConfig())
             except Exception:
                 self.pre = None
             try:
-                if not hasattr(self, "diar"):
+                if getattr(self, "diar", None) is None:
                     self.diar = SpeakerDiarizer(DiarizationConfig(target_sr=16000))
             except Exception:
                 self.diar = None
             try:
-                if not hasattr(self, "tx"):
+                if getattr(self, "tx", None) is None:
                     from .transcription_module import AudioTranscriber
 
                     self.tx = AudioTranscriber()
             except Exception:
-                pass
+                self.tx = None
             try:
-                if not hasattr(self, "affect"):
-                    self.affect = EmotionIntentAnalyzer()
+                if getattr(self, "affect", None) is None and not cfg.get("disable_affect"):
+                    self.affect = EmotionIntentAnalyzer(**affect_kwargs)
             except Exception:
-                pass
+                self.affect = None
             try:
-                if not hasattr(self, "pdf"):
+                if getattr(self, "pdf", None) is None:
                     self.pdf = PDFSummaryGenerator()
             except Exception:
                 pass
+            try:
+                if not hasattr(self, "auto_tuner"):
+                    self.auto_tuner = AutoTuner()
+            except Exception:
+                self.auto_tuner = None
 
     def _affect_hint(self, v, a, d, intent):
         try:
