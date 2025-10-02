@@ -28,6 +28,58 @@ def test_stage_registry_order():
     ]
 
 
+def test_pipeline_init_recovers_missing_affect(tmp_path, monkeypatch):
+    import diaremot.pipeline.orchestrator as orch
+
+    class _StubPreprocessor:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+    class _StubDiarizer:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+    class _StubTranscriber:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+    class _StubHTML:
+        def render_to_html(self, *_args, **_kwargs):
+            return "out.html"
+
+    class _StubPDF:
+        def render_to_pdf(self, *_args, **_kwargs):
+            return "out.pdf"
+
+    def _boom(*_args, **_kwargs):
+        raise NameError("backend")
+
+    monkeypatch.setattr(orch, "AudioPreprocessor", _StubPreprocessor)
+    monkeypatch.setattr(orch, "SpeakerDiarizer", _StubDiarizer)
+    monkeypatch.setattr(orch, "PANNSEventTagger", None)
+    monkeypatch.setattr(orch, "HTMLSummaryGenerator", _StubHTML)
+    monkeypatch.setattr(orch, "PDFSummaryGenerator", _StubPDF)
+    monkeypatch.setattr(orch, "EmotionIntentAnalyzer", _boom)
+    monkeypatch.setattr(
+        "diaremot.pipeline.transcription_module.AudioTranscriber",
+        _StubTranscriber,
+    )
+
+    pipeline = AudioAnalysisPipelineV2(
+        config={
+            "log_dir": str(tmp_path / "logs"),
+            "checkpoint_dir": str(tmp_path / "chk"),
+            "cache_root": tmp_path / "cache",
+        }
+    )
+
+    # Attributes should exist even when analyzer construction fails
+    assert hasattr(pipeline, "affect")
+    assert pipeline.affect is None
+    assert hasattr(pipeline, "html") and pipeline.html is not None
+    assert hasattr(pipeline, "pdf") and pipeline.pdf is not None
+
+
 @pytest.fixture
 def stub_pipeline(tmp_path, monkeypatch):
     def _stub_init(self, cfg):

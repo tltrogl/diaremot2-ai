@@ -221,6 +221,101 @@ class EmotionAnalysisResult:
 # --------------------------
 
 
+_HF_MODEL_WEIGHT_PATTERNS = (
+    "pytorch_model.bin",
+    "pytorch_model.bin.index.json",
+    "pytorch_model-*.bin",
+    "model.safetensors",
+    "model-*.safetensors",
+    "tf_model.h5",
+    "model.ckpt.index",
+    "flax_model.msgpack",
+)
+
+
+def _is_hf_model_dir(path: Path) -> bool:
+    if not path.is_dir():
+        return False
+    if not (path / "config.json").exists():
+        return False
+    for pattern in _HF_MODEL_WEIGHT_PATTERNS:
+        if any(path.glob(pattern)):
+            return True
+    return False
+
+
+def _locate_hf_model_dir(base: Path, max_depth: int = 2) -> Optional[Path]:
+    """Search breadth-first for a Hugging Face model directory containing weights."""
+
+    try:
+        base = base.expanduser().resolve()
+    except Exception:
+        base = base.expanduser()
+
+    if not base.exists():
+        return None
+
+    queue: List[Tuple[Path, int]] = [(base, 0)]
+    seen: set[Path] = set()
+
+    while queue:
+        current, depth = queue.pop(0)
+        if current in seen:
+            continue
+        seen.add(current)
+
+        if _is_hf_model_dir(current):
+            return current
+
+        if depth >= max_depth:
+            continue
+
+        try:
+            for child in current.iterdir():
+                if child.is_dir():
+                    queue.append((child, depth + 1))
+        except Exception:
+            continue
+
+    return None
+
+
+def _resolve_intent_model_dir(
+    explicit_dir: Optional[str],
+) -> Optional[str]:
+    """Resolve the intent model directory with environment overrides."""
+
+    if explicit_dir:
+        explicit_path = Path(explicit_dir).expanduser()
+        located = _locate_hf_model_dir(explicit_path)
+        if located:
+            return str(located)
+        if not explicit_path.exists():
+            # Caller provided a model identifier instead of a local directory.
+            return explicit_dir
+
+    env_override = os.environ.get("DIAREMOT_INTENT_MODEL_DIR")
+    if env_override:
+        env_path = Path(env_override).expanduser()
+        located = _locate_hf_model_dir(env_path)
+        if located:
+            return str(located)
+
+    model_root = os.environ.get("DIAREMOT_MODEL_DIR")
+    if model_root:
+        candidate = Path(model_root).expanduser() / "bart"
+        located = _locate_hf_model_dir(candidate)
+        if located:
+            return str(located)
+
+    default_windows = Path(r"D:\diaremot\diaremot2-1\models\bart")
+    located = _locate_hf_model_dir(default_windows)
+    if located:
+        return str(located)
+
+    return None
+
+
 class EmotionIntentAnalyzer:
     def __init__(
         self,
@@ -291,9 +386,16 @@ class EmotionIntentAnalyzer:
         self._text_session = None  # ONNX runtime session
         self._text_tokenizer = None
         self._intent_pipeline = None
+        self._intent_session = None
+        self._intent_tokenizer = None
+        self._intent_hypothesis_template = "This example is {}."
+        self._intent_entail_idx: Optional[int] = None
+        self._intent_contra_idx: Optional[int] = None
         self.affect_backend = backend
         self.affect_text_model_dir = affect_text_model_dir
-        self.affect_intent_model_dir = affect_intent_model_dir
+        self.affect_intent_model_dir = _resolve_intent_model_dir(
+            affect_intent_model_dir
+        )
 
     # -------- public API: unified --------
     def analyze(self, wav: np.ndarray, sr: int, text: str) -> Dict[str, object]:
@@ -848,9 +950,67 @@ class EmotionIntentAnalyzer:
 
     # -------- Intent (zero-shot or rule-based) --------
     def _lazy_intent(self):
+        model_name = self.affect_intent_model_dir or self.intent_model_name
+        if self.affect_backend == "onnx":
+            if (
+                self._intent_session is not None
+                and self._intent_tokenizer is not None
+                and self._intent_entail_idx is not None
+                and self._intent_contra_idx is not None
+            ):
+                return
+            try:
+                from transformers import AutoConfig, AutoTokenizer
+
+                self._intent_tokenizer = AutoTokenizer.from_pretrained(model_name)
+                cfg = AutoConfig.from_pretrained(model_name)
+                if Path(model_name).exists():
+                    ident = Path(model_name) / "model.onnx"
+                else:
+                    ident = f"hf://{model_name}/model.onnx"
+                model_path = ensure_onnx_model(ident)
+                self._intent_session = create_onnx_session(model_path)
+                template = getattr(cfg, "hypothesis_template", None)
+                if template:
+                    self._intent_hypothesis_template = str(template)
+                label_map = {}
+                for key, value in getattr(cfg, "id2label", {}).items():
+                    try:
+                        idx = int(key)
+                    except Exception:
+                        continue
+                    label_map[idx] = str(value).lower()
+                if not label_map:
+                    label_map = {
+                        idx: label.lower()
+                        for idx, label in enumerate(["contradiction", "neutral", "entailment"])
+                    }
+                entail_idx = next(
+                    (i for i, lab in label_map.items() if "entail" in lab),
+                    None,
+                )
+                contra_idx = next(
+                    (i for i, lab in label_map.items() if "contradict" in lab),
+                    None,
+                )
+                if entail_idx is None or contra_idx is None:
+                    raise RuntimeError("intent ONNX labels missing entailment/contradiction")
+                self._intent_entail_idx = entail_idx
+                self._intent_contra_idx = contra_idx
+                self._intent_pipeline = None
+                return
+            except Exception as e:
+                logger.warning(
+                    "Intent ONNX model unavailable (%s); falling back to transformers", e
+                )
+                self._intent_session = None
+                self._intent_tokenizer = None
+                self._intent_entail_idx = None
+                self._intent_contra_idx = None
+                self.affect_backend = "torch"
+
         if self._intent_pipeline is not None:
             return
-        model_name = self.affect_intent_model_dir or self.intent_model_name
         try:
             from transformers import pipeline
 
@@ -860,10 +1020,6 @@ class EmotionIntentAnalyzer:
                 tokenizer=model_name,
             )
         except Exception as e:
-            if self.affect_backend == "onnx":
-                logger.info(
-                    "Intent ONNX backend not implemented; using transformer pipeline fallback"
-                )
             logger.warning(f"Intent model unavailable ({e}); will use fallback")
             self._intent_pipeline = None
 
@@ -871,6 +1027,40 @@ class EmotionIntentAnalyzer:
         t = (text or "").strip()
         self._lazy_intent()
         try:
+            if self.affect_backend == "onnx":
+                if (
+                    self._intent_session is None
+                    or self._intent_tokenizer is None
+                    or self._intent_entail_idx is None
+                    or self._intent_contra_idx is None
+                    or not t
+                ):
+                    raise RuntimeError("intent ONNX backend unavailable or text empty")
+                scores: Dict[str, float] = {}
+                for label in self.intent_labels:
+                    hypothesis = self._intent_hypothesis_template.format(
+                        label.replace("_", " ")
+                    )
+                    enc = self._intent_tokenizer(
+                        t,
+                        hypothesis,
+                        return_tensors="np",
+                        truncation=True,
+                    )
+                    ort_inputs = {k: v for k, v in enc.items()}
+                    logits = self._intent_session.run(None, ort_inputs)[0]
+                    if logits.ndim == 2:
+                        logits = logits[0]
+                    logits = logits.astype(np.float64)
+                    ex = np.exp(logits - np.max(logits))
+                    probs_local = ex / (ex.sum() or 1.0)
+                    entail_score = float(probs_local[self._intent_entail_idx])
+                    scores[label] = entail_score
+                probs = _normalize_scores(scores)
+                top = max(probs, key=probs.get)
+                top3 = _topk_distribution(probs, 3)
+                return top, top3
+
             if self._intent_pipeline is None or not t:
                 raise RuntimeError("intent pipeline missing or text empty")
             res = self._intent_pipeline(
