@@ -9,6 +9,7 @@ from typing import Iterable
 __all__ = [
     "WINDOWS_MODELS_ROOT",
     "DEFAULT_WHISPER_MODEL",
+    "CACHE_ROOT",
     "configure_local_cache_env",
     "resolve_default_whisper_model",
 ]
@@ -73,9 +74,13 @@ def _ensure_writable_directory(path: Path) -> bool:
     return os.access(path, os.W_OK | os.X_OK)
 
 
-def configure_local_cache_env() -> None:
+CACHE_ROOT: Path | None = None
+
+
+def configure_local_cache_env() -> Path:
     """Ensure all cache directories resolve to a writable, local cache root."""
 
+    global CACHE_ROOT
     cache_root = None
     script_path = Path(__file__).resolve()
     for candidate in _candidate_cache_roots(script_path):
@@ -117,8 +122,11 @@ def configure_local_cache_env() -> None:
         target_path.mkdir(parents=True, exist_ok=True)
         os.environ[env_name] = str(target_path)
 
+    CACHE_ROOT = cache_root
+    return cache_root
 
-configure_local_cache_env()
+
+CACHE_ROOT = configure_local_cache_env()
 
 WINDOWS_MODELS_ROOT = Path("D:/models") if os.name == "nt" else None
 

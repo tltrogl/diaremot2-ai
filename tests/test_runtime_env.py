@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from diaremot.pipeline import runtime_env
+from diaremot.pipeline import cache_env, runtime_env
 
 
 def test_configure_local_cache_env_site_packages(monkeypatch, tmp_path):
@@ -65,8 +65,9 @@ def test_configure_local_cache_env_site_packages(monkeypatch, tmp_path):
         assert target_value == expected_path
 
 
-def test_configure_local_cache_env_repo_cache_fallback(monkeypatch, tmp_path):
-    """Project installs should fall back when the repo cache directory is unwritable."""
+codex/update-cache_env-to-reuse-search-logic
+def test_cache_env_import_handles_readonly_prefix(monkeypatch, tmp_path):
+    """Pipeline cache helper should fall back when interpreter prefix is read-only."""
 
     for name in (
         "HF_HOME",
@@ -77,39 +78,37 @@ def test_configure_local_cache_env_repo_cache_fallback(monkeypatch, tmp_path):
     ):
         monkeypatch.delenv(name, raising=False)
 
-    repo_root = tmp_path / "repo"
-    repo_root.mkdir()
-    (repo_root / "pyproject.toml").write_text("")
+ codex/update-cache_env-to-reuse-search-logic
+    fake_prefix = tmp_path / "prefix" / "lib" / "python3.11"
+    fake_site_packages = fake_prefix / "site-packages" / "diaremot" / "pipeline"
+    fake_site_packages.mkdir(parents=True, exist_ok=True)
 
-    script_path = repo_root / "src" / "diaremot" / "pipeline" / "runtime_env.py"
-    script_path.parent.mkdir(parents=True, exist_ok=True)
-    monkeypatch.setattr(runtime_env, "__file__", str(script_path))
+    monkeypatch.setattr(runtime_env, "__file__", str(fake_site_packages / "runtime_env.py"))
+    monkeypatch.setattr(cache_env, "__file__", str(fake_site_packages / "cache_env.py"))
 
-    work_dir = tmp_path / "work"
-    work_dir.mkdir()
-    monkeypatch.chdir(work_dir)
+    monkeypatch.chdir(fake_prefix)
 
     home_dir = tmp_path / "home"
     home_dir.mkdir()
     monkeypatch.setattr(Path, "home", lambda: home_dir)
 
-    blocked_repo_cache = (repo_root / ".cache").resolve()
-    attempted: list[Path] = []
-    original_ensure = runtime_env._ensure_writable_directory
+codex/update-cache_env-to-reuse-search-logic
+    blocked_prefix = fake_prefix.resolve()
+    original_mkdir = Path.mkdir
 
-    def tracking_ensure(path: Path) -> bool:
-        attempted.append(path)
-        if path == blocked_repo_cache:
-            return False
-        return original_ensure(path)
+    def guarded_mkdir(self, mode=0o777, parents=False, exist_ok=False):  # type: ignore[override]
+        resolved = Path(self).resolve()
+        if str(resolved).startswith(str(blocked_prefix)):
+            raise PermissionError("interpreter prefix is read-only")
+        return original_mkdir(self, mode=mode, parents=parents, exist_ok=exist_ok)
 
-    monkeypatch.setattr(runtime_env, "_ensure_writable_directory", tracking_ensure)
+    monkeypatch.setattr(Path, "mkdir", guarded_mkdir)
 
-    runtime_env.configure_local_cache_env()
+    cache_root = cache_env.configure_local_cache_env()
 
-    expected_root = (work_dir / ".cache").resolve()
-    assert attempted[0] == blocked_repo_cache
-    assert attempted[1] == expected_root
+    expected_root = (home_dir / ".cache" / "diaremot").resolve()
+    assert cache_root == expected_root
+    assert expected_root.exists()
 
     for env_name, subdir in {
         "HF_HOME": "hf",
@@ -118,6 +117,7 @@ def test_configure_local_cache_env_repo_cache_fallback(monkeypatch, tmp_path):
         "TORCH_HOME": "torch",
         "XDG_CACHE_HOME": None,
     }.items():
-        target_value = Path(runtime_env.os.environ[env_name]).resolve()
+codex/update-cache_env-to-reuse-search-logic
+        value = Path(runtime_env.os.environ[env_name]).resolve()
         expected_path = expected_root if subdir is None else (expected_root / subdir).resolve()
-        assert target_value == expected_path
+        assert value == expected_path
