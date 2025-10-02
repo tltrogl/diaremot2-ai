@@ -45,6 +45,9 @@ if not logger.handlers:
 logger.setLevel(logging.INFO)
 
 
+INTENT_HYPOTHESIS_TEMPLATE = "This example is about {}."
+
+
 # --------------------------
 # Label spaces / constants
 # --------------------------
@@ -321,7 +324,10 @@ class EmotionIntentAnalyzer:
         self._text_session = None  # ONNX runtime session
         self._text_tokenizer = None
         self._intent_pipeline = None
-        self.affect_backend = (affect_backend or "auto").lower()
+        self._intent_session = None
+        self._intent_tokenizer = None
+        self._intent_entail_idx = 2
+        self.affect_backend = backend
         self.affect_text_model_dir = affect_text_model_dir
         self.affect_intent_model_dir = _resolve_intent_model_dir(
             affect_intent_model_dir
@@ -869,7 +875,82 @@ class EmotionIntentAnalyzer:
         return dist
 
     # -------- Intent (zero-shot or rule-based) --------
+    @staticmethod
+    def _intent_onnx_candidates(model_dir: str | Path) -> List[str | Path]:
+        base = Path(model_dir)
+        names = ("model_uint8.onnx", "model_int8.onnx", "model.onnx")
+        candidates: List[str | Path] = []
+        if base.exists():
+            for name in names:
+                candidate = base / name
+                if candidate.exists():
+                    candidates.append(candidate)
+            if not candidates:
+                candidates.append(base / names[0])
+            return candidates
+
+        base_str = str(model_dir).rstrip("/\\")
+        if not base_str:
+            return []
+        if base_str.startswith("hf://"):
+            prefix = base_str
+        else:
+            prefix = f"hf://{base_str}"
+        for name in names:
+            candidates.append(f"{prefix}/{name}")
+        return candidates
+
     def _lazy_intent(self):
+        if self.affect_backend == "onnx":
+            if (
+                self._intent_session is not None
+                and self._intent_tokenizer is not None
+                and self._intent_entail_idx is not None
+            ):
+                return
+            model_name = self.affect_intent_model_dir or self.intent_model_name
+            try:
+                from transformers import AutoConfig, AutoTokenizer
+
+                tokenizer = AutoTokenizer.from_pretrained(model_name)
+                config = AutoConfig.from_pretrained(model_name)
+                label2id = {
+                    str(k).lower(): int(v)
+                    for k, v in getattr(config, "label2id", {}).items()
+                }
+                entail_idx = label2id.get("entailment", 2)
+                if entail_idx is None:
+                    entail_idx = 2
+
+                model_path: Optional[Path] = None
+                last_error: Optional[Exception] = None
+                for ident in self._intent_onnx_candidates(model_name):
+                    try:
+                        candidate_path = ensure_onnx_model(ident)
+                    except Exception as exc:
+                        last_error = exc
+                        continue
+                    if Path(candidate_path).exists():
+                        model_path = Path(candidate_path)
+                        break
+                if model_path is None:
+                    if last_error is not None:
+                        raise last_error
+                    raise FileNotFoundError("No ONNX intent model found")
+
+                session = create_onnx_session(model_path)
+                self._intent_tokenizer = tokenizer
+                self._intent_session = session
+                self._intent_entail_idx = entail_idx
+                self._intent_pipeline = None
+                return
+            except Exception as e:
+                logger.warning(
+                    f"Intent ONNX model unavailable ({e}); falling back to transformer pipeline"
+                )
+                self._intent_session = None
+                self._intent_tokenizer = None
+
         if self._intent_pipeline is not None:
             return
         model_name = self.affect_intent_model_dir or self.intent_model_name
@@ -882,10 +963,6 @@ class EmotionIntentAnalyzer:
                 tokenizer=model_name,
             )
         except Exception as e:
-            if self.affect_backend == "onnx":
-                logger.info(
-                    "Intent ONNX backend not implemented; using transformer pipeline fallback"
-                )
             logger.warning(f"Intent model unavailable ({e}); will use fallback")
             self._intent_pipeline = None
 
@@ -893,6 +970,79 @@ class EmotionIntentAnalyzer:
         t = (text or "").strip()
         self._lazy_intent()
         try:
+            if (
+                self._intent_session is not None
+                and self._intent_tokenizer is not None
+                and t
+            ):
+                hypotheses = [
+                    INTENT_HYPOTHESIS_TEMPLATE.format(label)
+                    for label in self.intent_labels
+                ]
+                if not hypotheses:
+                    raise RuntimeError("no intent labels configured")
+                enc = self._intent_tokenizer(
+                    [t] * len(hypotheses),
+                    hypotheses,
+                    return_tensors="np",
+                    padding=True,
+                    truncation=True,
+                )
+                ort_inputs = {k: v for k, v in enc.items()}
+                outputs = self._intent_session.run(None, ort_inputs)
+                if not outputs:
+                    raise RuntimeError("intent session returned no outputs")
+                raw_logits = outputs[0]
+                use_stub_np = bool(getattr(np, "__stub__", False))
+                entail_idx = int(self._intent_entail_idx or 2)
+
+                if use_stub_np:
+                    if isinstance(raw_logits, list):
+                        if raw_logits and isinstance(raw_logits[0], (list, tuple)):
+                            rows = [list(map(float, row)) for row in raw_logits]
+                        else:
+                            rows = [list(map(float, raw_logits))]
+                    else:
+                        rows = [[float(raw_logits)]]
+
+                    probs_matrix: List[List[float]] = []
+                    for row in rows:
+                        if not row:
+                            probs_matrix.append([1.0])
+                            continue
+                        max_val = max(row)
+                        exps = [math.exp(val - max_val) for val in row]
+                        denom_val = sum(exps) or 1.0
+                        probs_matrix.append([val / denom_val for val in exps])
+                    entail_probs = [
+                        row[max(0, min(len(row) - 1, entail_idx))]
+                        for row in probs_matrix
+                    ]
+                else:
+                    logits = np.array(raw_logits)
+                    if logits.ndim == 1:
+                        logits = logits.reshape(1, -1)
+                    elif logits.ndim > 2:
+                        logits = logits.reshape(logits.shape[0], -1)
+                    entail_idx = max(0, min(logits.shape[-1] - 1, entail_idx))
+                    exp_logits = np.exp(
+                        logits - np.max(logits, axis=-1, keepdims=True)
+                    )
+                    denom = exp_logits.sum(axis=-1, keepdims=True)
+                    denom[denom == 0.0] = 1.0
+                    probs_arr = exp_logits / denom
+                    entail_probs = probs_arr[:, entail_idx].tolist()
+
+                dist = {
+                    lbl: float(entail_probs[i])
+                    for i, lbl in enumerate(self.intent_labels)
+                    if i < len(entail_probs)
+                }
+                dist = _normalize_scores(dist)
+                top = max(dist, key=dist.get)
+                top3 = _topk_distribution(dist, 3)
+                return top, top3
+
             if self._intent_pipeline is None or not t:
                 raise RuntimeError("intent pipeline missing or text empty")
             res = self._intent_pipeline(
@@ -1072,3 +1222,4 @@ def analyze_segment_batch(
 if __name__ == "__main__":
     # Smoke test (no model downloads here)
     print("updated_emotion_analyzer.py ready (CPU-only).")
+

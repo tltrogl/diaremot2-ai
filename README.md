@@ -1,33 +1,41 @@
-# DiaRemot — CPU-Only Speech + Affect Pipeline (Codex-Ready)
+# DiaRemot — CPU‑Only Speech Intelligence Pipeline
 
-This project runs **on CPU** and produces a diarized transcript with per-segment affect:
-- **ASR**: Faster-Whisper tiny.en (CT2)
-- **Diarization**: Silero VAD (ONNX) + ECAPA-TDNN embeddings (ONNX)
-- **SED**: PANNs (ONNX) + labels CSV
-- **SER**: 8-class speech emotion (INT8/FP32 ONNX)
-- **Text emotion**: GoEmotions (ONNX)
-- **Intent/zero-shot**: BART (ONNX classifier)
+Process long, real‑world audio **on CPU** and produce a diarized transcript with per‑segment:
+- **Tone (Valence/Arousal/Dominance)**
+- **Speech emotion (8‑class)**
+- **Text emotions (GoEmotions, 28)**
+- **Intent** (zero‑shot over fixed labels)
+- **Sound‑event context (SED: music, keyboard, door, TV, etc.)**
+- **Paralinguistics (REQUIRED)**: speech rate (WPM), pauses, and voice‑quality via **Praat‑Parselmouth**: **jitter**, **shimmer**, **HNR**, **CPPS**
+- **Persistent speaker names across files**
 
-Everything is wired for **OpenAI Codex Cloud**: reproducible container, cached models, and no Windows-only paths.
+Outputs:
+- `diarized_transcript_with_emotion.csv` — primary, scrub‑friendly
+- `segments.jsonl` — per‑segment payload (audio + text + SED overlaps)
+- `speakers_summary.csv` — per‑speaker rollups (V/A/D, emotion mix, intents, WPM, SNR, voice‑quality)
+- `summary.html` — Quick Take, Speaker Snapshots, Moments to Check (SED), Action Items
+- `speaker_registry.json` — persistent names via centroids
+- `events_timeline.csv` + `events.jsonl` — SED events
+- `timeline.csv`, `qc_report.json` — fast scrubbing + health checks
 
----
+## Model set (CPU‑friendly)
 
-## Installation & Quickstart
+- **Diarization**: Diart (Silero VAD + ECAPA‑TDNN embeddings + AHC). Prefers ONNX, Torch fallback for Silero VAD.
+- **ASR**: Faster‑Whisper `tiny‑en` via CTranslate2 (`compute_type=int8`).
+- **Tone (V/A/D)**: `audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim`.
+- **Speech emotion (8‑class)**: `Dpngtm/wav2vec2-emotion-recognition`.
+- **Text emotions (28)**: `SamLowe/roberta-base-go_emotions` (full distribution; keep top‑5).
+- **Intent**: Prefers local ONNX exports (e.g., `model_uint8.onnx` under `affect_intent_model_dir` such as `D:\\diaremot\\diaremot2-1\\models\\bart\\`) and falls back to the `facebook/bart-large-mnli` Hugging Face pipeline when no ONNX asset is available.
+- **SED**: PANNs CNN14 (ONNX) on onnxruntime; 1.0s frames, 0.5s hop; median filter 3–5; hysteresis 0.50/0.35; `min_dur=0.30s`; `merge_gap≤0.20s`; collapse AudioSet→~20 labels.
+- **Paralinguistics (REQUIRED)**: **Praat‑Parselmouth** for jitter/shimmer/HNR/CPPS + prosody (WPM/pauses).
 
-### 1) Create a Python environment
+## Install (local; Windows PowerShell shown)
 
-```bash
-# Python 3.11 recommended (repo pins support 3.9–3.11)
-python -V
-
-# venv
-python -m venv .venv
-. .venv/bin/activate  # Windows PowerShell: .\.venv\Scripts\Activate.ps1
-```
-
-### 2) Install DiaRemot and dependencies
-
-```bash
+1) **Python 3.11**; **FFmpeg on PATH** (`ffmpeg -version`).
+2) Create venv and install:
+```powershell
+py -3.11 -m venv .venv
+. .\.venv\Scripts\Activate.ps1
 python -m pip install -U pip wheel setuptools
 python -m pip install -r requirements.txt
 python -m pip install -e .
