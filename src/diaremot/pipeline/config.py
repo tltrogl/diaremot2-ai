@@ -49,7 +49,7 @@ class PipelineConfig:
     registry_path: Path = Path("speaker_registry.json")
     ahc_distance_threshold: float = DiarizationConfig.ahc_distance_threshold
     speaker_limit: int | None = None
-    whisper_model: str = "faster-whisper-tiny.en"
+    whisper_model: str = "tiny.en"
     asr_backend: str = "faster"
     compute_type: str = "int8"
     cpu_threads: int = 1

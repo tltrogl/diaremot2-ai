@@ -33,14 +33,14 @@ app.add_typer(system_app, name="system")
 BUILTIN_PROFILES: Dict[str, Dict[str, Any]] = {
     "default": {},
     "fast": {
-        "whisper_model": "faster-whisper-tiny.en",
+        "whisper_model": "tiny.en",
         "beam_size": 1,
         "temperature": 0.0,
         "affect_backend": "torch",
         "enable_sed": False,
     },
     "accurate": {
-        "whisper_model": "faster-whisper-tiny.en",
+        "whisper_model": "tiny.en",
         "beam_size": 4,
         "temperature": 0.0,
         "no_speech_threshold": 0.2,
@@ -274,7 +274,7 @@ def asr_run(
         None, help="Maximum number of speakers to keep."
     ),
     whisper_model: str = typer.Option(
-        "faster-whisper-tiny.en", help="Whisper/Faster-Whisper model identifier."
+        "tiny.en", help="Whisper/Faster-Whisper model identifier."
     ),
     asr_backend: str = typer.Option("faster", help="ASR backend", show_default=True),
     asr_compute_type: Literal["float32", "int8", "int8_float16"] = typer.Option(
@@ -470,7 +470,7 @@ def asr_resume(
         None, help="Maximum number of speakers to keep."
     ),
     whisper_model: str = typer.Option(
-        "faster-whisper-tiny.en", help="Whisper/Faster-Whisper model identifier."
+        "tiny.en", help="Whisper/Faster-Whisper model identifier."
     ),
     asr_backend: str = typer.Option("faster", help="ASR backend", show_default=True),
     asr_compute_type: Literal["float32", "int8", "int8_float16"] = typer.Option(
