@@ -382,6 +382,9 @@ class AudioAnalysisPipelineV2:
                         "text_emotion_model", "SamLowe/roberta-base-go_emotions"
                     ),
                     intent_labels=cfg.get("intent_labels", INTENT_LABELS_DEFAULT),
+                    affect_backend=cfg.get("affect_backend", "auto"),
+                    affect_text_model_dir=cfg.get("affect_text_model_dir"),
+                    affect_intent_model_dir=cfg.get("affect_intent_model_dir"),
                 )
 
             # Background SED / noise tagger (required in the default pipeline)
@@ -432,6 +435,11 @@ class AudioAnalysisPipelineV2:
                 "temperature": cfg.get("temperature", 0.0),
                 "no_speech_threshold": cfg.get("no_speech_threshold", 0.50),
                 "intent_labels": cfg.get("intent_labels", INTENT_LABELS_DEFAULT),
+                "affect_backend": (
+                    getattr(self.affect, "affect_backend", None)
+                    if self.affect is not None
+                    else "disabled"
+                ),
             }
 
         except Exception as e:

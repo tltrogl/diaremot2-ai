@@ -81,14 +81,29 @@ class CoreLogger:
         record.update(fields)
         self.jsonl.emit(record)
 
-    def info(self, message: str) -> None:
-        self.log.info(message)
+    def info(self, message: str, *args: Any, **kwargs: Any) -> None:
+        """Proxy ``logging.Logger.info`` allowing printf-style formatting."""
 
-    def warn(self, message: str) -> None:
-        self.log.warning(message)
+        if args or kwargs:
+            self.log.info(message, *args, **kwargs)
+        else:
+            self.log.info(message)
 
-    def error(self, message: str) -> None:
-        self.log.error(message)
+    def warn(self, message: str, *args: Any, **kwargs: Any) -> None:
+        """Proxy ``logging.Logger.warning`` with optional formatting args."""
+
+        if args or kwargs:
+            self.log.warning(message, *args, **kwargs)
+        else:
+            self.log.warning(message)
+
+    def error(self, message: str, *args: Any, **kwargs: Any) -> None:
+        """Proxy ``logging.Logger.error`` with optional formatting args."""
+
+        if args or kwargs:
+            self.log.error(message, *args, **kwargs)
+        else:
+            self.log.error(message)
 
 
 def _fmt_hms(seconds: float) -> str:
@@ -138,6 +153,10 @@ class StageGuard(AbstractContextManager["StageGuard"]):
             ModuleNotFoundError,
         ),
         "affect_and_assemble": (
+            ImportError,
+            ModuleNotFoundError,
+        ),
+        "background_sed": (
             ImportError,
             ModuleNotFoundError,
         ),
