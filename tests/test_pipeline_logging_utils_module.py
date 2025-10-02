@@ -38,7 +38,21 @@ def test_stageguard_swallows_optional_exceptions(tmp_path) -> None:
     logger = CoreLogger("run", tmp_path / "log.jsonl", console_level=logging.CRITICAL)
     stats = RunStats(run_id="run", file_id="file.wav")
 
-    with StageGuard(logger, stats, "background_sed"):
-        raise ImportError("sed models missing")
+    with StageGuard(logger, stats, "paralinguistics"):
+        raise ImportError("librosa missing")
 
-    assert any(f["stage"] == "background_sed" for f in stats.failures)
+    assert any(f["stage"] == "paralinguistics" for f in stats.failures)
+
+
+def test_corelogger_supports_format_args(tmp_path, caplog) -> None:
+    logger = CoreLogger("run", tmp_path / "log.jsonl", console_level=logging.DEBUG)
+
+    with caplog.at_level(logging.DEBUG, logger=logger.log.name):
+        logger.info("formatted %s %s", "message", 123)
+        logger.warn("warn %s", "here")
+        logger.error("error %s", "there")
+
+    rendered = [record.getMessage() for record in caplog.records]
+    assert "formatted message 123" in rendered
+    assert "warn here" in rendered
+    assert "error there" in rendered
