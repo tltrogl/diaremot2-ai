@@ -44,7 +44,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--whisper-model",
-        default="faster-whisper-tiny.en",
+        default="tiny.en",
         help="Whisper model identifier or path",
     )
     parser.add_argument(

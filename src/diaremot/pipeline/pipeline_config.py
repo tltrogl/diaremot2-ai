@@ -12,7 +12,7 @@ DEFAULT_PIPELINE_CONFIG: dict[str, Any] = {
     "registry_path": "speaker_registry.json",
     "ahc_distance_threshold": DiarizationConfig.ahc_distance_threshold,
     "speaker_limit": None,
-    "whisper_model": "faster-whisper-tiny.en",
+    "whisper_model": "tiny.en",
     "asr_backend": "faster",
     "compute_type": "int8",
     "cpu_threads": 1,

@@ -42,3 +42,17 @@ def test_stageguard_swallows_optional_exceptions(tmp_path) -> None:
         raise ImportError("sed models missing")
 
     assert any(f["stage"] == "background_sed" for f in stats.failures)
+
+
+def test_corelogger_accepts_format_args(tmp_path, caplog) -> None:
+    logger = CoreLogger("run", tmp_path / "log.jsonl")
+
+    with caplog.at_level(logging.INFO, logger=logger.log.name):
+        logger.info("value %s", "ok")
+        logger.warn("warn %s", "ok")
+        logger.error("err %s", "ok")
+
+    messages = [record.getMessage() for record in caplog.records]
+    assert "value ok" in messages
+    assert "warn ok" in messages
+    assert "err ok" in messages
