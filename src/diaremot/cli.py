@@ -6,14 +6,14 @@ import json
 from functools import lru_cache
 from importlib import import_module
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 import typer
 
 app = typer.Typer(help="High level CLI wrapper for the DiaRemot audio pipeline.")
 
 
-@lru_cache()
+@lru_cache
 def _core():
     try:
         return import_module("diaremot.pipeline.audio_pipeline_core")
@@ -21,33 +21,33 @@ def _core():
         return import_module("audio_pipeline_core")
 
 
-def core_build_config(overrides: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+def core_build_config(overrides: dict[str, Any] | None = None) -> dict[str, Any]:
     return _core().build_pipeline_config(overrides)
 
 
-def core_diagnostics(*args: Any, **kwargs: Any) -> Dict[str, Any]:
+def core_diagnostics(*args: Any, **kwargs: Any) -> dict[str, Any]:
     return _core().diagnostics(*args, **kwargs)
 
 
-def core_resume(*args: Any, **kwargs: Any) -> Dict[str, Any]:
+def core_resume(*args: Any, **kwargs: Any) -> dict[str, Any]:
     return _core().resume(*args, **kwargs)
 
 
-def core_run_pipeline(*args: Any, **kwargs: Any) -> Dict[str, Any]:
+def core_run_pipeline(*args: Any, **kwargs: Any) -> dict[str, Any]:
     return _core().run_pipeline(*args, **kwargs)
 
 
-BUILTIN_PROFILES: Dict[str, Dict[str, Any]] = {
+BUILTIN_PROFILES: dict[str, dict[str, Any]] = {
     "default": {},
     "fast": {
-        "whisper_model": "tiny.en",
+        "whisper_model": "faster-whisper-tiny.en",
         "beam_size": 1,
         "temperature": 0.0,
         "affect_backend": "torch",
         "enable_sed": False,
     },
     "accurate": {
-        "whisper_model": "tiny.en",
+        "whisper_model": "faster-whisper-tiny.en",
         "beam_size": 4,
         "temperature": 0.0,
         "no_speech_threshold": 0.2,
@@ -60,7 +60,7 @@ BUILTIN_PROFILES: Dict[str, Dict[str, Any]] = {
 }
 
 
-def _load_profile(profile: Optional[str]) -> Dict[str, Any]:
+def _load_profile(profile: str | None) -> dict[str, Any]:
     if not profile:
         return {}
 
@@ -85,14 +85,14 @@ def _load_profile(profile: Optional[str]) -> Dict[str, Any]:
     return data
 
 
-def _normalise_path(value: Optional[Path]) -> Optional[str]:
+def _normalise_path(value: Path | None) -> str | None:
     if value is None:
         return None
     return str(value.expanduser().resolve())
 
 
 def _validate_assets(
-    input_path: Path, output_dir: Path, config: Dict[str, Any]
+    input_path: Path, output_dir: Path, config: dict[str, Any]
 ) -> None:
     errors = []
 
@@ -131,9 +131,9 @@ def _validate_assets(
 
 
 def _merge_configs(
-    profile_overrides: Dict[str, Any], cli_overrides: Dict[str, Any]
-) -> Dict[str, Any]:
-    merged: Dict[str, Any] = dict(profile_overrides)
+    profile_overrides: dict[str, Any], cli_overrides: dict[str, Any]
+) -> dict[str, Any]:
+    merged: dict[str, Any] = dict(profile_overrides)
     defaults = _default_config()
     for key, value in cli_overrides.items():
         if value is None:
@@ -146,13 +146,13 @@ def _merge_configs(
     return merged
 
 
-@lru_cache()
-def _default_config() -> Dict[str, Any]:
+@lru_cache
+def _default_config() -> dict[str, Any]:
     return core_build_config({})
 
 
-def _common_options(**kwargs: Any) -> Dict[str, Any]:
-    overrides: Dict[str, Any] = {
+def _common_options(**kwargs: Any) -> dict[str, Any]:
+    overrides: dict[str, Any] = {
         "registry_path": kwargs.get("registry_path"),
         "ahc_distance_threshold": kwargs.get("ahc_distance_threshold"),
         "speaker_limit": kwargs.get("speaker_limit"),
@@ -209,7 +209,7 @@ def run(
     outdir: Path = typer.Option(
         ..., "--outdir", "-o", help="Directory to write outputs."
     ),
-    profile: Optional[str] = typer.Option(
+    profile: str | None = typer.Option(
         None,
         "--profile",
         help=f"Configuration profile to load ({', '.join(BUILTIN_PROFILES)} or path to JSON).",
@@ -220,18 +220,18 @@ def run(
     ahc_distance_threshold: float = typer.Option(
         0.12, help="Agglomerative clustering distance threshold."
     ),
-    speaker_limit: Optional[int] = typer.Option(
+    speaker_limit: int | None = typer.Option(
         None, help="Maximum number of speakers to keep."
     ),
     whisper_model: str = typer.Option(
-        "tiny.en", help="Whisper/Faster-Whisper model identifier."
+        "faster-whisper-tiny.en", help="Whisper/Faster-Whisper model identifier."
     ),
     asr_backend: str = typer.Option("faster", help="ASR backend", show_default=True),
     asr_compute_type: str = typer.Option(
         "float32", help="CT2 compute type for faster-whisper."
     ),
     asr_cpu_threads: int = typer.Option(1, help="CPU threads for ASR backend."),
-    language: Optional[str] = typer.Option(None, help="Override ASR language"),
+    language: str | None = typer.Option(None, help="Override ASR language"),
     language_mode: str = typer.Option("auto", help="Language detection mode"),
     ignore_tx_cache: bool = typer.Option(
         False,
@@ -254,10 +254,10 @@ def run(
     affect_backend: str = typer.Option(
         "onnx", help="Affect backend (auto/torch/onnx)."
     ),
-    affect_text_model_dir: Optional[Path] = typer.Option(
+    affect_text_model_dir: Path | None = typer.Option(
         None, help="Path to GoEmotions model directory."
     ),
-    affect_intent_model_dir: Optional[Path] = typer.Option(
+    affect_intent_model_dir: Path | None = typer.Option(
         None, help="Path to intent model directory."
     ),
     beam_size: int = typer.Option(1, help="Beam size for ASR decoding."),
@@ -277,7 +277,7 @@ def run(
         help="Disable background sound event tagging.",
         is_flag=True,
     ),
-    chunk_enabled: Optional[bool] = typer.Option(
+    chunk_enabled: bool | None = typer.Option(
         None,
         "--chunk-enabled",
         help="Set automatic chunking of long files (true/false).",
@@ -392,7 +392,7 @@ def resume(
     outdir: Path = typer.Option(
         ..., "--outdir", "-o", help="Output directory used in the previous run."
     ),
-    profile: Optional[str] = typer.Option(
+    profile: str | None = typer.Option(
         None,
         "--profile",
         help=f"Configuration profile to load ({', '.join(BUILTIN_PROFILES)} or path to JSON).",
@@ -403,18 +403,18 @@ def resume(
     ahc_distance_threshold: float = typer.Option(
         0.12, help="Agglomerative clustering distance threshold."
     ),
-    speaker_limit: Optional[int] = typer.Option(
+    speaker_limit: int | None = typer.Option(
         None, help="Maximum number of speakers to keep."
     ),
     whisper_model: str = typer.Option(
-        "tiny.en", help="Whisper/Faster-Whisper model identifier."
+        "faster-whisper-tiny.en", help="Whisper/Faster-Whisper model identifier."
     ),
     asr_backend: str = typer.Option("faster", help="ASR backend", show_default=True),
     asr_compute_type: str = typer.Option(
         "float32", help="CT2 compute type for faster-whisper."
     ),
     asr_cpu_threads: int = typer.Option(1, help="CPU threads for ASR backend."),
-    language: Optional[str] = typer.Option(None, help="Override ASR language"),
+    language: str | None = typer.Option(None, help="Override ASR language"),
     language_mode: str = typer.Option("auto", help="Language detection mode"),
     quiet: bool = typer.Option(
         False,
@@ -431,10 +431,10 @@ def resume(
     affect_backend: str = typer.Option(
         "onnx", help="Affect backend (auto/torch/onnx)."
     ),
-    affect_text_model_dir: Optional[Path] = typer.Option(
+    affect_text_model_dir: Path | None = typer.Option(
         None, help="Path to GoEmotions model directory."
     ),
-    affect_intent_model_dir: Optional[Path] = typer.Option(
+    affect_intent_model_dir: Path | None = typer.Option(
         None, help="Path to intent model directory."
     ),
     beam_size: int = typer.Option(1, help="Beam size for ASR decoding."),
@@ -454,7 +454,7 @@ def resume(
         help="Disable background sound event tagging.",
         is_flag=True,
     ),
-    chunk_enabled: Optional[bool] = typer.Option(
+    chunk_enabled: bool | None = typer.Option(
         None,
         "--chunk-enabled",
         help="Set automatic chunking of long files (true/false).",

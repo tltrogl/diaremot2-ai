@@ -73,7 +73,7 @@ def test_cli_run_invokes_pipeline(
     assert captured["input"] == str(audio)
     assert captured["outdir"] == str(outdir)
     # fast profile should override whisper model, CLI override adjusts beam size
-    assert captured["config"]["whisper_model"] == "tiny.en"
+    assert captured["config"]["whisper_model"] == "faster-whisper-tiny.en"
     assert captured["config"]["beam_size"] == 2
     assert captured["clear_cache"] is True
 

@@ -2,11 +2,7 @@
 
 from __future__ import annotations
 
-import json
 import logging
-import math
-import os
-import subprocess
 import time
 import uuid
 from pathlib import Path
@@ -20,15 +16,16 @@ from ..affect.sed_panns import PANNSEventTagger, SEDConfig  # type: ignore
 from ..summaries.conversation_analysis import ConversationMetrics
 from ..summaries.html_summary_generator import HTMLSummaryGenerator
 from ..summaries.pdf_summary_generator import PDFSummaryGenerator
-from ..summaries.speakers_summary_builder import build_speakers_summary
 from .audio_preprocessing import AudioPreprocessor, PreprocessConfig
 from .auto_tuner import AutoTuner
-from .pipeline_checkpoint_system import PipelineCheckpointManager, ProcessingStage
-from .speaker_diarization import DiarizationConfig, SpeakerDiarizer
 from .config import (
     DEFAULT_PIPELINE_CONFIG,
     build_pipeline_config,
+)
+from .config import (
     diagnostics as config_diagnostics,
+)
+from .config import (
     verify_dependencies as config_verify_dependencies,
 )
 from .logging_utils import CoreLogger, RunStats, StageGuard, _fmt_hms_ms
@@ -38,14 +35,16 @@ from .outputs import (
     write_qc_report,
     write_segments_csv,
     write_segments_jsonl,
-    write_timeline_csv,
     write_speakers_summary,
+    write_timeline_csv,
 )
+from .pipeline_checkpoint_system import PipelineCheckpointManager, ProcessingStage
 from .runtime_env import (
     DEFAULT_WHISPER_MODEL,
     WINDOWS_MODELS_ROOT,
     configure_local_cache_env,
 )
+from .speaker_diarization import DiarizationConfig, SpeakerDiarizer
 from .stages import PIPELINE_STAGES, PipelineState
 
 # Early environment and warning configuration (also done in run_pipeline.py).
@@ -404,9 +403,6 @@ class AudioAnalysisPipelineV2:
                         "text_emotion_model", "SamLowe/roberta-base-go_emotions"
                     ),
                     intent_labels=cfg.get("intent_labels", INTENT_LABELS_DEFAULT),
-                    affect_backend=cfg.get("affect_backend", "auto"),
-                    affect_text_model_dir=cfg.get("affect_text_model_dir"),
-                    affect_intent_model_dir=cfg.get("affect_intent_model_dir"),
                 )
 
             # Background SED / noise tagger (required in the default pipeline)
@@ -456,11 +452,6 @@ class AudioAnalysisPipelineV2:
                 "temperature": cfg.get("temperature", 0.0),
                 "no_speech_threshold": cfg.get("no_speech_threshold", 0.50),
                 "intent_labels": cfg.get("intent_labels", INTENT_LABELS_DEFAULT),
-                "affect_backend": (
-                    getattr(self.affect, "affect_backend", None)
-                    if self.affect is not None
-                    else "disabled"
-                ),
             }
 
         except Exception as e:

@@ -9,9 +9,10 @@ the health-check CLI and the comprehensive validation script.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional
+from typing import Any
 
 import numpy as np
 
@@ -24,7 +25,8 @@ DEFAULT_DURATION_SECONDS = 1.0
 
 
 # Shared fast-path configuration overrides for diagnostics flows.
-SMOKE_TEST_PIPELINE_OVERRIDES: Dict[str, Any] = {
+
+SMOKE_TEST_PIPELINE_OVERRIDES: dict[str, Any] = {
     "whisper_model": "tiny.en",
     "noise_reduction": False,
     "beam_size": 1,
@@ -33,7 +35,8 @@ SMOKE_TEST_PIPELINE_OVERRIDES: Dict[str, Any] = {
     "asr_backend": "faster",
 }
 
-SMOKE_TEST_TRANSCRIBE_KWARGS: Dict[str, Any] = {
+
+SMOKE_TEST_TRANSCRIBE_KWARGS: dict[str, Any] = {
     "model_size": "tiny.en",
     "compute_type": "int8",
     "beam_size": 1,
@@ -47,10 +50,10 @@ class SmokeTestResult:
     """Structured response emitted by :func:`run_pipeline_smoke_test`."""
 
     success: bool
-    output_dir: Optional[Path] = None
-    wav_path: Optional[Path] = None
-    run_result: Optional[Dict[str, Any]] = None
-    error: Optional[str] = None
+    output_dir: Path | None = None
+    wav_path: Path | None = None
+    run_result: dict[str, Any] | None = None
+    error: str | None = None
 
 
 def silence_audio_factory(sample_rate: int, duration_seconds: float) -> np.ndarray:
@@ -109,13 +112,13 @@ def prepare_smoke_wav(
 
 def run_pipeline_smoke_test(
     *,
-    config_overrides: Optional[Dict[str, Any]] = None,
-    tmp_dir: Optional[Path] = None,
-    output_dir: Optional[Path] = None,
+    config_overrides: dict[str, Any] | None = None,
+    tmp_dir: Path | None = None,
+    output_dir: Path | None = None,
     waveform_factory: AudioFactory = silence_audio_factory,
     sample_rate: int = DEFAULT_SAMPLE_RATE,
     duration_seconds: float = DEFAULT_DURATION_SECONDS,
-    wav_path: Optional[Path] = None,
+    wav_path: Path | None = None,
 ) -> SmokeTestResult:
     """Execute a fast end-to-end pipeline run using synthetic audio."""
 
@@ -123,7 +126,7 @@ def run_pipeline_smoke_test(
     tmp_dir.mkdir(parents=True, exist_ok=True)
 
     try:
-        effective_config: Dict[str, Any] = dict(SMOKE_TEST_PIPELINE_OVERRIDES)
+        effective_config: dict[str, Any] = dict(SMOKE_TEST_PIPELINE_OVERRIDES)
         if config_overrides:
             effective_config.update(config_overrides)
 

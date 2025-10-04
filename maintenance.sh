@@ -32,7 +32,7 @@ paths: Dict[str, Path] = {
     "goemotions": model_dir / "goemotions-onnx" / "model.onnx",
     "ser8_int8": model_dir / "ser8-onnx" / "model.int8.onnx",
     "ser8_fp32": model_dir / "ser8-onnx" / "model.onnx",
-    "fw_tiny_en": model_dir / "tiny.en" / "model.bin",
+    "fw_tiny_en": model_dir / "faster-whisper-tiny.en" / "model.bin",
     "bart_onnx": model_dir / "bart" / "model_uint8.onnx",
     "bart_tok_json": model_dir / "bart" / "tokenizer.json",
     "bart_merges": model_dir / "bart" / "merges.txt",

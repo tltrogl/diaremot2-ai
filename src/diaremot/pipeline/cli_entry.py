@@ -15,7 +15,6 @@ from .orchestrator import (
 )
 from .speaker_diarization import DiarizationConfig
 
-
 __all__ = ["main", "_build_arg_parser", "_args_to_config"]
 
 
@@ -44,7 +43,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--whisper-model",
-        default="tiny.en",
+        default="faster-whisper-tiny.en",
         help="Whisper model identifier or path",
     )
     parser.add_argument(

@@ -41,6 +41,7 @@ def test_stageguard_swallows_optional_exceptions(tmp_path) -> None:
     with StageGuard(logger, stats, "paralinguistics"):
         raise ImportError("librosa missing")
 
+
     assert any(f["stage"] == "paralinguistics" for f in stats.failures)
 
 
@@ -56,3 +57,4 @@ def test_corelogger_supports_format_args(tmp_path, caplog) -> None:
     assert "formatted message 123" in rendered
     assert "warn here" in rendered
     assert "error there" in rendered
+

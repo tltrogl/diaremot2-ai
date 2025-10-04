@@ -147,10 +147,6 @@ class StageGuard(AbstractContextManager["StageGuard"]):
             ImportError,
             ModuleNotFoundError,
         ),
-        "background_sed": (
-            ImportError,
-            ModuleNotFoundError,
-        ),
         "overlap_interruptions": (
             AttributeError,
             ImportError,
@@ -172,7 +168,7 @@ class StageGuard(AbstractContextManager["StageGuard"]):
         self.start: float | None = None
         self.corelog.info(f"[{self.stage}] start")
 
-    def __enter__(self) -> "StageGuard":
+    def __enter__(self) -> StageGuard:
         self.start = time.time()
         self.corelog.event(self.stage, "start")
         return self
