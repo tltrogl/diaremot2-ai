@@ -108,10 +108,7 @@ def test_cli_validates_affect_backend_paths(
     )
 
     assert result.exit_code != 0
-    assert (
-        "affect_text_model_dir" in result.stdout
-        or "affect_text_model_dir" in result.stderr
-    )
+    assert "affect_text_model_dir" in result.stdout or "affect_text_model_dir" in result.stderr
 
 
 def test_diagnostics_entrypoint_accepts_strict(
@@ -132,9 +129,3 @@ def test_diagnostics_entrypoint_accepts_strict(
     assert result.exit_code == 0, result.stdout
     assert json.loads(result.stdout) == {"status": "ok"}
     assert captured["strict"] is True
-
-
-
-
-
-

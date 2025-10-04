@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import runpy
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -90,9 +90,7 @@ def test_main_verify_deps(monkeypatch: pytest.MonkeyPatch, capsys: Any) -> None:
     assert "All core dependencies" in captured.out
 
 
-def test_main_runs_pipeline(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: Any
-) -> None:
+def test_main_runs_pipeline(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: Any) -> None:
     audio = tmp_path / "call.wav"
     audio.write_text("fake")
     outdir = tmp_path / "out"

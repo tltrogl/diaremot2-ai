@@ -1,8 +1,8 @@
 import math
 import types
 
-from diaremot.pipeline.auto_tuner import AutoTuner
 from diaremot.pipeline.audio_preprocessing import AudioHealth
+from diaremot.pipeline.auto_tuner import AutoTuner
 
 
 def _health(**overrides):
@@ -24,10 +24,7 @@ def _health(**overrides):
 def test_auto_tuner_low_snr_reduces_vad_and_updates_asr():
     tuner = AutoTuner()
     health = _health(snr_db=5.5)
-    audio = [
-        0.005 + 0.03 * math.sin(2 * math.pi * 150 * (i / 16000.0))
-        for i in range(16000)
-    ]
+    audio = [0.005 + 0.03 * math.sin(2 * math.pi * 150 * (i / 16000.0)) for i in range(16000)]
     diar_conf = types.SimpleNamespace(
         vad_threshold=0.25,
         vad_min_speech_sec=0.6,

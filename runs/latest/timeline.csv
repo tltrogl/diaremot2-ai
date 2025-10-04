@@ -1,0 +1,11 @@
+start,end,speaker_id
+0.0,1.5,Speaker_13
+1.5,2.25,Speaker_11
+2.25,3.75,Speaker_2
+3.75,4.5,Speaker_8
+4.5,5.25,Speaker_7
+6.0,6.75,Speaker_4
+6.75,9.0,Speaker_1
+9.0,10.5,Speaker_3
+10.5,11.25,Speaker_12
+11.25,12.75,Speaker_5

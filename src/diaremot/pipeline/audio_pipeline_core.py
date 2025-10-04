@@ -94,9 +94,7 @@ def _resolve_default_whisper_model() -> Path:
     candidates = []
     if WINDOWS_MODELS_ROOT:
         candidates.append(WINDOWS_MODELS_ROOT / "faster-whisper-large-v3-turbo-ct2")
-    candidates.append(
-        Path.home() / "whisper_models" / "faster-whisper-large-v3-turbo-ct2"
-    )
+    candidates.append(Path.home() / "whisper_models" / "faster-whisper-large-v3-turbo-ct2")
 
     for candidate in candidates:
         if Path(candidate).exists():
@@ -137,6 +135,8 @@ DEFAULT_PIPELINE_CONFIG: dict[str, Any] = {
     "affect_backend": "onnx",
     "affect_text_model_dir": None,
     "affect_intent_model_dir": None,
+    "affect_ser_model_dir": None,
+    "affect_vad_model_dir": None,
     "beam_size": 1,
     "temperature": 0.0,
     "no_speech_threshold": 0.50,
@@ -218,9 +218,7 @@ def clear_pipeline_cache(cache_root: Path | None = None) -> None:
         try:
             shutil.rmtree(cache_dir, ignore_errors=True)
         except PermissionError:
-            raise RuntimeError(
-                "Could not clear cache directory due to insufficient permissions"
-            )
+            raise RuntimeError("Could not clear cache directory due to insufficient permissions")
     cache_dir.mkdir(parents=True, exist_ok=True)
 
 
@@ -241,9 +239,7 @@ def run_pipeline(
 
     if clear_cache:
         try:
-            clear_pipeline_cache(
-                Path(config.get("cache_root", ".cache")) if config else None
-            )
+            clear_pipeline_cache(Path(config.get("cache_root", ".cache")) if config else None)
         except RuntimeError:
             if config is None:
                 config = dict(DEFAULT_PIPELINE_CONFIG)
@@ -269,9 +265,7 @@ def resume(
     if metadata is not None:
         pipe.corelog.info(
             "Resuming from %s checkpoint created at %s",
-            metadata.stage.value
-            if hasattr(metadata.stage, "value")
-            else metadata.stage,
+            metadata.stage.value if hasattr(metadata.stage, "value") else metadata.stage,
             metadata.timestamp,
         )
     return pipe.process_audio_file(input_path, outdir)
@@ -492,9 +486,7 @@ class RunStats:
     config_snapshot: dict[str, Any] = field(default_factory=dict)
 
     def mark(self, stage: str, elapsed_ms: float, counts: dict[str, int] | None = None):
-        self.stage_timings_ms[stage] = self.stage_timings_ms.get(stage, 0.0) + float(
-            elapsed_ms
-        )
+        self.stage_timings_ms[stage] = self.stage_timings_ms.get(stage, 0.0) + float(elapsed_ms)
         if counts:
             slot = self.stage_counts.setdefault(stage, {})
             for k, v in counts.items():
@@ -502,9 +494,7 @@ class RunStats:
 
 
 class CoreLogger:
-    def __init__(
-        self, run_id: str, jsonl_path: Path, console_level: int = logging.INFO
-    ):
+    def __init__(self, run_id: str, jsonl_path: Path, console_level: int = logging.INFO):
         self.run_id = run_id
         self.jsonl = JSONLWriter(jsonl_path)
         self.log = logging.getLogger(f"pipeline.{run_id}")
@@ -512,9 +502,7 @@ class CoreLogger:
         if not self.log.handlers:
             ch = logging.StreamHandler()
             ch.setLevel(console_level)
-            fmt = logging.Formatter(
-                "[%(asctime)s] [%(levelname)s] %(message)s", datefmt="%H:%M"
-            )
+            fmt = logging.Formatter("[%(asctime)s] [%(levelname)s] %(message)s", datefmt="%H:%M")
             ch.setFormatter(fmt)
             self.log.addHandler(ch)
 
@@ -641,14 +629,18 @@ class StageGuard:
                         return "Verify audio codec support (try converting to WAV 16kHz mono)."
                     if stage == "transcribe":
                         if isinstance(err, TimeoutError | subprocess.TimeoutExpired):
-                            return "Increase --asr-segment-timeout or choose a smaller Whisper model."
+                            return (
+                                "Increase --asr-segment-timeout or choose a smaller Whisper model."
+                            )
                         if "faster_whisper" in txt or "ctranslate2" in txt:
                             return "Install faster-whisper and ctranslate2; confirm CPU wheels are compatible."
                         if "whisper" in txt and "tiny" in txt:
                             return "OpenAI whisper fallback failed; try reinstalling whisper or using a local model."
                         if "model" in txt and ("not found" in txt or "download" in txt):
                             return "Model not found; provide a valid local model path or enable network access."
-                        return "Reduce model size, set compute_type=float32, and verify dependencies."
+                        return (
+                            "Reduce model size, set compute_type=float32, and verify dependencies."
+                        )
                     if stage == "paralinguistics":
                         return "Install librosa/scipy extras or run with --disable_paralinguistics."
                     if stage == "affect_and_assemble":
@@ -656,7 +648,9 @@ class StageGuard:
                     if stage == "background_sed":
                         return "Provide SED models locally or disable background SED tagging."
                     if stage == "overlap_interruptions":
-                        return "Install paralinguistics extras for overlap metrics or skip this stage."
+                        return (
+                            "Install paralinguistics extras for overlap metrics or skip this stage."
+                        )
                     if stage == "conversation_analysis":
                         return "Ensure numpy/pandas are available for analytics or review conversation inputs."
                     if stage == "speaker_rollups":
@@ -784,9 +778,7 @@ class AudioAnalysisPipelineV2:
         extra_roots = cfg.get("cache_roots", [])
         if isinstance(extra_roots, str | Path):
             extra_roots = [extra_roots]
-        self.cache_roots: list[Path] = [self.cache_root] + [
-            Path(p) for p in extra_roots
-        ]
+        self.cache_roots: list[Path] = [self.cache_root] + [Path(p) for p in extra_roots]
         self.cache_root.mkdir(parents=True, exist_ok=True)
 
         # Persist config for later checks
@@ -814,14 +806,10 @@ class AudioAnalysisPipelineV2:
             self.log_dir / "run.jsonl",
             console_level=(logging.WARNING if self.quiet else logging.INFO),
         )
-        self.stats = RunStats(
-            run_id=self.run_id, file_id="", schema_version=self.schema_version
-        )
+        self.stats = RunStats(run_id=self.run_id, file_id="", schema_version=self.schema_version)
 
         # Checkpoint manager
-        self.checkpoints = PipelineCheckpointManager(
-            cfg.get("checkpoint_dir", "checkpoints")
-        )
+        self.checkpoints = PipelineCheckpointManager(cfg.get("checkpoint_dir", "checkpoints"))
 
         # Optional early dependency verification
         if bool(cfg.get("validate_dependencies", False)):
@@ -840,9 +828,7 @@ class AudioAnalysisPipelineV2:
         """Initialize pipeline components with graceful error handling"""
         try:
             # Preprocessor
-            denoise_mode = (
-                "spectral_sub_soft" if cfg.get("noise_reduction", True) else "none"
-            )
+            denoise_mode = "spectral_sub_soft" if cfg.get("noise_reduction", True) else "none"
             self.pp_conf = PreprocessConfig(
                 target_sr=cfg.get("target_sr", 16000),
                 denoise=denoise_mode,
@@ -864,9 +850,7 @@ class AudioAnalysisPipelineV2:
             ecapa_path = cfg.get("ecapa_model_path")
             search_paths = [
                 ecapa_path,
-                WINDOWS_MODELS_ROOT / "ecapa_tdnn.onnx"
-                if WINDOWS_MODELS_ROOT
-                else None,
+                WINDOWS_MODELS_ROOT / "ecapa_tdnn.onnx" if WINDOWS_MODELS_ROOT else None,
                 Path("models") / "ecapa_tdnn.onnx",
                 Path("..") / "models" / "ecapa_tdnn.onnx",
                 Path("..") / "diaremot" / "models" / "ecapa_tdnn.onnx",
@@ -899,18 +883,10 @@ class AudioAnalysisPipelineV2:
                 vad_min_silence_sec=cfg.get(
                     "vad_min_silence_sec", DiarizationConfig.vad_min_silence_sec
                 ),
-                speech_pad_sec=cfg.get(
-                    "vad_speech_pad_sec", DiarizationConfig.speech_pad_sec
-                ),
-                allow_energy_vad_fallback=not bool(
-                    cfg.get("disable_energy_vad_fallback", False)
-                ),
-                energy_gate_db=cfg.get(
-                    "energy_gate_db", DiarizationConfig.energy_gate_db
-                ),
-                energy_hop_sec=cfg.get(
-                    "energy_hop_sec", DiarizationConfig.energy_hop_sec
-                ),
+                speech_pad_sec=cfg.get("vad_speech_pad_sec", DiarizationConfig.speech_pad_sec),
+                allow_energy_vad_fallback=not bool(cfg.get("disable_energy_vad_fallback", False)),
+                energy_gate_db=cfg.get("energy_gate_db", DiarizationConfig.energy_gate_db),
+                energy_hop_sec=cfg.get("energy_hop_sec", DiarizationConfig.energy_hop_sec),
             )
             # Make Silero VAD less strict to avoid energy-VAD fallback
             try:
@@ -935,15 +911,11 @@ class AudioAnalysisPipelineV2:
                         CPUOptimizedSpeakerDiarizer,
                     )
 
-                    cpu_conf = CPUOptimizationConfig(
-                        max_speakers=self.diar_conf.speaker_limit
-                    )
+                    cpu_conf = CPUOptimizationConfig(max_speakers=self.diar_conf.speaker_limit)
                     self.diar = CPUOptimizedSpeakerDiarizer(self.diar, cpu_conf)
                     self.corelog.info("[diarizer] using CPU-optimized wrapper")
                 except Exception as _e:
-                    self.corelog.warn(
-                        f"[diarizer] CPU wrapper unavailable, using baseline: {_e}"
-                    )
+                    self.corelog.warn(f"[diarizer] CPU wrapper unavailable, using baseline: {_e}")
 
             # Transcriber - Force CPU-only configuration
             from .transcription_module import AudioTranscriber
@@ -954,14 +926,10 @@ class AudioAnalysisPipelineV2:
                 "language": cfg.get("language", None),
                 "beam_size": cfg.get("beam_size", 1),
                 "temperature": cfg.get("temperature", 0.0),
-                "compression_ratio_threshold": cfg.get(
-                    "compression_ratio_threshold", 2.5
-                ),
+                "compression_ratio_threshold": cfg.get("compression_ratio_threshold", 2.5),
                 "log_prob_threshold": cfg.get("log_prob_threshold", -1.0),
                 "no_speech_threshold": cfg.get("no_speech_threshold", 0.50),
-                "condition_on_previous_text": cfg.get(
-                    "condition_on_previous_text", False
-                ),
+                "condition_on_previous_text": cfg.get("condition_on_previous_text", False),
                 "word_timestamps": cfg.get("word_timestamps", True),
                 "max_asr_window_sec": cfg.get("max_asr_window_sec", 480),
                 "vad_min_silence_ms": cfg.get("vad_min_silence_ms", 1800),
@@ -992,15 +960,18 @@ class AudioAnalysisPipelineV2:
                         "text_emotion_model", "SamLowe/roberta-base-go_emotions"
                     ),
                     intent_labels=cfg.get("intent_labels", INTENT_LABELS_DEFAULT),
+                    affect_backend=str(cfg.get("affect_backend", "onnx")),
+                    affect_text_model_dir=cfg.get("affect_text_model_dir"),
+                    affect_intent_model_dir=cfg.get("affect_intent_model_dir"),
+                    affect_ser_model_dir=cfg.get("affect_ser_model_dir"),
+                    affect_vad_model_dir=cfg.get("affect_vad_model_dir"),
                 )
 
             # Optional background SED / noise tagger
             self.sed_tagger = None
             try:
                 if PANNSEventTagger is not None and bool(cfg.get("enable_sed", True)):
-                    self.sed_tagger = PANNSEventTagger(
-                        SEDConfig() if SEDConfig else None
-                    )
+                    self.sed_tagger = PANNSEventTagger(SEDConfig() if SEDConfig else None)
             except Exception:
                 self.sed_tagger = None
 
@@ -1011,18 +982,10 @@ class AudioAnalysisPipelineV2:
             # Model tracking
             self.stats.models.update(
                 {
-                    "preprocessor": getattr(
-                        self.pre, "__class__", type(self.pre)
-                    ).__name__,
-                    "diarizer": getattr(
-                        self.diar, "__class__", type(self.diar)
-                    ).__name__,
-                    "transcriber": getattr(
-                        self.tx, "__class__", type(self.tx)
-                    ).__name__,
-                    "affect": getattr(
-                        self.affect, "__class__", type(self.affect)
-                    ).__name__,
+                    "preprocessor": getattr(self.pre, "__class__", type(self.pre)).__name__,
+                    "diarizer": getattr(self.diar, "__class__", type(self.diar)).__name__,
+                    "transcriber": getattr(self.tx, "__class__", type(self.tx)).__name__,
+                    "affect": getattr(self.affect, "__class__", type(self.affect)).__name__,
                 }
             )
 
@@ -1134,11 +1097,7 @@ class AudioAnalysisPipelineV2:
             i0 = int(start * sr)
             i1 = int(end * sr)
             clip = wav[max(0, i0) : max(0, i1)]
-            loud = (
-                float(np.sqrt(np.mean(clip.astype(np.float32) ** 2)))
-                if clip.size > 0
-                else 0.0
-            )
+            loud = float(np.sqrt(np.mean(clip.astype(np.float32) ** 2))) if clip.size > 0 else 0.0
 
             results[i] = {
                 "wpm": float(wpm),
@@ -1187,9 +1146,7 @@ class AudioAnalysisPipelineV2:
         # Speakers summary
         if speakers_summary:
             headers = sorted({k for r in speakers_summary for k in r.keys()})
-            with (outp / "speakers_summary.csv").open(
-                "w", newline="", encoding="utf-8"
-            ) as f:
+            with (outp / "speakers_summary.csv").open("w", newline="", encoding="utf-8") as f:
                 w = csv.DictWriter(f, fieldnames=headers)
                 w.writeheader()
                 for r in speakers_summary:
@@ -1266,9 +1223,7 @@ class AudioAnalysisPipelineV2:
             # ========== 0) Dependency Check (informational) ==========
             with StageGuard(self.corelog, self.stats, "dependency_check"):
                 dep_summary = _dependency_health_summary()
-                unhealthy = [
-                    k for k, v in dep_summary.items() if v.get("status") != "ok"
-                ]
+                unhealthy = [k for k, v in dep_summary.items() if v.get("status") != "ok"]
                 self.corelog.event("dependency_check", "summary", unhealthy=unhealthy)
                 if unhealthy:
                     self.corelog.warn(f"Dependency issues detected: {unhealthy}")
@@ -1284,9 +1239,7 @@ class AudioAnalysisPipelineV2:
 
             # ========== 1) Preprocess ==========
             if not hasattr(self, "pre") or self.pre is None:
-                raise RuntimeError(
-                    "Preprocessor component unavailable; initialization failed"
-                )
+                raise RuntimeError("Preprocessor component unavailable; initialization failed")
             with StageGuard(self.corelog, self.stats, "preprocess"):
                 y, sr, health = self.pre.process_file(input_audio_path)
                 duration_s = float(len(y) / sr) if sr else 0.0
@@ -1311,11 +1264,7 @@ class AudioAnalysisPipelineV2:
             # ========== 1b) Background SED (optional) ==========
             with StageGuard(self.corelog, self.stats, "background_sed"):
                 try:
-                    if (
-                        getattr(self, "sed_tagger", None) is not None
-                        and y.size > 0
-                        and sr
-                    ):
+                    if getattr(self, "sed_tagger", None) is not None and y.size > 0 and sr:
                         sed_info = self.sed_tagger.tag(y, sr)
                         if sed_info:
                             self.corelog.event(
@@ -1409,25 +1358,16 @@ class AudioAnalysisPipelineV2:
             # ========== 2) Diarize ==========
             vad_unstable = False
             with StageGuard(self.corelog, self.stats, "diarize") as g:
-                if (
-                    resume_tx
-                    and (not diar_cache)
-                    and tx_cache
-                    and tx_cache.get("segments")
-                ):
+                if resume_tx and (not diar_cache) and tx_cache and tx_cache.get("segments"):
                     # Reconstruct lightweight turns directly from tx cache
                     try:
                         tx_segments = tx_cache.get("segments", []) or []
                         turns = []
                         for d in tx_segments:
                             try:
-                                s = float(
-                                    d.get("start", d.get("start_time", 0.0)) or 0.0
-                                )
+                                s = float(d.get("start", d.get("start_time", 0.0)) or 0.0)
                                 e = float(d.get("end", d.get("end_time", 0.0)) or 0.0)
-                                sid = str(
-                                    d.get("speaker_id", d.get("speaker", "Speaker_1"))
-                                )
+                                sid = str(d.get("speaker_id", d.get("speaker", "Speaker_1")))
                                 sname = d.get("speaker_name") or sid
                                 if e < s:
                                     s, e = e, s
@@ -1481,9 +1421,7 @@ class AudioAnalysisPipelineV2:
                                 }
                             ]
                         if not turns:
-                            self.corelog.warn(
-                                "Diarizer returned 0 turns; using fallback"
-                            )
+                            self.corelog.warn("Diarizer returned 0 turns; using fallback")
                             turns = [
                                 {
                                     "start": 0.0,
@@ -1499,9 +1437,7 @@ class AudioAnalysisPipelineV2:
                 elif resume_diar and diar_cache:
                     turns = diar_cache.get("turns", []) or []
                     if not turns:
-                        self.corelog.warn(
-                            "Cached diar.json has 0 turns; proceeding with fallback"
-                        )
+                        self.corelog.warn("Cached diar.json has 0 turns; proceeding with fallback")
                         turns = [
                             {
                                 "start": 0.0,
@@ -1515,9 +1451,7 @@ class AudioAnalysisPipelineV2:
                         vad_toggles = sum(1 for t in turns if t.get("is_boundary_flip"))
                     except (TypeError, AttributeError):
                         vad_toggles = 0
-                    vad_unstable = (
-                        vad_toggles / max(1, int(duration_s / 60) or 1)
-                    ) > 60
+                    vad_unstable = (vad_toggles / max(1, int(duration_s / 60) or 1)) > 60
                     g.done(
                         turns=len(turns),
                         speakers_est=len(set([t.get("speaker") for t in turns])),
@@ -1559,9 +1493,7 @@ class AudioAnalysisPipelineV2:
                         vad_toggles = sum(1 for t in turns if t.get("is_boundary_flip"))
                     except (TypeError, AttributeError):
                         vad_toggles = 0
-                    vad_unstable = (
-                        vad_toggles / max(1, int(duration_s / 60) or 1)
-                    ) > 60
+                    vad_unstable = (vad_toggles / max(1, int(duration_s / 60) or 1)) > 60
                     g.done(
                         turns=len(turns),
                         speakers_est=len(set([t.get("speaker") for t in turns])),
@@ -1626,10 +1558,7 @@ class AudioAnalysisPipelineV2:
             # Registry update (safe)
             with StageGuard(self.corelog, self.stats, "registry_update"):
                 try:
-                    if (
-                        hasattr(self.diar, "registry")
-                        and self.diar.registry is not None
-                    ):
+                    if hasattr(self.diar, "registry") and self.diar.registry is not None:
                         # Update registry centroids if possible
                         pass  # Implementation depends on your registry interface
                 except (RuntimeError, ValueError, OSError) as e:
@@ -1642,9 +1571,7 @@ class AudioAnalysisPipelineV2:
             speaker_name_map = {}
             for t in turns:
                 start = float(t.get("start", t.get("start_time", 0.0)) or 0.0)
-                end = float(
-                    t.get("end", t.get("end_time", start + 0.5)) or (start + 0.5)
-                )
+                end = float(t.get("end", t.get("end_time", start + 0.5)) or (start + 0.5))
                 sid = str(t.get("speaker"))
                 sname = t.get("speaker_name") or sid
                 speaker_name_map[sid] = sname
@@ -1699,12 +1626,8 @@ class AudioAnalysisPipelineV2:
                 for d in tx_cache.get("segments", []):
                     norm_tx.append(
                         {
-                            "start": float(
-                                d.get("start", 0.0) or d.get("start_time", 0.0) or 0.0
-                            ),
-                            "end": float(
-                                d.get("end", 0.0) or d.get("end_time", 0.0) or 0.0
-                            ),
+                            "start": float(d.get("start", 0.0) or d.get("start_time", 0.0) or 0.0),
+                            "end": float(d.get("end", 0.0) or d.get("end_time", 0.0) or 0.0),
                             "speaker_id": d.get("speaker_id"),
                             "speaker_name": d.get("speaker_name"),
                             "text": d.get("text", ""),
@@ -1718,15 +1641,11 @@ class AudioAnalysisPipelineV2:
                     d = (
                         it.__dict__
                         if hasattr(it, "__dict__")
-                        else dict(it)
-                        if isinstance(it, dict)
-                        else {}
+                        else dict(it) if isinstance(it, dict) else {}
                     )
                     norm_tx.append(
                         {
-                            "start": float(
-                                d.get("start_time", d.get("start", 0.0)) or 0.0
-                            ),
+                            "start": float(d.get("start_time", d.get("start", 0.0)) or 0.0),
                             "end": float(d.get("end_time", d.get("end", 0.0)) or 0.0),
                             "speaker_id": d.get("speaker_id"),
                             "speaker_name": d.get("speaker_name"),
@@ -1789,9 +1708,7 @@ class AudioAnalysisPipelineV2:
                         end = float(seg["end"] or start)
                         i0 = int(start * sr)
                         i1 = int(end * sr)
-                        clip = (
-                            y[max(0, i0) : max(0, i1)] if len(y) > 0 else np.array([])
-                        )
+                        clip = y[max(0, i0) : max(0, i1)] if len(y) > 0 else np.array([])
                         text = seg.get("text") or ""
 
                         aff = self._affect_unified(clip, sr, text)
@@ -1799,18 +1716,10 @@ class AudioAnalysisPipelineV2:
                         a = aff["vad"].get("arousal", 0.0)
                         dmn = aff["vad"].get("dominance", 0.0)
                         ser_top = aff["speech_emotion"].get("top", "neutral")
-                        ser_scores = aff["speech_emotion"].get(
-                            "scores_8class", {"neutral": 1.0}
-                        )
-                        low_ser = bool(
-                            aff["speech_emotion"].get("low_confidence_ser", False)
-                        )
-                        tx5 = aff["text_emotions"].get(
-                            "top5", [{"label": "neutral", "score": 1.0}]
-                        )
-                        txfull = aff["text_emotions"].get(
-                            "full_28class", {"neutral": 1.0}
-                        )
+                        ser_scores = aff["speech_emotion"].get("scores_8class", {"neutral": 1.0})
+                        low_ser = bool(aff["speech_emotion"].get("low_confidence_ser", False))
+                        tx5 = aff["text_emotions"].get("top5", [{"label": "neutral", "score": 1.0}])
+                        txfull = aff["text_emotions"].get("full_28class", {"neutral": 1.0})
                         intent_top = aff["intent"].get("top", "status_update")
                         intent_top3 = aff["intent"].get("top3", [])
                         hint = aff.get("affect_hint", "neutral-status")
@@ -1827,19 +1736,11 @@ class AudioAnalysisPipelineV2:
                             "arousal": float(a) if a is not None else None,
                             "dominance": float(dmn) if dmn is not None else None,
                             "emotion_top": ser_top,
-                            "emotion_scores_json": json.dumps(
-                                ser_scores, ensure_ascii=False
-                            ),
-                            "text_emotions_top5_json": json.dumps(
-                                tx5, ensure_ascii=False
-                            ),
-                            "text_emotions_full_json": json.dumps(
-                                txfull, ensure_ascii=False
-                            ),
+                            "emotion_scores_json": json.dumps(ser_scores, ensure_ascii=False),
+                            "text_emotions_top5_json": json.dumps(tx5, ensure_ascii=False),
+                            "text_emotions_full_json": json.dumps(txfull, ensure_ascii=False),
                             "intent_top": intent_top,
-                            "intent_top3_json": json.dumps(
-                                intent_top3, ensure_ascii=False
-                            ),
+                            "intent_top3_json": json.dumps(intent_top3, ensure_ascii=False),
                             "low_confidence_ser": low_ser,
                             "vad_unstable": bool(vad_unstable),
                             "affect_hint": hint,
@@ -2040,14 +1941,11 @@ class AudioAnalysisPipelineV2:
                 fb = tx_info.get("fallback_triggered")
                 if fb:
                     self.corelog.warn(
-                        "[tx] Fallback engaged: "
-                        + str(tx_info.get("fallback_reason", "unknown"))
+                        "[tx] Fallback engaged: " + str(tx_info.get("fallback_reason", "unknown"))
                     )
             # Include background SED info if available
             if "background_sed" in getattr(self.stats, "config_snapshot", {}):
-                manifest["background_sed"] = self.stats.config_snapshot.get(
-                    "background_sed"
-                )
+                manifest["background_sed"] = self.stats.config_snapshot.get("background_sed")
         except Exception:
             pass
 
@@ -2116,9 +2014,7 @@ class AudioAnalysisPipelineV2:
             w = csv.writer(f)
             w.writerow(["start", "end", "speaker_id"])
             for s in segments:
-                w.writerow(
-                    [s.get("start", 0.0), s.get("end", 0.0), s.get("speaker_id", "")]
-                )
+                w.writerow([s.get("start", 0.0), s.get("end", 0.0), s.get("speaker_id", "")])
 
     def _write_qc(
         self,
@@ -2142,13 +2038,9 @@ class AudioAnalysisPipelineV2:
             "config_snapshot": stats.config_snapshot,
             "audio_health": {
                 "snr_db": float(getattr(health, "snr_db", 0.0)) if health else None,
-                "silence_ratio": (
-                    float(getattr(health, "silence_ratio", 0.0)) if health else None
-                ),
+                "silence_ratio": (float(getattr(health, "silence_ratio", 0.0)) if health else None),
                 "clipping_detected": (
-                    bool(getattr(health, "clipping_detected", False))
-                    if health
-                    else None
+                    bool(getattr(health, "clipping_detected", False)) if health else None
                 ),
                 "dynamic_range_db": (
                     float(getattr(health, "dynamic_range_db", 0.0)) if health else None
@@ -2182,9 +2074,7 @@ class AudioAnalysisPipelineV2:
             pass
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(
-            json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
-        )
+        path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
 
     def _summarize_speakers(
         self,
@@ -2247,21 +2137,19 @@ class AudioAnalysisPipelineV2:
 
         return prof
 
-    def _quick_take(
-        self, speakers: dict[str, dict[str, Any]], duration_s: float
-    ) -> str:
+    def _quick_take(self, speakers: dict[str, dict[str, Any]], duration_s: float) -> str:
         if not speakers:
             return "No speakers identified."
-        most = max(
-            speakers.items(), key=lambda kv: float(kv[1].get("total_duration", 0.0))
-        )[1]
+        most = max(speakers.items(), key=lambda kv: float(kv[1].get("total_duration", 0.0)))[1]
         tone = "neutral"
         v = float(most.get("avg_valence", 0.0))
         if v > 0.2:
             tone = "positive"
         elif v < -0.2:
             tone = "negative"
-        return f"{len(speakers)} speakers over {int(duration_s // 60)} min; most-active tone {tone}."
+        return (
+            f"{len(speakers)} speakers over {int(duration_s // 60)} min; most-active tone {tone}."
+        )
 
     def _moments_to_check(self, segments: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if not segments:
@@ -2544,9 +2432,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _args_to_config(
-    args: argparse.Namespace, *, ignore_tx_cache: bool
-) -> dict[str, Any]:
+def _args_to_config(args: argparse.Namespace, *, ignore_tx_cache: bool) -> dict[str, Any]:
     return {
         "registry_path": args.registry_path,
         "ahc_distance_threshold": args.ahc_distance_threshold,
@@ -2587,9 +2473,7 @@ def _args_to_config(
     }
 
 
-def _handle_cache_clear(
-    requested: bool, *, cache_root: Path, ignore_tx_cache: bool
-) -> bool:
+def _handle_cache_clear(requested: bool, *, cache_root: Path, ignore_tx_cache: bool) -> bool:
     if not requested:
         return ignore_tx_cache
     import shutil
@@ -2601,9 +2485,7 @@ def _handle_cache_clear(
         print("Cache cleared successfully.")
         return ignore_tx_cache
     except PermissionError:
-        print(
-            "Warning: Could not fully clear cache due to permissions. Ignoring cached results."
-        )
+        print("Warning: Could not fully clear cache due to permissions. Ignoring cached results.")
         return True
     except Exception as exc:  # pragma: no cover - defensive
         print(f"Warning: Cache clear failed: {exc}. Ignoring cached results.")
@@ -2619,9 +2501,7 @@ def main(argv: list[str] | None = None) -> int:
             require_versions=bool(args.strict_dependency_versions)
         )
         if ok:
-            suffix = (
-                " with required versions" if args.strict_dependency_versions else ""
-            )
+            suffix = " with required versions" if args.strict_dependency_versions else ""
             print(f"All core dependencies are importable{suffix}.")
             return 0
         print("Dependency verification failed\n  - " + "\n  - ".join(problems))

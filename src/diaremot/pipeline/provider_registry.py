@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable, Dict
-
+from collections.abc import Callable
+from typing import Any
 
 Factory = Callable[..., Any]
-_PROVIDERS: Dict[str, Factory] = {}
+_PROVIDERS: dict[str, Factory] = {}
 
 
 def register_provider(name: str, factory: Factory) -> None:

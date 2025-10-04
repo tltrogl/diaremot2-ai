@@ -11,9 +11,10 @@ Notes:
 """
 
 from __future__ import annotations
+
 import json
 import statistics
-from typing import Dict, Any, List, Tuple
+from typing import Any
 
 GOEMOTIONS_LABELS = [
     "admiration",
@@ -71,7 +72,7 @@ def _words(text: str) -> int:
     return sum(1 for tok in str(text).strip().split() if tok)
 
 
-def _median(vals: List[float], default: float = 0.0) -> float:
+def _median(vals: list[float], default: float = 0.0) -> float:
     vals = [v for v in vals if v is not None]
     try:
         return float(statistics.median(vals)) if vals else default
@@ -79,26 +80,26 @@ def _median(vals: List[float], default: float = 0.0) -> float:
         return default
 
 
-def _top_k(d: Dict[str, float], k: int = 5) -> List[Tuple[str, float]]:
+def _top_k(d: dict[str, float], k: int = 5) -> list[tuple[str, float]]:
     return sorted(d.items(), key=lambda kv: kv[1], reverse=True)[:k]
 
 
-def _normalize(d: Dict[str, float]) -> Dict[str, float]:
+def _normalize(d: dict[str, float]) -> dict[str, float]:
     s = sum(d.values()) or 1.0
     return {k: (v / s) for k, v in d.items()}
 
 
 def build_speakers_summary(
-    segments: List[Dict[str, Any]],
-    per_speaker_interrupts: Dict[str, Dict[str, Any]],
-    overlap_stats: Dict[str, Any],
-) -> List[Dict[str, Any]]:
+    segments: list[dict[str, Any]],
+    per_speaker_interrupts: dict[str, dict[str, Any]],
+    overlap_stats: dict[str, Any],
+) -> list[dict[str, Any]]:
     """
     Build speaker summary from segments data (matches core interface)
     Returns list of dicts suitable for CSV writing by core
     """
     # Accumulators per speaker
-    agg: Dict[str, Dict[str, Any]] = {}
+    agg: dict[str, dict[str, Any]] = {}
 
     # Read segments
     for row in segments:
@@ -233,7 +234,7 @@ def build_speakers_summary(
             S["overlap_ratio"] = overlap_sec / total_dur
 
     # Emit rows
-    rows: List[Dict[str, Any]] = []
+    rows: list[dict[str, Any]] = []
     for sid, S in agg.items():
         total_dur = sum(S["durations"])
         total_min = total_dur / 60.0 if total_dur > 0 else 0.0

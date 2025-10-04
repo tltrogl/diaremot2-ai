@@ -74,9 +74,7 @@ def _load_profile(profile: str | None) -> dict[str, Any]:
     try:
         data = json.loads(profile_path.read_text())
     except json.JSONDecodeError as exc:  # pragma: no cover - defensive
-        raise typer.BadParameter(
-            f"Profile file '{profile}' is not valid JSON: {exc}"
-        ) from exc
+        raise typer.BadParameter(f"Profile file '{profile}' is not valid JSON: {exc}") from exc
 
     if not isinstance(data, dict):
         raise typer.BadParameter(
@@ -91,9 +89,7 @@ def _normalise_path(value: Path | None) -> str | None:
     return str(value.expanduser().resolve())
 
 
-def _validate_assets(
-    input_path: Path, output_dir: Path, config: dict[str, Any]
-) -> None:
+def _validate_assets(input_path: Path, output_dir: Path, config: dict[str, Any]) -> None:
     errors = []
 
     if not input_path.exists():
@@ -116,9 +112,7 @@ def _validate_assets(
             if path_value:
                 resolved = Path(str(path_value)).expanduser()
                 if not resolved.exists():
-                    errors.append(
-                        f"Configured {key}='{path_value}' but the path is missing."
-                    )
+                    errors.append(f"Configured {key}='{path_value}' but the path is missing.")
 
     cache_root = Path(config.get("cache_root", ".cache"))
     try:
@@ -166,6 +160,8 @@ def _common_options(**kwargs: Any) -> dict[str, Any]:
         "disable_affect": kwargs.get("disable_affect"),
         "affect_text_model_dir": kwargs.get("affect_text_model_dir"),
         "affect_intent_model_dir": kwargs.get("affect_intent_model_dir"),
+        "affect_ser_model_dir": kwargs.get("affect_ser_model_dir"),
+        "affect_vad_model_dir": kwargs.get("affect_vad_model_dir"),
         "beam_size": kwargs.get("beam_size"),
         "temperature": kwargs.get("temperature"),
         "no_speech_threshold": kwargs.get("no_speech_threshold"),
@@ -206,9 +202,7 @@ def _common_options(**kwargs: Any) -> dict[str, Any]:
 @app.command()
 def run(
     input: Path = typer.Option(..., "--input", "-i", help="Path to input audio file."),
-    outdir: Path = typer.Option(
-        ..., "--outdir", "-o", help="Directory to write outputs."
-    ),
+    outdir: Path = typer.Option(..., "--outdir", "-o", help="Directory to write outputs."),
     profile: str | None = typer.Option(
         None,
         "--profile",
@@ -220,16 +214,12 @@ def run(
     ahc_distance_threshold: float = typer.Option(
         0.12, help="Agglomerative clustering distance threshold."
     ),
-    speaker_limit: int | None = typer.Option(
-        None, help="Maximum number of speakers to keep."
-    ),
+    speaker_limit: int | None = typer.Option(None, help="Maximum number of speakers to keep."),
     whisper_model: str = typer.Option(
         "faster-whisper-tiny.en", help="Whisper/Faster-Whisper model identifier."
     ),
     asr_backend: str = typer.Option("faster", help="ASR backend", show_default=True),
-    asr_compute_type: str = typer.Option(
-        "float32", help="CT2 compute type for faster-whisper."
-    ),
+    asr_compute_type: str = typer.Option("float32", help="CT2 compute type for faster-whisper."),
     asr_cpu_threads: int = typer.Option(1, help="CPU threads for ASR backend."),
     language: str | None = typer.Option(None, help="Override ASR language"),
     language_mode: str = typer.Option("auto", help="Language detection mode"),
@@ -251,20 +241,22 @@ def run(
         help="Skip affect analysis.",
         is_flag=True,
     ),
-    affect_backend: str = typer.Option(
-        "onnx", help="Affect backend (auto/torch/onnx)."
-    ),
+    affect_backend: str = typer.Option("onnx", help="Affect backend (auto/torch/onnx)."),
     affect_text_model_dir: Path | None = typer.Option(
         None, help="Path to GoEmotions model directory."
     ),
     affect_intent_model_dir: Path | None = typer.Option(
         None, help="Path to intent model directory."
     ),
+    affect_ser_model_dir: Path | None = typer.Option(
+        None, help="Path to speech emotion model directory."
+    ),
+    affect_vad_model_dir: Path | None = typer.Option(
+        None, help="Path to valence/arousal/dominance model directory."
+    ),
     beam_size: int = typer.Option(1, help="Beam size for ASR decoding."),
     temperature: float = typer.Option(0.0, help="Sampling temperature for ASR."),
-    no_speech_threshold: float = typer.Option(
-        0.50, help="No-speech threshold for Whisper."
-    ),
+    no_speech_threshold: float = typer.Option(0.50, help="No-speech threshold for Whisper."),
     noise_reduction: bool = typer.Option(
         False,
         "--noise-reduction",
@@ -282,26 +274,14 @@ def run(
         "--chunk-enabled",
         help="Set automatic chunking of long files (true/false).",
     ),
-    chunk_threshold_minutes: float = typer.Option(
-        30.0, help="Chunking activation threshold."
-    ),
+    chunk_threshold_minutes: float = typer.Option(30.0, help="Chunking activation threshold."),
     chunk_size_minutes: float = typer.Option(20.0, help="Chunk size in minutes."),
-    chunk_overlap_seconds: float = typer.Option(
-        30.0, help="Overlap between chunks in seconds."
-    ),
+    chunk_overlap_seconds: float = typer.Option(30.0, help="Overlap between chunks in seconds."),
     vad_threshold: float = typer.Option(0.30, help="Silero VAD probability threshold."),
-    vad_min_speech_sec: float = typer.Option(
-        0.8, help="Minimum detected speech duration."
-    ),
-    vad_min_silence_sec: float = typer.Option(
-        0.8, help="Minimum detected silence duration."
-    ),
-    vad_speech_pad_sec: float = typer.Option(
-        0.2, help="Padding added around VAD speech regions."
-    ),
-    vad_backend: str = typer.Option(
-        "auto", help="Silero VAD backend (auto/torch/onnx)."
-    ),
+    vad_min_speech_sec: float = typer.Option(0.8, help="Minimum detected speech duration."),
+    vad_min_silence_sec: float = typer.Option(0.8, help="Minimum detected silence duration."),
+    vad_speech_pad_sec: float = typer.Option(0.2, help="Padding added around VAD speech regions."),
+    vad_backend: str = typer.Option("auto", help="Silero VAD backend (auto/torch/onnx)."),
     disable_energy_vad_fallback: bool = typer.Option(
         False,
         "--disable-energy-fallback",
@@ -310,13 +290,9 @@ def run(
     ),
     energy_gate_db: float = typer.Option(-33.0, help="Energy VAD gating threshold."),
     energy_hop_sec: float = typer.Option(0.01, help="Energy VAD hop length."),
-    asr_window_sec: int = typer.Option(
-        480, help="Maximum audio length per ASR window."
-    ),
+    asr_window_sec: int = typer.Option(480, help="Maximum audio length per ASR window."),
     asr_segment_timeout: float = typer.Option(300.0, help="Timeout per ASR segment."),
-    asr_batch_timeout: float = typer.Option(
-        1200.0, help="Timeout for a batch of ASR segments."
-    ),
+    asr_batch_timeout: float = typer.Option(1200.0, help="Timeout for a batch of ASR segments."),
     cpu_diarizer: bool = typer.Option(
         False,
         "--cpu-diarizer",
@@ -346,6 +322,8 @@ def run(
         affect_backend=affect_backend,
         affect_text_model_dir=_normalise_path(affect_text_model_dir),
         affect_intent_model_dir=_normalise_path(affect_intent_model_dir),
+        affect_ser_model_dir=_normalise_path(affect_ser_model_dir),
+        affect_vad_model_dir=_normalise_path(affect_vad_model_dir),
         beam_size=beam_size,
         temperature=temperature,
         no_speech_threshold=no_speech_threshold,
@@ -403,16 +381,12 @@ def resume(
     ahc_distance_threshold: float = typer.Option(
         0.12, help="Agglomerative clustering distance threshold."
     ),
-    speaker_limit: int | None = typer.Option(
-        None, help="Maximum number of speakers to keep."
-    ),
+    speaker_limit: int | None = typer.Option(None, help="Maximum number of speakers to keep."),
     whisper_model: str = typer.Option(
         "faster-whisper-tiny.en", help="Whisper/Faster-Whisper model identifier."
     ),
     asr_backend: str = typer.Option("faster", help="ASR backend", show_default=True),
-    asr_compute_type: str = typer.Option(
-        "float32", help="CT2 compute type for faster-whisper."
-    ),
+    asr_compute_type: str = typer.Option("float32", help="CT2 compute type for faster-whisper."),
     asr_cpu_threads: int = typer.Option(1, help="CPU threads for ASR backend."),
     language: str | None = typer.Option(None, help="Override ASR language"),
     language_mode: str = typer.Option("auto", help="Language detection mode"),
@@ -428,20 +402,22 @@ def resume(
         help="Skip affect analysis.",
         is_flag=True,
     ),
-    affect_backend: str = typer.Option(
-        "onnx", help="Affect backend (auto/torch/onnx)."
-    ),
+    affect_backend: str = typer.Option("onnx", help="Affect backend (auto/torch/onnx)."),
     affect_text_model_dir: Path | None = typer.Option(
         None, help="Path to GoEmotions model directory."
     ),
     affect_intent_model_dir: Path | None = typer.Option(
         None, help="Path to intent model directory."
     ),
+    affect_ser_model_dir: Path | None = typer.Option(
+        None, help="Path to speech emotion model directory."
+    ),
+    affect_vad_model_dir: Path | None = typer.Option(
+        None, help="Path to valence/arousal/dominance model directory."
+    ),
     beam_size: int = typer.Option(1, help="Beam size for ASR decoding."),
     temperature: float = typer.Option(0.0, help="Sampling temperature for ASR."),
-    no_speech_threshold: float = typer.Option(
-        0.50, help="No-speech threshold for Whisper."
-    ),
+    no_speech_threshold: float = typer.Option(0.50, help="No-speech threshold for Whisper."),
     noise_reduction: bool = typer.Option(
         False,
         "--noise-reduction",
@@ -459,26 +435,14 @@ def resume(
         "--chunk-enabled",
         help="Set automatic chunking of long files (true/false).",
     ),
-    chunk_threshold_minutes: float = typer.Option(
-        30.0, help="Chunking activation threshold."
-    ),
+    chunk_threshold_minutes: float = typer.Option(30.0, help="Chunking activation threshold."),
     chunk_size_minutes: float = typer.Option(20.0, help="Chunk size in minutes."),
-    chunk_overlap_seconds: float = typer.Option(
-        30.0, help="Overlap between chunks in seconds."
-    ),
+    chunk_overlap_seconds: float = typer.Option(30.0, help="Overlap between chunks in seconds."),
     vad_threshold: float = typer.Option(0.30, help="Silero VAD probability threshold."),
-    vad_min_speech_sec: float = typer.Option(
-        0.8, help="Minimum detected speech duration."
-    ),
-    vad_min_silence_sec: float = typer.Option(
-        0.8, help="Minimum detected silence duration."
-    ),
-    vad_speech_pad_sec: float = typer.Option(
-        0.2, help="Padding added around VAD speech regions."
-    ),
-    vad_backend: str = typer.Option(
-        "auto", help="Silero VAD backend (auto/torch/onnx)."
-    ),
+    vad_min_speech_sec: float = typer.Option(0.8, help="Minimum detected speech duration."),
+    vad_min_silence_sec: float = typer.Option(0.8, help="Minimum detected silence duration."),
+    vad_speech_pad_sec: float = typer.Option(0.2, help="Padding added around VAD speech regions."),
+    vad_backend: str = typer.Option("auto", help="Silero VAD backend (auto/torch/onnx)."),
     disable_energy_vad_fallback: bool = typer.Option(
         False,
         "--disable-energy-fallback",
@@ -487,13 +451,9 @@ def resume(
     ),
     energy_gate_db: float = typer.Option(-33.0, help="Energy VAD gating threshold."),
     energy_hop_sec: float = typer.Option(0.01, help="Energy VAD hop length."),
-    asr_window_sec: int = typer.Option(
-        480, help="Maximum audio length per ASR window."
-    ),
+    asr_window_sec: int = typer.Option(480, help="Maximum audio length per ASR window."),
     asr_segment_timeout: float = typer.Option(300.0, help="Timeout per ASR segment."),
-    asr_batch_timeout: float = typer.Option(
-        1200.0, help="Timeout for a batch of ASR segments."
-    ),
+    asr_batch_timeout: float = typer.Option(1200.0, help="Timeout for a batch of ASR segments."),
     cpu_diarizer: bool = typer.Option(
         False,
         "--cpu-diarizer",
@@ -517,6 +477,8 @@ def resume(
         affect_backend=affect_backend,
         affect_text_model_dir=_normalise_path(affect_text_model_dir),
         affect_intent_model_dir=_normalise_path(affect_intent_model_dir),
+        affect_ser_model_dir=_normalise_path(affect_ser_model_dir),
+        affect_vad_model_dir=_normalise_path(affect_vad_model_dir),
         beam_size=beam_size,
         temperature=temperature,
         no_speech_threshold=no_speech_threshold,

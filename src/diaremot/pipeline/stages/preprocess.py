@@ -13,7 +13,7 @@ __all__ = ["run_preprocess", "run_background_sed"]
 
 
 def run_preprocess(
-    pipeline: "AudioAnalysisPipelineV2", state: PipelineState, guard: StageGuard
+    pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGuard
 ) -> None:
     if not hasattr(pipeline, "pre") or pipeline.pre is None:
         raise RuntimeError("Preprocessor component unavailable; initialization failed")
@@ -86,9 +86,7 @@ def run_preprocess(
         state.resume_tx = True
         state.resume_diar = bool(_cache_matches(state.diar_cache))
         if state.resume_diar:
-            pipeline.corelog.info(
-                "[resume] using tx.json+diar.json caches; skipping diarize+ASR"
-            )
+            pipeline.corelog.info("[resume] using tx.json+diar.json caches; skipping diarize+ASR")
         else:
             pipeline.corelog.info(
                 "[resume] using tx.json cache; skipping ASR and reconstructing turns from tx cache"
@@ -117,14 +115,10 @@ def run_preprocess(
 
 
 def run_background_sed(
-    pipeline: "AudioAnalysisPipelineV2", state: PipelineState, guard: StageGuard
+    pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGuard
 ) -> None:
     try:
-        if (
-            getattr(pipeline, "sed_tagger", None) is not None
-            and state.y.size > 0
-            and state.sr
-        ):
+        if getattr(pipeline, "sed_tagger", None) is not None and state.y.size > 0 and state.sr:
             sed_info = pipeline.sed_tagger.tag(state.y, state.sr)
             if sed_info:
                 pipeline.corelog.event(

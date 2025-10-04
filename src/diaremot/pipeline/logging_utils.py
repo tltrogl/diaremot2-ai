@@ -42,12 +42,8 @@ class RunStats:
     models: dict[str, Any] = field(default_factory=dict)
     config_snapshot: dict[str, Any] = field(default_factory=dict)
 
-    def mark(
-        self, stage: str, elapsed_ms: float, counts: dict[str, int] | None = None
-    ) -> None:
-        self.stage_timings_ms[stage] = self.stage_timings_ms.get(stage, 0.0) + float(
-            elapsed_ms
-        )
+    def mark(self, stage: str, elapsed_ms: float, counts: dict[str, int] | None = None) -> None:
+        self.stage_timings_ms[stage] = self.stage_timings_ms.get(stage, 0.0) + float(elapsed_ms)
         if counts:
             slot = self.stage_counts.setdefault(stage, {})
             for key, value in counts.items():
@@ -55,9 +51,7 @@ class RunStats:
 
 
 class CoreLogger:
-    def __init__(
-        self, run_id: str, jsonl_path: Path, console_level: int = logging.INFO
-    ):
+    def __init__(self, run_id: str, jsonl_path: Path, console_level: int = logging.INFO):
         self.run_id = run_id
         self.jsonl = JSONLWriter(jsonl_path)
         self.log = logging.getLogger(f"pipeline.{run_id}")
@@ -65,9 +59,7 @@ class CoreLogger:
         if not self.log.handlers:
             handler = logging.StreamHandler()
             handler.setLevel(console_level)
-            fmt = logging.Formatter(
-                "[%(asctime)s] [%(levelname)s] %(message)s", datefmt="%H:%M"
-            )
+            fmt = logging.Formatter("[%(asctime)s] [%(levelname)s] %(message)s", datefmt="%H:%M")
             handler.setFormatter(fmt)
             self.log.addHandler(handler)
 
@@ -230,16 +222,18 @@ class StageGuard(AbstractContextManager["StageGuard"]):
                         return "Verify audio codec support (try converting to WAV 16kHz mono)."
                     if stage == "transcribe":
                         if isinstance(err, TimeoutError | subprocess.TimeoutExpired):
-                            return "Increase --asr-segment-timeout or choose a smaller Whisper model."
+                            return (
+                                "Increase --asr-segment-timeout or choose a smaller Whisper model."
+                            )
                         if "faster_whisper" in text or "ctranslate2" in text:
                             return "Install faster-whisper and ctranslate2; confirm CPU wheels are compatible."
                         if "whisper" in text and "tiny" in text:
                             return "OpenAI whisper fallback failed; try reinstalling whisper or using a local model."
-                        if "model" in text and (
-                            "not found" in text or "download" in text
-                        ):
+                        if "model" in text and ("not found" in text or "download" in text):
                             return "Model not found; provide a valid local model path or enable network access."
-                        return "Reduce model size, set compute_type=float32, and verify dependencies."
+                        return (
+                            "Reduce model size, set compute_type=float32, and verify dependencies."
+                        )
                     if stage == "paralinguistics":
                         return "Install librosa/scipy extras or run with --disable_paralinguistics."
                     if stage == "affect_and_assemble":
@@ -247,7 +241,9 @@ class StageGuard(AbstractContextManager["StageGuard"]):
                     if stage == "background_sed":
                         return "Install and configure SED dependencies; this stage is required."
                     if stage == "overlap_interruptions":
-                        return "Install paralinguistics extras for overlap metrics or skip this stage."
+                        return (
+                            "Install paralinguistics extras for overlap metrics or skip this stage."
+                        )
                     if stage == "conversation_analysis":
                         return "Ensure numpy/pandas are available for analytics or review conversation inputs."
                     if stage == "speaker_rollups":

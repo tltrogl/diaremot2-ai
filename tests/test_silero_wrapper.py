@@ -23,9 +23,7 @@ if str(SRC_ROOT) not in sys.path:
 if "librosa" not in sys.modules:
     librosa_stub = SimpleNamespace(
         util=SimpleNamespace(frame=lambda *args, **kwargs: np.zeros((0,))),
-        feature=SimpleNamespace(
-            melspectrogram=lambda *args, **kwargs: np.zeros((1, 1))
-        ),
+        feature=SimpleNamespace(melspectrogram=lambda *args, **kwargs: np.zeros((1, 1))),
         power_to_db=lambda x, ref=1.0: x,
     )
     sys.modules["librosa"] = librosa_stub
@@ -96,9 +94,3 @@ def test_silero_wrapper_detect_onnx_shapes():
         assert isinstance(start, float)
         assert isinstance(end, float)
         assert start <= end
-
-
-
-
-
-

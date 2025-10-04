@@ -12,8 +12,9 @@ This script validates the complete system after fixes:
 import os
 import sys
 import time
-import numpy as np
 from pathlib import Path
+
+import numpy as np
 
 from .diagnostics_smoke import (
     SMOKE_TEST_TRANSCRIBE_KWARGS,
@@ -21,7 +22,6 @@ from .diagnostics_smoke import (
     prepare_smoke_wav,
     run_pipeline_smoke_test,
 )
-
 
 VALIDATION_TMP_DIR = Path("test_validation_tmp")
 VALIDATION_OUTPUT_DIR = Path("test_output")
@@ -85,9 +85,7 @@ def test_transcription_directly():
 
         # Test with synthetic audio
         print("\nTesting with synthetic audio...")
-        test_audio = (
-            np.random.randn(16000).astype(np.float32) * 0.01
-        )  # 1 second of quiet noise
+        test_audio = np.random.randn(16000).astype(np.float32) * 0.01  # 1 second of quiet noise
         test_segments = [
             {
                 "start_time": 0.0,
@@ -180,7 +178,7 @@ def test_full_pipeline():
         if csv_path.exists():
             print(f"  - CSV output: {csv_path}")
             # Count lines
-            with open(csv_path, "r") as f:
+            with open(csv_path) as f:
                 lines = f.readlines()
             print(f"  - Segments: {len(lines) - 1}")  # -1 for header
 

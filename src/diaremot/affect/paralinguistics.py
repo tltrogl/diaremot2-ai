@@ -15,7 +15,7 @@ import warnings
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from functools import lru_cache
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import numpy as np
 
@@ -23,7 +23,7 @@ import numpy as np
 try:
     import librosa
     import librosa.feature
-    from librosa import stft, amplitude_to_db
+    from librosa import amplitude_to_db, stft
 
     LIBROSA_AVAILABLE = True
 except ImportError:
@@ -158,7 +158,7 @@ VOWELS = frozenset("aeiouyAEIOUY")
 
 
 @lru_cache(maxsize=64)
-def _get_optimized_frame_params(sr: int, frame_ms: int, hop_ms: int) -> Tuple[int, int]:
+def _get_optimized_frame_params(sr: int, frame_ms: int, hop_ms: int) -> tuple[int, int]:
     """CPU-optimized frame/hop calculation with power-of-2 alignment"""
     frame = max(64, int(sr * frame_ms / 1000.0))
     hop = max(32, int(sr * hop_ms / 1000.0))
@@ -206,7 +206,7 @@ def _vectorized_silence_detection_v2(
 
 def _optimized_pause_analysis(
     silence_mask: np.ndarray, sr: int, hop_length: int, cfg: ParalinguisticsConfig
-) -> Tuple[int, float, float, int, int]:
+) -> tuple[int, float, float, int, int]:
     """CPU-optimized pause analysis with vectorized operations"""
 
     if silence_mask.size == 0:
@@ -270,7 +270,7 @@ def _get_cached_pitch_params(sr: int, cfg: ParalinguisticsConfig) -> dict:
 
 def _robust_pitch_extraction_v2(
     audio: np.ndarray, sr: int, cfg: ParalinguisticsConfig
-) -> Tuple[np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray]:
     """Enhanced robust pitch extraction with multiple fallbacks"""
 
     if not LIBROSA_AVAILABLE or audio.size == 0:
@@ -311,7 +311,7 @@ def _robust_pitch_extraction_v2(
 
 def _single_pitch_extraction(
     audio: np.ndarray, sr: int, cfg: ParalinguisticsConfig
-) -> Tuple[np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray]:
     """Single-chunk pitch extraction with fallback methods"""
     if not LIBROSA_AVAILABLE:
         return np.array([]), np.array([])
@@ -347,9 +347,9 @@ def _single_pitch_extraction(
 def _enhanced_pitch_statistics(
     f0: np.ndarray,
     voiced_flag: np.ndarray,
-    times: Optional[np.ndarray],
+    times: np.ndarray | None,
     cfg: ParalinguisticsConfig,
-) -> Tuple[float, float, float]:
+) -> tuple[float, float, float]:
     """Enhanced pitch statistics with robust outlier handling"""
 
     if f0.size == 0 or np.sum(voiced_flag) == 0:
@@ -392,9 +392,7 @@ def _enhanced_pitch_statistics(
                 f0_sub = voiced_f0[indices]
             else:
                 times_sub = (
-                    times[voiced_flag]
-                    if len(times) == len(f0)
-                    else np.arange(len(voiced_f0))
+                    times[voiced_flag] if len(times) == len(f0) else np.arange(len(voiced_f0))
                 )
                 f0_sub = voiced_f0
 
@@ -418,7 +416,7 @@ def _enhanced_pitch_statistics(
 
 def _optimized_spectral_features(
     audio: np.ndarray, sr: int, cfg: ParalinguisticsConfig
-) -> Tuple[float, float, float]:
+) -> tuple[float, float, float]:
     """CPU-optimized spectral feature computation"""
 
     if not LIBROSA_AVAILABLE or audio.size == 0:
@@ -502,9 +500,7 @@ def _optimized_spectral_features(
 # ============================================================================
 
 
-def _advanced_audio_quality_assessment(
-    audio: np.ndarray, sr: int
-) -> Tuple[float, bool, str]:
+def _advanced_audio_quality_assessment(audio: np.ndarray, sr: int) -> tuple[float, bool, str]:
     """Advanced audio quality assessment for voice quality reliability"""
 
     if audio.size == 0:
@@ -552,9 +548,7 @@ def _advanced_audio_quality_assessment(
         clipping_ratio = np.mean(np.abs(audio) > 0.95)
 
         # Dynamic range assessment
-        dynamic_range_db = 10 * np.log10(
-            (np.max(energies) + 1e-12) / (noise_floor + 1e-12)
-        )
+        dynamic_range_db = 10 * np.log10((np.max(energies) + 1e-12) / (noise_floor + 1e-12))
 
         # Reliability assessment with enhanced criteria
         reliable = (
@@ -586,7 +580,7 @@ def _advanced_audio_quality_assessment(
 
 def _compute_voice_quality_parselmouth_v2(
     audio: np.ndarray, sr: int, cfg: ParalinguisticsConfig
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """Enhanced voice quality analysis using latest Parselmouth techniques"""
 
     if not PARSELMOUTH_AVAILABLE:
@@ -600,20 +594,14 @@ def _compute_voice_quality_parselmouth_v2(
         pitch = call(sound, "To Pitch", 0.0, cfg.f0_min_hz, cfg.f0_max_hz)
 
         # Point Process with optimized settings
-        point_process = call(
-            sound, "To PointProcess (periodic, cc)", cfg.f0_min_hz, cfg.f0_max_hz
-        )
+        point_process = call(sound, "To PointProcess (periodic, cc)", cfg.f0_min_hz, cfg.f0_max_hz)
 
         results = {}
 
         # Jitter analysis (multiple measures)
         try:
-            jitter_local = call(
-                point_process, "Get jitter (local)", 0.0, 0.0, 0.0001, 0.02, 1.3
-            )
-            results["jitter_pct"] = (
-                float(jitter_local * 100) if not np.isnan(jitter_local) else 0.0
-            )
+            jitter_local = call(point_process, "Get jitter (local)", 0.0, 0.0, 0.0001, 0.02, 1.3)
+            results["jitter_pct"] = float(jitter_local * 100) if not np.isnan(jitter_local) else 0.0
         except Exception:
             results["jitter_pct"] = 0.0
 
@@ -637,9 +625,7 @@ def _compute_voice_quality_parselmouth_v2(
 
         # Harmonics-to-Noise Ratio (enhanced)
         try:
-            harmonicity = call(
-                sound, "To Harmonicity (cc)", 0.01, cfg.f0_min_hz, 0.1, 1.0
-            )
+            harmonicity = call(sound, "To Harmonicity (cc)", 0.01, cfg.f0_min_hz, 0.1, 1.0)
             hnr = call(harmonicity, "Get mean", 0.0, 0.0)
             results["hnr_db"] = float(hnr) if not np.isnan(hnr) else 0.0
         except Exception:
@@ -681,9 +667,7 @@ def _compute_voice_quality_parselmouth_v2(
                     cfg.f0_max_hz,
                     0.05,
                 )
-                results["cpps_db"] = (
-                    float(cpps_simple) if not np.isnan(cpps_simple) else 0.0
-                )
+                results["cpps_db"] = float(cpps_simple) if not np.isnan(cpps_simple) else 0.0
             except Exception:
                 # Use HNR as CPPS approximation
                 results["cpps_db"] = max(0.0, results.get("hnr_db", 0.0) - 2.0)
@@ -716,7 +700,7 @@ def _compute_voice_quality_parselmouth_v2(
 
 def _compute_voice_quality_fallback_v2(
     audio: np.ndarray, sr: int, cfg: ParalinguisticsConfig
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """Enhanced fallback voice quality estimation with improved algorithms"""
 
     try:
@@ -763,9 +747,7 @@ def _compute_voice_quality_fallback_v2(
                     rms_db = amplitude_to_db(rms_frames + 1e-12)
                     # Robust shimmer: median absolute deviation of amplitude differences
                     db_diffs = np.diff(rms_db)
-                    shimmer_db = float(
-                        np.median(np.abs(db_diffs - np.median(db_diffs)))
-                    )
+                    shimmer_db = float(np.median(np.abs(db_diffs - np.median(db_diffs))))
                     shimmer_db = np.clip(shimmer_db, 0.0, 15.0)
             except Exception:
                 pass
@@ -792,9 +774,7 @@ def _compute_voice_quality_fallback_v2(
                         spectral_means = np.mean(stft_mag, axis=0)
                         regularity = spectral_peaks / (spectral_means + 1e-12)
                         hnr_db = float(
-                            np.clip(
-                                20 * np.log10(np.mean(regularity) + 1e-12), 0.0, 35.0
-                            )
+                            np.clip(20 * np.log10(np.mean(regularity) + 1e-12), 0.0, 35.0)
                         )
             except Exception:
                 hnr_db = 8.0  # Conservative default
@@ -819,16 +799,12 @@ def _compute_voice_quality_fallback_v2(
                             )
                             if len(cepstrum) > 50:
                                 # Look for cepstral peak in expected F0 range
-                                quefrency_range = slice(
-                                    20, min(100, len(cepstrum) // 2)
-                                )
+                                quefrency_range = slice(20, min(100, len(cepstrum) // 2))
                                 peak_val = np.max(cepstrum[quefrency_range])
                                 cepstrum_frames.append(peak_val)
 
                     if cepstrum_frames:
-                        cpps_db = float(
-                            np.clip(np.mean(cepstrum_frames) * 0.1, 0.0, 35.0)
-                        )
+                        cpps_db = float(np.clip(np.mean(cepstrum_frames) * 0.1, 0.0, 35.0))
             except Exception:
                 pass
 
@@ -858,12 +834,8 @@ def _compute_voice_quality_fallback_v2(
 
                         # Simple slope calculation
                         if len(log_freq) > 2:
-                            slope = (log_mag[-1] - log_mag[0]) / (
-                                log_freq[-1] - log_freq[0]
-                            )
-                            spectral_slope_db = float(
-                                slope * 20
-                            )  # Convert to dB/decade
+                            slope = (log_mag[-1] - log_mag[0]) / (log_freq[-1] - log_freq[0])
+                            spectral_slope_db = float(slope * 20)  # Convert to dB/decade
             except Exception:
                 pass
 
@@ -897,7 +869,7 @@ def _compute_voice_quality_fallback_v2(
 
 
 @lru_cache(maxsize=256)
-def _enhanced_word_tokenization(text: str) -> Tuple[str, ...]:
+def _enhanced_word_tokenization(text: str) -> tuple[str, ...]:
     """Enhanced word tokenization preserving contractions and handling edge cases"""
     if not text:
         return ()
@@ -928,9 +900,7 @@ def _enhanced_word_tokenization(text: str) -> Tuple[str, ...]:
     return tuple(words)
 
 
-def _advanced_disfluency_detection(
-    words: Tuple[str, ...], raw_text: str
-) -> Tuple[int, int, int]:
+def _advanced_disfluency_detection(words: tuple[str, ...], raw_text: str) -> tuple[int, int, int]:
     """Advanced disfluency detection with improved pattern recognition"""
 
     if not words:
@@ -1086,7 +1056,7 @@ def _enhanced_syllable_estimation(word: str) -> int:
     return max(1, vowel_runs)
 
 
-def _vectorized_syllable_count_v2(words: Tuple[str, ...]) -> int:
+def _vectorized_syllable_count_v2(words: tuple[str, ...]) -> int:
     """Enhanced vectorized syllable counting"""
     if not words:
         return 0
@@ -1105,8 +1075,8 @@ def compute_segment_features_v2(
     start_time: float,
     end_time: float,
     text: str,
-    cfg: Optional[ParalinguisticsConfig] = None,
-) -> Dict[str, Any]:
+    cfg: ParalinguisticsConfig | None = None,
+) -> dict[str, Any]:
     """
     Production-optimized paralinguistic feature extraction with enhanced capabilities
 
@@ -1175,8 +1145,8 @@ def compute_segment_features_v2(
 
     # Advanced disfluency detection
     if cfg.disfluency_detection and words:
-        filler_count, repetition_count, false_start_count = (
-            _advanced_disfluency_detection(words, text)
+        filler_count, repetition_count, false_start_count = _advanced_disfluency_detection(
+            words, text
         )
         total_disfluencies = filler_count + repetition_count + false_start_count
         disfluency_rate = (100.0 * total_disfluencies) / max(1, word_count)
@@ -1219,9 +1189,7 @@ def compute_segment_features_v2(
 
         if rms_db.size == 0:
             loudness_dbfs_med = loudness_dr_db = loudness_over_floor_db = np.nan
-            pause_count = pause_total_sec = pause_ratio = pause_short_count = (
-                pause_long_count
-            ) = 0
+            pause_count = pause_total_sec = pause_ratio = pause_short_count = pause_long_count = 0
             floor_db = -60.0
             flags["empty_rms"] = True
         else:
@@ -1262,9 +1230,7 @@ def compute_segment_features_v2(
     except Exception as e:
         flags["loudness_analysis_error"] = str(e)
         loudness_dbfs_med = loudness_dr_db = loudness_over_floor_db = np.nan
-        pause_count = pause_total_sec = pause_ratio = pause_short_count = (
-            pause_long_count
-        ) = 0
+        pause_count = pause_total_sec = pause_ratio = pause_short_count = pause_long_count = 0
         floor_db = -60.0
 
     # ============= ENHANCED PITCH ANALYSIS =============
@@ -1307,9 +1273,7 @@ def compute_segment_features_v2(
             flags["spectral_analysis"] = "completed"
         except Exception as e:
             flags["spectral_analysis_error"] = str(e)
-            spectral_centroid_med_hz = spectral_centroid_iqr_hz = (
-                spectral_flatness_med
-            ) = np.nan
+            spectral_centroid_med_hz = spectral_centroid_iqr_hz = spectral_flatness_med = np.nan
 
     # ============= ENHANCED VOICE QUALITY ANALYSIS =============
 
@@ -1324,13 +1288,9 @@ def compute_segment_features_v2(
             if is_reliable and snr_db >= cfg.vq_min_snr_db:
                 # Use Parselmouth if available and preferred
                 if cfg.vq_use_parselmouth and PARSELMOUTH_AVAILABLE:
-                    voice_quality = _compute_voice_quality_parselmouth_v2(
-                        segment_audio, sr, cfg
-                    )
+                    voice_quality = _compute_voice_quality_parselmouth_v2(segment_audio, sr, cfg)
                 else:
-                    voice_quality = _compute_voice_quality_fallback_v2(
-                        segment_audio, sr, cfg
-                    )
+                    voice_quality = _compute_voice_quality_fallback_v2(segment_audio, sr, cfg)
 
                 # Extract individual metrics
                 vq_jitter_pct = voice_quality.get("jitter_pct", 0.0)
@@ -1360,9 +1320,7 @@ def compute_segment_features_v2(
             else:
                 # Fallback for unreliable audio
                 if cfg.vq_fallback_enabled:
-                    voice_quality = _compute_voice_quality_fallback_v2(
-                        segment_audio, sr, cfg
-                    )
+                    voice_quality = _compute_voice_quality_fallback_v2(segment_audio, sr, cfg)
 
                     vq_jitter_pct = voice_quality.get("jitter_pct", 0.0)
                     vq_shimmer_db = voice_quality.get("shimmer_db", 0.0)
@@ -1424,36 +1382,24 @@ def compute_segment_features_v2(
         # Pitch features
         "pitch_med_hz": float(pitch_med_hz) if not np.isnan(pitch_med_hz) else np.nan,
         "pitch_iqr_hz": float(pitch_iqr_hz) if not np.isnan(pitch_iqr_hz) else np.nan,
-        "pitch_slope_hzps": (
-            float(pitch_slope_hzps) if not np.isnan(pitch_slope_hzps) else np.nan
-        ),
+        "pitch_slope_hzps": (float(pitch_slope_hzps) if not np.isnan(pitch_slope_hzps) else np.nan),
         # Loudness features
         "loudness_dbfs_med": (
             float(loudness_dbfs_med) if not np.isnan(loudness_dbfs_med) else np.nan
         ),
-        "loudness_dr_db": (
-            float(loudness_dr_db) if not np.isnan(loudness_dr_db) else np.nan
-        ),
+        "loudness_dr_db": (float(loudness_dr_db) if not np.isnan(loudness_dr_db) else np.nan),
         "loudness_over_floor_db": (
-            float(loudness_over_floor_db)
-            if not np.isnan(loudness_over_floor_db)
-            else np.nan
+            float(loudness_over_floor_db) if not np.isnan(loudness_over_floor_db) else np.nan
         ),
         # Spectral features
         "spectral_centroid_med_hz": (
-            float(spectral_centroid_med_hz)
-            if not np.isnan(spectral_centroid_med_hz)
-            else np.nan
+            float(spectral_centroid_med_hz) if not np.isnan(spectral_centroid_med_hz) else np.nan
         ),
         "spectral_centroid_iqr_hz": (
-            float(spectral_centroid_iqr_hz)
-            if not np.isnan(spectral_centroid_iqr_hz)
-            else np.nan
+            float(spectral_centroid_iqr_hz) if not np.isnan(spectral_centroid_iqr_hz) else np.nan
         ),
         "spectral_flatness_med": (
-            float(spectral_flatness_med)
-            if not np.isnan(spectral_flatness_med)
-            else np.nan
+            float(spectral_flatness_med) if not np.isnan(spectral_flatness_med) else np.nan
         ),
         # Voice quality features
         "vq_jitter_pct": float(vq_jitter_pct),
@@ -1465,9 +1411,7 @@ def compute_segment_features_v2(
         "vq_reliable": bool(vq_reliable),
         "vq_note": str(vq_note),
         # Metadata and diagnostics
-        "paralinguistics_flags_json": json.dumps(
-            flags, default=str, separators=(",", ":")
-        ),
+        "paralinguistics_flags_json": json.dumps(flags, default=str, separators=(",", ":")),
     }
 
     return features
@@ -1480,8 +1424,8 @@ def _get_empty_features_v2(
     repetition_count: int,
     false_start_count: int,
     disfluency_rate: float,
-    flags: Dict[str, Any],
-) -> Dict[str, Any]:
+    flags: dict[str, Any],
+) -> dict[str, Any]:
     """Return empty feature set when audio is unavailable"""
 
     flags["empty_audio"] = True
@@ -1517,15 +1461,11 @@ def _get_empty_features_v2(
         "vq_spectral_slope_db": 0.0,
         "vq_reliable": False,
         "vq_note": "no_audio",
-        "paralinguistics_flags_json": json.dumps(
-            flags, default=str, separators=(",", ":")
-        ),
+        "paralinguistics_flags_json": json.dumps(flags, default=str, separators=(",", ":")),
     }
 
 
-def _compute_rms_fallback_v2(
-    audio: np.ndarray, frame_length: int, hop_length: int
-) -> np.ndarray:
+def _compute_rms_fallback_v2(audio: np.ndarray, frame_length: int, hop_length: int) -> np.ndarray:
     """CPU-optimized RMS computation fallback when librosa is unavailable"""
 
     if audio.size == 0:
@@ -1559,10 +1499,10 @@ def _compute_rms_fallback_v2(
 
 
 def process_segments_batch_v2(
-    segments: List[Tuple[np.ndarray, int, float, float, str]],
-    cfg: Optional[ParalinguisticsConfig] = None,
-    progress_callback: Optional[callable] = None,
-) -> List[Dict[str, Any]]:
+    segments: list[tuple[np.ndarray, int, float, float, str]],
+    cfg: ParalinguisticsConfig | None = None,
+    progress_callback: callable | None = None,
+) -> list[dict[str, Any]]:
     """
     Batch process multiple segments with CPU optimization and progress tracking
 
@@ -1584,9 +1524,7 @@ def process_segments_batch_v2(
 
     # CPU optimization: use threading for I/O bound operations
     if cfg.parallel_processing and total_segments >= cfg.max_workers:
-        with ThreadPoolExecutor(
-            max_workers=min(cfg.max_workers, total_segments)
-        ) as executor:
+        with ThreadPoolExecutor(max_workers=min(cfg.max_workers, total_segments)) as executor:
             # Submit all tasks
             futures = []
             for i, (audio, sr, start_time, end_time, text) in enumerate(segments):
@@ -1605,9 +1543,7 @@ def process_segments_batch_v2(
             segment_results = [None] * total_segments
             for i, future in futures:
                 try:
-                    segment_results[i] = future.result(
-                        timeout=30
-                    )  # 30s timeout per segment
+                    segment_results[i] = future.result(timeout=30)  # 30s timeout per segment
                     processed_count += 1
 
                     if progress_callback:
@@ -1623,9 +1559,7 @@ def process_segments_batch_v2(
         # Sequential processing
         for i, (audio, sr, start_time, end_time, text) in enumerate(segments):
             try:
-                features = compute_segment_features_v2(
-                    audio, sr, start_time, end_time, text, cfg
-                )
+                features = compute_segment_features_v2(audio, sr, start_time, end_time, text, cfg)
                 results.append(features)
                 processed_count += 1
 
@@ -1639,7 +1573,7 @@ def process_segments_batch_v2(
     return results
 
 
-def _get_error_features_v2(error_msg: str) -> Dict[str, Any]:
+def _get_error_features_v2(error_msg: str) -> dict[str, Any]:
     """Return error feature set when processing fails"""
 
     flags = {"processing_error": error_msg, "error_timestamp": time.time()}
@@ -1674,9 +1608,7 @@ def _get_error_features_v2(error_msg: str) -> Dict[str, Any]:
         "vq_spectral_slope_db": 0.0,
         "vq_reliable": False,
         "vq_note": "processing_error",
-        "paralinguistics_flags_json": json.dumps(
-            flags, default=str, separators=(",", ":")
-        ),
+        "paralinguistics_flags_json": json.dumps(flags, default=str, separators=(",", ":")),
     }
 
 
@@ -1685,7 +1617,7 @@ def _get_error_features_v2(error_msg: str) -> Dict[str, Any]:
 # ============================================================================
 
 
-def analyze_speech_patterns_v2(features_list: List[Dict[str, Any]]) -> Dict[str, Any]:
+def analyze_speech_patterns_v2(features_list: list[dict[str, Any]]) -> dict[str, Any]:
     """
     Advanced speech pattern analysis across multiple segments
 
@@ -1760,8 +1692,8 @@ def analyze_speech_patterns_v2(features_list: List[Dict[str, Any]]) -> Dict[str,
 
 
 def detect_speech_anomalies_v2(
-    features: Dict[str, Any], reference_stats: Optional[Dict[str, Any]] = None
-) -> Dict[str, Any]:
+    features: dict[str, Any], reference_stats: dict[str, Any] | None = None
+) -> dict[str, Any]:
     """
     Detect speech anomalies and unusual patterns
 
@@ -1851,9 +1783,9 @@ def detect_speech_anomalies_v2(
 def detect_backchannels_v2(
     audio: np.ndarray,
     sr: int,
-    segments: List[Dict],
-    cfg: Optional[ParalinguisticsConfig] = None,
-) -> List[Dict[str, Any]]:
+    segments: list[dict],
+    cfg: ParalinguisticsConfig | None = None,
+) -> list[dict[str, Any]]:
     """
     Enhanced backchannel detection using audio and linguistic cues
 
@@ -1917,9 +1849,7 @@ def detect_backchannels_v2(
                 is_backchannel_text = True
 
             # Check for partial matches in short utterances
-            elif len(words) == 1 and any(
-                kw in text_clean for kw in ["mm", "oh", "ah", "um"]
-            ):
+            elif len(words) == 1 and any(kw in text_clean for kw in ["mm", "oh", "ah", "um"]):
                 is_backchannel_text = True
 
         # Audio-based confirmation
@@ -1939,9 +1869,7 @@ def detect_backchannels_v2(
 
                     # Check pitch characteristics (backchannels often have falling pitch)
                     if LIBROSA_AVAILABLE:
-                        f0, voiced_flag = _robust_pitch_extraction_v2(
-                            segment_audio, sr, cfg
-                        )
+                        f0, voiced_flag = _robust_pitch_extraction_v2(segment_audio, sr, cfg)
 
                         if len(f0) > 3 and np.sum(voiced_flag) > 2:
                             voiced_f0 = f0[voiced_flag]
@@ -2005,8 +1933,8 @@ def benchmark_performance_v2(
     sr: int,
     test_text: str = "This is a test sentence for benchmarking.",
     iterations: int = 10,
-    cfg: Optional[ParalinguisticsConfig] = None,
-) -> Dict[str, Any]:
+    cfg: ParalinguisticsConfig | None = None,
+) -> dict[str, Any]:
     """
     Comprehensive performance benchmarking for the paralinguistics module
 
@@ -2032,9 +1960,7 @@ def benchmark_performance_v2(
 
     # Warm-up run
     try:
-        _ = compute_segment_features_v2(
-            test_audio, sr, 0.0, len(test_audio) / sr, test_text, cfg
-        )
+        _ = compute_segment_features_v2(test_audio, sr, 0.0, len(test_audio) / sr, test_text, cfg)
     except Exception as e:
         print(f"Warm-up run failed: {e}")
         return {"error": "Benchmark failed during warm-up"}
@@ -2067,7 +1993,7 @@ def benchmark_performance_v2(
 
     # Filter out failed iterations
     valid_times = [t for t in times if not np.isnan(t)]
-    valid_features = [f for f, t in zip(feature_counts, times) if not np.isnan(t)]
+    valid_features = [f for f, t in zip(feature_counts, times, strict=False) if not np.isnan(t)]
 
     if not valid_times:
         return {"error": "All benchmark iterations failed"}
@@ -2087,9 +2013,7 @@ def benchmark_performance_v2(
         "mean_features": float(np.mean(valid_features)),
         "feature_consistency": float(np.std(valid_features)),
         # Performance ratings
-        "performance_rating": _get_performance_rating(
-            np.mean(valid_times), len(test_audio) / sr
-        ),
+        "performance_rating": _get_performance_rating(np.mean(valid_times), len(test_audio) / sr),
         # System information
         "audio_duration_sec": len(test_audio) / sr,
         "audio_samples": len(test_audio),
@@ -2133,9 +2057,7 @@ def _get_performance_rating(processing_time: float, audio_duration: float) -> st
 # ============================================================================
 
 
-def get_config_preset(
-    preset_name: str, *, max_workers: Optional[int] = None
-) -> ParalinguisticsConfig:
+def get_config_preset(preset_name: str, *, max_workers: int | None = None) -> ParalinguisticsConfig:
     """
     Get predefined configuration presets for different use cases
 
@@ -2292,7 +2214,9 @@ def main():
             + 0.1 * np.random.normal(0, 1, len(t))  # Noise
         ).astype(np.float32)
 
-        test_text = "This is a test sentence for benchmarking the paralinguistic feature extraction system."
+        test_text = (
+            "This is a test sentence for benchmarking the paralinguistic feature extraction system."
+        )
 
         results = benchmark_performance_v2(test_audio, sr, test_text, cfg=cfg)
 
@@ -2329,16 +2253,14 @@ def main():
             # Load text
             text = args.text or ""
             if not text and args.text:
-                with open(args.text, "r") as f:
+                with open(args.text) as f:
                     text = f.read().strip()
 
             # Process segment
             print(f"Processing audio segment: {args.start:.2f}s to {end_time:.2f}s")
             start_time = time.time()
 
-            features = compute_segment_features_v2(
-                audio, sr, args.start, end_time, text, cfg
-            )
+            features = compute_segment_features_v2(audio, sr, args.start, end_time, text, cfg)
 
             processing_time = time.time() - start_time
 
@@ -2447,9 +2369,7 @@ def validate_module():
         validation["features"]["config_creation"] = True
 
         # Test feature extraction
-        features = compute_segment_features_v2(
-            test_audio, sr, 0.0, duration, test_text, cfg
-        )
+        features = compute_segment_features_v2(test_audio, sr, 0.0, duration, test_text, cfg)
         validation["features"]["basic_extraction"] = True
         validation["features"]["feature_count"] = len(
             [
@@ -2497,24 +2417,24 @@ def compute_segment_features(
     start_time: float,
     end_time: float,
     text: str,
-    cfg: Optional[ParalinguisticsConfig] = None,
-) -> Dict[str, Any]:
+    cfg: ParalinguisticsConfig | None = None,
+) -> dict[str, Any]:
     return compute_segment_features_v2(audio, sr, start_time, end_time, text, cfg)
 
 
 def process_segments_batch(
-    segments: List[Tuple[np.ndarray, int, float, float, str]],
-    cfg: Optional[ParalinguisticsConfig] = None,
-    progress_callback: Optional[callable] = None,
-) -> List[Dict[str, Any]]:
+    segments: list[tuple[np.ndarray, int, float, float, str]],
+    cfg: ParalinguisticsConfig | None = None,
+    progress_callback: callable | None = None,
+) -> list[dict[str, Any]]:
     return process_segments_batch_v2(segments, cfg, progress_callback)
 
 
 def compute_overlap_and_interruptions(
-    segments: List[Dict[str, Any]],
+    segments: list[dict[str, Any]],
     min_overlap_sec: float = 0.05,
     interruption_gap_sec: float = 0.15,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     if not segments:
         return {
             "overlap_total_sec": 0.0,
@@ -2523,7 +2443,7 @@ def compute_overlap_and_interruptions(
             "interruptions": [],
         }
 
-    norm: List[Tuple[float, float, str, Dict[str, Any]]] = []
+    norm: list[tuple[float, float, str, dict[str, Any]]] = []
     for seg in segments:
         start = float(seg.get("start", 0.0) or 0.0)
         end = float(seg.get("end", start) or start)
@@ -2539,8 +2459,8 @@ def compute_overlap_and_interruptions(
     total_dur = max(1e-6, total_end - total_start)
 
     overlap_total = 0.0
-    by_speaker: Dict[str, Dict[str, Any]] = {}
-    interruptions: List[Dict[str, Any]] = []
+    by_speaker: dict[str, dict[str, Any]] = {}
+    interruptions: list[dict[str, Any]] = []
 
     j = 0
     for i in range(len(norm)):
@@ -2555,18 +2475,16 @@ def compute_overlap_and_interruptions(
             if ov >= min_overlap_sec:
                 overlap_total += ov
                 for spk in (spk_i, spk_k):
-                    slot = by_speaker.setdefault(
-                        spk, {"overlap_sec": 0.0, "interruptions": 0}
-                    )
+                    slot = by_speaker.setdefault(spk, {"overlap_sec": 0.0, "interruptions": 0})
                     slot["overlap_sec"] += ov
 
                 if spk_i != spk_k:
                     later = (spk_i, si) if si > sk else (spk_k, sk)
                     earlier = (spk_k, sk) if si > sk else (spk_i, si)
                     if 0.0 <= (later[1] - earlier[1]) <= interruption_gap_sec:
-                        by_speaker.setdefault(
-                            later[0], {"overlap_sec": 0.0, "interruptions": 0}
-                        )["interruptions"] += 1
+                        by_speaker.setdefault(later[0], {"overlap_sec": 0.0, "interruptions": 0})[
+                            "interruptions"
+                        ] += 1
                         interruptions.append(
                             {
                                 "at": float(later[1]),
@@ -2584,14 +2502,12 @@ def compute_overlap_and_interruptions(
     }
 
 
-def extract(
-    wav: np.ndarray, sr: int, segs: List[Dict[str, Any]]
-) -> List[Dict[str, Any]]:
+def extract(wav: np.ndarray, sr: int, segs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Compute paralinguistic features per segment for pipeline consumption.
 
     Returns list aligned with `segs` including core keys and advanced voice-quality metrics.
     """
-    out: List[Dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
     cfg = ParalinguisticsConfig()
     total = max(0.0, float(len(wav) / max(1, sr)))
     for s in segs:
@@ -2656,7 +2572,9 @@ __all__ = [
 # Version information
 __version__ = "2.1.0"
 __author__ = "Paralinguistics Research Team"
-__description__ = "Production-optimized paralinguistic feature extraction with enhanced CPU performance"
+__description__ = (
+    "Production-optimized paralinguistic feature extraction with enhanced CPU performance"
+)
 
 if __name__ == "__main__":
     import sys

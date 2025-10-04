@@ -17,7 +17,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
 
 import numpy as np
 
@@ -136,15 +136,15 @@ class TranscriptionSegment:
     end_time: float
     text: str
     confidence: float
-    speaker_id: Optional[str] = None
-    speaker_name: Optional[str] = None
-    words: Optional[List[Dict[str, Any]]] = None
-    language: Optional[str] = None
-    language_probability: Optional[float] = None
-    processing_time: Optional[float] = None
-    model_used: Optional[str] = None
-    asr_logprob_avg: Optional[float] = None
-    snr_db: Optional[float] = None
+    speaker_id: str | None = None
+    speaker_name: str | None = None
+    words: list[dict[str, Any]] | None = None
+    language: str | None = None
+    language_probability: float | None = None
+    processing_time: float | None = None
+    model_used: str | None = None
+    asr_logprob_avg: float | None = None
+    snr_db: float | None = None
 
     def __post_init__(self):
         """Validate and normalize fields"""
@@ -161,7 +161,7 @@ class TranscriptionSegment:
     def duration(self) -> float:
         return self.end_time - self.start_time
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization"""
         return {
             "start_time": self.start_time,
@@ -201,15 +201,15 @@ class ModelManager:
     """Centralized model management with lazy loading and memory optimization"""
 
     def __init__(self):
-        self._models: Dict[str, Any] = {}
-        self._model_configs: Dict[str, Dict[str, Any]] = {}
-        self._load_locks: Dict[str, asyncio.Lock] = {}
+        self._models: dict[str, Any] = {}
+        self._model_configs: dict[str, dict[str, Any]] = {}
+        self._load_locks: dict[str, asyncio.Lock] = {}
         self.logger = logging.getLogger(__name__ + ".ModelManager")
         # Collect load errors for diagnostics
-        self.last_errors: Dict[str, str] = {}
+        self.last_errors: dict[str, str] = {}
 
     @asynccontextmanager
-    async def get_model(self, model_key: str, config: Dict[str, Any]):
+    async def get_model(self, model_key: str, config: dict[str, Any]):
         """Async context manager for model access with automatic cleanup"""
         lock = self._load_locks.get(model_key)
         if lock is None:
@@ -226,7 +226,7 @@ class ModelManager:
             # Model stays loaded for reuse within session
             pass
 
-    def _should_reload_model(self, model_key: str, config: Dict[str, Any]) -> bool:
+    def _should_reload_model(self, model_key: str, config: dict[str, Any]) -> bool:
         existing_model = self._models.get(model_key)
         if existing_model is None:
             return True
@@ -248,17 +248,14 @@ class ModelManager:
 
         return False
 
-    async def _load_model(self, model_key: str, config: Dict[str, Any]):
+    async def _load_model(self, model_key: str, config: dict[str, Any]):
         """Load model in thread pool to avoid blocking"""
 
         def _load():
             pref = str(config.get("asr_backend", "auto")).lower()
 
             def _have_fw():
-                return bool(
-                    backends.has_faster_whisper
-                    and getattr(backends, "WhisperModel", None)
-                )
+                return bool(backends.has_faster_whisper and getattr(backends, "WhisperModel", None))
 
             def _have_ow():
                 return bool(backends.has_openai_whisper)
@@ -268,18 +265,14 @@ class ModelManager:
                     return self._load_openai_whisper(config)
                 if _have_fw():
                     return self._load_faster_whisper(config)
-                raise RuntimeError(
-                    "No transcription backend available (openai requested)"
-                )
+                raise RuntimeError("No transcription backend available (openai requested)")
 
             if pref == "faster":
                 if _have_fw():
                     return self._load_faster_whisper(config)
                 if _have_ow():
                     return self._load_openai_whisper(config)
-                raise RuntimeError(
-                    "No transcription backend available (faster requested)"
-                )
+                raise RuntimeError("No transcription backend available (faster requested)")
 
             # auto
             if _have_fw():
@@ -289,14 +282,12 @@ class ModelManager:
             raise RuntimeError("No transcription backend available")
 
         loop = asyncio.get_event_loop()
-        with ThreadPoolExecutor(
-            max_workers=1, thread_name_prefix="model-loader"
-        ) as executor:
+        with ThreadPoolExecutor(max_workers=1, thread_name_prefix="model-loader") as executor:
             model = await loop.run_in_executor(executor, _load)
             self._models[model_key] = model
             self._model_configs[model_key] = config.copy()
 
-    def _load_faster_whisper(self, config: Dict[str, Any]) -> Any:
+    def _load_faster_whisper(self, config: dict[str, Any]) -> Any:
         """Load faster-whisper model with optimized settings"""
         compute_type = str(config.get("compute_type", "float32")).lower()
         if compute_type not in ("float32", "int8", "int8_float16", "float16"):
@@ -332,9 +323,7 @@ class ModelManager:
             return model
         except Exception as e:
             self.last_errors["faster_whisper_load"] = str(e)
-            self.logger.warning(
-                f"Failed to load {model_size}, trying fallback models: {e}"
-            )
+            self.logger.warning(f"Failed to load {model_size}, trying fallback models: {e}")
 
             # Try fallback models in order of preference
             fallback_models = [
@@ -349,21 +338,17 @@ class ModelManager:
                 try:
                     self.logger.info(f"Trying fallback model: {fallback}")
                     model = backends.WhisperModel(fallback, **model_kwargs)
-                    self.logger.info(
-                        f"Successfully loaded fallback faster-whisper: {fallback}"
-                    )
+                    self.logger.info(f"Successfully loaded fallback faster-whisper: {fallback}")
                     return model
                 except Exception as fallback_e:
-                    self.last_errors[f"faster_whisper_load:{fallback}"] = str(
-                        fallback_e
-                    )
+                    self.last_errors[f"faster_whisper_load:{fallback}"] = str(fallback_e)
                     self.logger.warning(f"Fallback {fallback} failed: {fallback_e}")
                     continue
 
             # If all faster-whisper models fail, raise the original error
             raise e
 
-    def _load_openai_whisper(self, config: Dict[str, Any]) -> Any:
+    def _load_openai_whisper(self, config: dict[str, Any]) -> Any:
         """Load OpenAI whisper with CPU optimization"""
         model_name = self._map_to_openai_model(config["model_size"])
         try:
@@ -425,9 +410,9 @@ class AsyncTranscriber:
     def __init__(
         self,
         model_size: str = "large-v3",  # Use standard model instead of custom
-        language: Optional[str] = None,
+        language: str | None = None,
         beam_size: int = 1,
-        temperature: Union[float, List[float]] = 0.0,
+        temperature: float | list[float] = 0.0,
         compression_ratio_threshold: float = 2.4,
         log_prob_threshold: float = -1.0,
         no_speech_threshold: float = 0.60,  # More aggressive silence filtering
@@ -436,15 +421,15 @@ class AsyncTranscriber:
         max_asr_window_sec: int = 480,  # 8-minute windows
         vad_min_silence_ms: int = 1200,  # Reduced for better segmentation
         language_mode: str = "auto",
-        batching_config: Optional[BatchingConfig] = None,
+        batching_config: BatchingConfig | None = None,
         max_workers: int = 2,  # Conservative threading
         segment_timeout_sec: float = 120.0,
         batch_timeout_sec: float = 600.0,
         max_concurrent_segments: int = 2,
-        compute_type: Optional[str] = None,
-        cpu_threads: Optional[int] = None,
-        asr_backend: Optional[str] = None,
-        model_concurrency: Optional[int] = None,
+        compute_type: str | None = None,
+        cpu_threads: int | None = None,
+        asr_backend: str | None = None,
+        model_concurrency: int | None = None,
     ):
         cpu_threads_value = 1
         if cpu_threads is not None:
@@ -482,9 +467,7 @@ class AsyncTranscriber:
             except Exception:
                 pass
         try:
-            model_concurrency_value = (
-                int(model_concurrency) if model_concurrency is not None else 1
-            )
+            model_concurrency_value = int(model_concurrency) if model_concurrency is not None else 1
         except Exception:
             model_concurrency_value = 1
         if model_concurrency_value < 1:
@@ -492,9 +475,9 @@ class AsyncTranscriber:
         self.config["model_concurrency"] = model_concurrency_value
         # Fallback diagnostics
         self._fallback_triggered: bool = False
-        self._fallback_reason: Optional[str] = None
-        self._fallback_to: Optional[str] = None
-        self._last_failures: Dict[str, str] = {}
+        self._fallback_reason: str | None = None
+        self._fallback_to: str | None = None
+        self._last_failures: dict[str, str] = {}
 
         self.batching = batching_config or BatchingConfig()
         self.model_manager = ModelManager()
@@ -517,16 +500,14 @@ class AsyncTranscriber:
             try:
                 old_executor.shutdown(wait=False, cancel_futures=True)
             except Exception as exc:
-                self.logger.warning(
-                    "Failed to cleanly shutdown executor after timeout: %s", exc
-                )
+                self.logger.warning("Failed to cleanly shutdown executor after timeout: %s", exc)
             self.executor = ThreadPoolExecutor(
                 max_workers=self._max_workers, thread_name_prefix="transcriber"
             )
 
     async def transcribe_segments(
-        self, audio_16k_mono: np.ndarray, sr: int, diar_segments: List[Dict[str, Any]]
-    ) -> List[TranscriptionSegment]:
+        self, audio_16k_mono: np.ndarray, sr: int, diar_segments: list[dict[str, Any]]
+    ) -> list[TranscriptionSegment]:
         """Main async transcription with intelligent batching"""
 
         if sr != 16000:
@@ -540,9 +521,7 @@ class AsyncTranscriber:
         audio_16k_mono = audio_16k_mono.astype(np.float32)
 
         # Preprocessing and validation
-        valid_segments = self._preprocess_segments(
-            diar_segments, len(audio_16k_mono) / sr
-        )
+        valid_segments = self._preprocess_segments(diar_segments, len(audio_16k_mono) / sr)
 
         if not valid_segments:
             self.logger.warning("No valid segments after preprocessing")
@@ -587,8 +566,8 @@ class AsyncTranscriber:
         return all_results
 
     def _preprocess_segments(
-        self, segments: List[Dict[str, Any]], audio_duration: float
-    ) -> List[Dict[str, Any]]:
+        self, segments: list[dict[str, Any]], audio_duration: float
+    ) -> list[dict[str, Any]]:
         """Enhanced segment preprocessing with overlap resolution"""
         if not segments:
             return []
@@ -639,9 +618,7 @@ class AsyncTranscriber:
 
         return resolved
 
-    async def _pin_language(
-        self, audio: np.ndarray, sr: int, segments: List[Dict[str, Any]]
-    ):
+    async def _pin_language(self, audio: np.ndarray, sr: int, segments: list[dict[str, Any]]):
         """Pin language using longest segment for consistency"""
         if not segments:
             return
@@ -663,13 +640,10 @@ class AsyncTranscriber:
             self.logger.info(f"Language pinned to: {pinning_result.language}")
 
     def _create_batch_groups(
-        self, segments: List[Dict[str, Any]]
-    ) -> Dict[str, List[Dict[str, Any]]]:
+        self, segments: list[dict[str, Any]]
+    ) -> dict[str, list[dict[str, Any]]]:
         """Create optimized batching groups based on segment characteristics"""
-        if (
-            not self.batching.enabled
-            or len(segments) < self.batching.min_segments_threshold
-        ):
+        if not self.batching.enabled or len(segments) < self.batching.min_segments_threshold:
             return {"individual": segments}
 
         short_segments = []
@@ -693,8 +667,7 @@ class AsyncTranscriber:
 
                 # Check batch limits
                 if current_batch and (
-                    current_duration + seg_duration
-                    > self.batching.max_batch_duration_sec
+                    current_duration + seg_duration > self.batching.max_batch_duration_sec
                     or len(current_batch) >= self.batching.max_segments_per_batch
                 ):
                     batched_groups.append(current_batch)
@@ -716,8 +689,8 @@ class AsyncTranscriber:
         return groups
 
     async def _process_batch_concurrent(
-        self, audio: np.ndarray, sr: int, segments: List[Dict[str, Any]]
-    ) -> List[TranscriptionSegment]:
+        self, audio: np.ndarray, sr: int, segments: list[dict[str, Any]]
+    ) -> list[TranscriptionSegment]:
         """Process batch of segments concurrently with optimized audio concatenation"""
         if not segments:
             return []
@@ -761,7 +734,7 @@ class AsyncTranscriber:
                     self._run_transcription(model, concat_audio, sr),
                     timeout=self.config.get("batch_timeout_sec", 600.0),
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 self._last_failures["batch_timeout"] = (
                     f"Batch transcription exceeded {self.config.get('batch_timeout_sec', 600.0)}s"
                 )
@@ -779,8 +752,8 @@ class AsyncTranscriber:
         return results
 
     async def _process_individual_concurrent(
-        self, audio: np.ndarray, sr: int, segments: List[Dict[str, Any]]
-    ) -> List[TranscriptionSegment]:
+        self, audio: np.ndarray, sr: int, segments: list[dict[str, Any]]
+    ) -> list[TranscriptionSegment]:
         """Process segments individually with controlled concurrency"""
         requested = max(1, int(self.config.get("max_concurrent_segments", 2)))
         concurrency = min(requested, self._model_concurrency)
@@ -790,7 +763,7 @@ class AsyncTranscriber:
             async with semaphore:
                 try:
                     return await self._transcribe_single_segment(audio, sr, seg)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     self.logger.warning(
                         f"Segment {seg.get('start_time', '?')}-{seg.get('end_time', '?')}s timed out after {self.config.get('segment_timeout_sec', 120.0)}s"
                     )
@@ -813,9 +786,9 @@ class AsyncTranscriber:
         self,
         audio: np.ndarray,
         sr: int,
-        segment: Dict[str, Any],
+        segment: dict[str, Any],
         force_detection: bool = False,
-    ) -> Optional[TranscriptionSegment]:
+    ) -> TranscriptionSegment | None:
         """Transcribe single segment with chunking for long audio"""
 
         start_time = segment["start_time"]
@@ -832,9 +805,7 @@ class AsyncTranscriber:
         # Direct transcription for short segments
         if duration <= self.config["max_asr_window_sec"]:
             async with self.model_manager.get_model("primary", self.config) as model:
-                result = await self._run_transcription(
-                    model, audio_segment, sr, force_detection
-                )
+                result = await self._run_transcription(model, audio_segment, sr, force_detection)
 
             if result:
                 result.start_time = start_time
@@ -854,8 +825,8 @@ class AsyncTranscriber:
         return await self._transcribe_long_segment(audio_segment, sr, segment)
 
     async def _transcribe_long_segment(
-        self, audio_segment: np.ndarray, sr: int, segment: Dict[str, Any]
-    ) -> Optional[TranscriptionSegment]:
+        self, audio_segment: np.ndarray, sr: int, segment: dict[str, Any]
+    ) -> TranscriptionSegment | None:
         """Handle long segments with overlapping chunks for continuity"""
         duration = len(audio_segment) / sr
         chunk_size = self.config["max_asr_window_sec"]
@@ -888,9 +859,7 @@ class AsyncTranscriber:
             return None
 
         # Simple concatenation for now - could be enhanced with smart merging
-        merged_text = " ".join(
-            chunk.text.strip() for chunk in chunks if chunk.text.strip()
-        )
+        merged_text = " ".join(chunk.text.strip() for chunk in chunks if chunk.text.strip())
         merged_words = []
         merged_logprobs = []
 
@@ -904,23 +873,19 @@ class AsyncTranscriber:
             start_time=segment["start_time"],
             end_time=segment["end_time"],
             text=merged_text,
-            confidence=(
-                float(np.exp(np.mean(merged_logprobs))) if merged_logprobs else 1.0
-            ),
+            confidence=(float(np.exp(np.mean(merged_logprobs))) if merged_logprobs else 1.0),
             speaker_id=segment.get("speaker_id"),
             speaker_name=segment.get("speaker_name"),
             words=merged_words if merged_words else None,
             language=chunks[0].language if chunks else None,
             language_probability=chunks[0].language_probability if chunks else None,
-            asr_logprob_avg=(
-                float(np.mean(merged_logprobs)) if merged_logprobs else None
-            ),
+            asr_logprob_avg=(float(np.mean(merged_logprobs)) if merged_logprobs else None),
             model_used=chunks[0].model_used if chunks else "chunked",
         )
 
     async def _run_transcription(
         self, model: Any, audio: np.ndarray, sr: int, force_detection: bool = False
-    ) -> Optional[TranscriptionSegment]:
+    ) -> TranscriptionSegment | None:
         """Run actual transcription in thread pool"""
 
         def _transcribe():
@@ -931,9 +896,7 @@ class AsyncTranscriber:
                     and getattr(backends, "WhisperModel", None) is not None
                     and isinstance(model, backends.WhisperModel)
                 ):
-                    return self._faster_whisper_transcribe(
-                        model, audio, sr, force_detection
-                    )
+                    return self._faster_whisper_transcribe(model, audio, sr, force_detection)
 
                 if backends.has_openai_whisper:
                     return self._openai_whisper_transcribe(model, audio, sr)
@@ -957,10 +920,8 @@ class AsyncTranscriber:
             future = loop.run_in_executor(self.executor, _transcribe)
             try:
                 result = await asyncio.wait_for(future, timeout=timeout)
-            except asyncio.TimeoutError:
-                self._last_failures["segment_timeout"] = (
-                    f"Transcription exceeded {timeout}s"
-                )
+            except TimeoutError:
+                self._last_failures["segment_timeout"] = f"Transcription exceeded {timeout}s"
                 self._fallback_triggered = True
                 if not self._fallback_reason:
                     self._fallback_reason = self._last_failures["segment_timeout"]
@@ -981,7 +942,7 @@ class AsyncTranscriber:
 
     def _faster_whisper_transcribe(
         self, model: Any, audio: np.ndarray, sr: int, force_detection: bool = False
-    ) -> Optional[TranscriptionSegment]:
+    ) -> TranscriptionSegment | None:
         """Optimized faster-whisper transcription"""
 
         language = None if force_detection else self.config["language"]
@@ -1032,13 +993,9 @@ class AsyncTranscriber:
         except Exception as e:
             msg = str(e).lower()
             # Retry without VAD on common internal VAD failures
-            if prefer_vad and (
-                "empty sequence" in msg or "vad" in msg or "max()" in msg
-            ):
+            if prefer_vad and ("empty sequence" in msg or "vad" in msg or "max()" in msg):
                 try:
-                    self.logger.info(
-                        "Retrying faster-whisper without VAD due to VAD error"
-                    )
+                    self.logger.info("Retrying faster-whisper without VAD due to VAD error")
                     segments, info = _call_transcribe(False)
                 except Exception as e2:
                     self.logger.error(f"faster-whisper transcription failed: {e2}")
@@ -1049,20 +1006,16 @@ class AsyncTranscriber:
 
         # Collect results; if empty and we used VAD, retry once without it
         def _collect(_segments):
-            tparts: List[str] = []
-            wlist: List[Dict[str, Any]] = []
-            lps: List[float] = []
+            tparts: list[str] = []
+            wlist: list[dict[str, Any]] = []
+            lps: list[float] = []
             for seg in _segments:
                 text = getattr(seg, "text", "").strip()
                 if text:
                     tparts.append(text)
                     if hasattr(seg, "avg_logprob") and seg.avg_logprob is not None:
                         lps.append(seg.avg_logprob)
-                    if (
-                        self.config["word_timestamps"]
-                        and hasattr(seg, "words")
-                        and seg.words
-                    ):
+                    if self.config["word_timestamps"] and hasattr(seg, "words") and seg.words:
                         for word in seg.words:
                             wlist.append(
                                 {
@@ -1102,7 +1055,7 @@ class AsyncTranscriber:
 
     def _openai_whisper_transcribe(
         self, model: Any, audio: np.ndarray, sr: int
-    ) -> Optional[TranscriptionSegment]:
+    ) -> TranscriptionSegment | None:
         """OpenAI whisper transcription with optimization"""
         try:
             result = model.transcribe(
@@ -1152,8 +1105,8 @@ class AsyncTranscriber:
             return None
 
     def _distribute_batch_results(
-        self, batch_result: TranscriptionSegment, boundaries: List[Dict[str, Any]]
-    ) -> List[TranscriptionSegment]:
+        self, batch_result: TranscriptionSegment, boundaries: list[dict[str, Any]]
+    ) -> list[TranscriptionSegment]:
         """Distribute batched transcription results back to original segments"""
 
         if not batch_result.words:
@@ -1213,8 +1166,8 @@ class AsyncTranscriber:
         return results
 
     def _distribute_text_proportionally(
-        self, batch_result: TranscriptionSegment, boundaries: List[Dict[str, Any]]
-    ) -> List[TranscriptionSegment]:
+        self, batch_result: TranscriptionSegment, boundaries: list[dict[str, Any]]
+    ) -> list[TranscriptionSegment]:
         """Fallback text distribution when word timestamps unavailable"""
 
         if not batch_result.text.strip():
@@ -1258,7 +1211,7 @@ class AsyncTranscriber:
 
         return results
 
-    def get_model_info(self) -> Dict[str, Any]:
+    def get_model_info(self) -> dict[str, Any]:
         """Get comprehensive model and configuration info"""
         backend = "none"
         if backends.has_faster_whisper:
@@ -1294,7 +1247,7 @@ class AsyncTranscriber:
             pass
         return info
 
-    async def validate_backend(self) -> Dict[str, Any]:
+    async def validate_backend(self) -> dict[str, Any]:
         """Comprehensive backend validation"""
         validation = {
             "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
@@ -1313,9 +1266,7 @@ class AsyncTranscriber:
             async with self.model_manager.get_model("validation", self.config) as model:
                 validation["model_loadable"] = True
                 validation["active_backend"] = (
-                    "faster-whisper"
-                    if backends.has_faster_whisper
-                    else "openai-whisper"
+                    "faster-whisper" if backends.has_faster_whisper else "openai-whisper"
                 )
 
                 # Test transcription with minimal audio
@@ -1332,15 +1283,14 @@ class AsyncTranscriber:
 
         return validation
 
-    def get_performance_stats(self) -> Dict[str, Any]:
+    def get_performance_stats(self) -> dict[str, Any]:
         """Get performance statistics"""
         return {
             "segments_processed": self._stats["segments_processed"],
             "batches_processed": self._stats["batches_processed"],
             "batching_enabled": self.batching.enabled,
             "average_batch_size": (
-                self._stats["segments_processed"]
-                / max(1, self._stats["batches_processed"])
+                self._stats["segments_processed"] / max(1, self._stats["batches_processed"])
                 if self._stats["batches_processed"] > 0
                 else 0
             ),
@@ -1375,32 +1325,30 @@ class AudioTranscriber:
         return self._loop
 
     def transcribe_segments(
-        self, audio_16k_mono: np.ndarray, sr: int, diar_segments: List[Dict[str, Any]]
-    ) -> List[TranscriptionSegment]:
+        self, audio_16k_mono: np.ndarray, sr: int, diar_segments: list[dict[str, Any]]
+    ) -> list[TranscriptionSegment]:
         """Synchronous transcription method"""
         loop = self._get_loop()
         return loop.run_until_complete(
-            self._async_transcriber.transcribe_segments(
-                audio_16k_mono, sr, diar_segments
-            )
+            self._async_transcriber.transcribe_segments(audio_16k_mono, sr, diar_segments)
         )
 
     def transcribe(
-        self, audio_16k_mono: np.ndarray, sr: int, diar_segments: List[Dict[str, Any]]
-    ) -> List[TranscriptionSegment]:
+        self, audio_16k_mono: np.ndarray, sr: int, diar_segments: list[dict[str, Any]]
+    ) -> list[TranscriptionSegment]:
         """Backward compatibility alias"""
         return self.transcribe_segments(audio_16k_mono, sr, diar_segments)
 
-    def get_model_info(self) -> Dict[str, Any]:
+    def get_model_info(self) -> dict[str, Any]:
         """Get model information"""
         return self._async_transcriber.get_model_info()
 
-    def validate_backend(self) -> Dict[str, Any]:
+    def validate_backend(self) -> dict[str, Any]:
         """Validate backend"""
         loop = self._get_loop()
         return loop.run_until_complete(self._async_transcriber.validate_backend())
 
-    def get_performance_stats(self) -> Dict[str, Any]:
+    def get_performance_stats(self) -> dict[str, Any]:
         """Get performance statistics"""
         return self._async_transcriber.get_performance_stats()
 
@@ -1427,9 +1375,7 @@ def estimate_snr_db(audio: np.ndarray) -> float:
         # Fast SNR estimation
         audio = audio.astype(np.float32)
         rms = float(np.sqrt(np.mean(audio * audio) + 1e-12))
-        noise_floor = float(
-            np.percentile(np.abs(audio), 5) + 1e-12
-        )  # 5th percentile as noise
+        noise_floor = float(np.percentile(np.abs(audio), 5) + 1e-12)  # 5th percentile as noise
 
         if rms <= noise_floor:
             return -20.0  # Very low SNR
@@ -1453,7 +1399,7 @@ def create_transcriber(
     enable_batching: bool = True,
     max_workers: int = 2,
     **kwargs,
-) -> Union[AudioTranscriber, AsyncTranscriber]:
+) -> AudioTranscriber | AsyncTranscriber:
     """
     Factory function to create optimized transcriber
 
@@ -1520,7 +1466,7 @@ def setup_logging(level: int = logging.INFO) -> logging.Logger:
 
 
 # System information and diagnostics
-def get_system_capabilities() -> Dict[str, Any]:
+def get_system_capabilities() -> dict[str, Any]:
     """Get comprehensive system capability information"""
     import multiprocessing
     import platform
@@ -1567,7 +1513,7 @@ async def benchmark_transcription(
     sample_rate: int = 16000,
     num_segments: int = 5,
     model_size: str = "tiny",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Benchmark transcription performance with synthetic audio"""
 
     # Generate test audio
@@ -1636,9 +1582,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Optimized Transcription Module")
     parser.add_argument("--test", action="store_true", help="Run functionality test")
-    parser.add_argument(
-        "--benchmark", action="store_true", help="Run performance benchmark"
-    )
+    parser.add_argument("--benchmark", action="store_true", help="Run performance benchmark")
     parser.add_argument("--info", action="store_true", help="Show system information")
     parser.add_argument("--model", default="tiny", help="Model size for testing")
     parser.add_argument(
@@ -1684,17 +1628,13 @@ if __name__ == "__main__":
                     print(f"Transcribed {len(results)} segments")
 
                     for i, result in enumerate(results):
-                        print(
-                            f"  Segment {i + 1}: {result.start_time:.1f}-{result.end_time:.1f}s"
-                        )
+                        print(f"  Segment {i + 1}: {result.start_time:.1f}-{result.end_time:.1f}s")
                         print(f"    Text: {result.text}")
                         print(f"    Confidence: {result.confidence:.3f}")
 
             asyncio.run(test_async())
         else:
-            transcriber = create_transcriber(
-                model_size=args.model, enable_batching=True
-            )
+            transcriber = create_transcriber(model_size=args.model, enable_batching=True)
 
             logger.info("Testing sync transcriber...")
             print(f"Model info: {transcriber.get_model_info()}")
@@ -1711,12 +1651,8 @@ if __name__ == "__main__":
             print(f"Transcribed {len(results)} segments in {elapsed:.2f}s")
 
             for i, result in enumerate(results):
-                print(
-                    f"  Segment {i + 1}: {result.start_time:.1f}-{result.end_time:.1f}s"
-                )
-                print(
-                    f"    Text: {result.text[:50]}{'...' if len(result.text) > 50 else ''}"
-                )
+                print(f"  Segment {i + 1}: {result.start_time:.1f}-{result.end_time:.1f}s")
+                print(f"    Text: {result.text[:50]}{'...' if len(result.text) > 50 else ''}")
                 print(f"    Confidence: {result.confidence:.3f}")
 
     if args.benchmark:

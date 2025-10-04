@@ -10,11 +10,11 @@ most recent diarization run.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Optional, Tuple
-from collections.abc import Mapping
-
 import logging
+from collections.abc import Iterable, Mapping
+from dataclasses import dataclass
+from typing import Any
+
 import numpy as np
 
 try:  # Reuse clustering helper from the baseline diarizer if available
@@ -29,7 +29,7 @@ class CPUOptimizationConfig:
 
     chunk_size_sec: float = 30.0
     overlap_sec: float = 2.0
-    max_speakers: Optional[int] = None
+    max_speakers: int | None = None
     enable_vad: bool = True
     energy_threshold_db: float = -60.0
 
@@ -41,12 +41,12 @@ class CPUOptimizedSpeakerDiarizer:
         self.base_diarizer = base_diarizer
         self.config = config
         self.logger = logging.getLogger(__name__)
-        self._last_segments: List[Dict[str, Any]] = []
+        self._last_segments: list[dict[str, Any]] = []
 
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
-    def _chunks(self, audio: np.ndarray, sr: int) -> Iterable[Tuple[int, int]]:
+    def _chunks(self, audio: np.ndarray, sr: int) -> Iterable[tuple[int, int]]:
         """Yield start/end sample indices for each processing chunk."""
         step = int((self.config.chunk_size_sec - self.config.overlap_sec) * sr)
         size = int(self.config.chunk_size_sec * sr)
@@ -60,7 +60,7 @@ class CPUOptimizedSpeakerDiarizer:
                 break
             cursor += step
 
-    def _merge_segments(self, segments: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def _merge_segments(self, segments: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Merge overlapping segments from the same speaker."""
         if not segments:
             return []
@@ -70,10 +70,7 @@ class CPUOptimizedSpeakerDiarizer:
             last = merged[-1]
             if seg["start"] <= last["end"] and seg["speaker"] == last["speaker"]:
                 last["end"] = max(last["end"], seg["end"])
-                if (
-                    seg.get("embedding") is not None
-                    and last.get("embedding") is not None
-                ):
+                if seg.get("embedding") is not None and last.get("embedding") is not None:
                     last_emb = np.asarray(last["embedding"], dtype=np.float32)
                     seg_emb = np.asarray(seg["embedding"], dtype=np.float32)
                     last["embedding"] = np.mean([last_emb, seg_emb], axis=0).tolist()
@@ -88,22 +85,19 @@ class CPUOptimizedSpeakerDiarizer:
         return 20 * np.log10(rms)
 
     # ------------------------------------------------------------------
-    def diarize_audio(self, audio: np.ndarray, sr: int) -> List[Dict[str, Any]]:
+    def diarize_audio(self, audio: np.ndarray, sr: int) -> list[dict[str, Any]]:
         """Diarize ``audio`` using chunked processing and simple energy gating."""
         try:
             if audio is None or len(audio) == 0:
                 return []
 
             audio = audio.astype(np.float32, copy=False)
-            segments: List[Dict[str, Any]] = []
+            segments: list[dict[str, Any]] = []
 
             for start, end in self._chunks(audio, sr):
                 chunk = audio[start:end]
 
-                if (
-                    self.config.enable_vad
-                    and self._rms_db(chunk) < self.config.energy_threshold_db
-                ):
+                if self.config.enable_vad and self._rms_db(chunk) < self.config.energy_threshold_db:
                     continue
 
                 offset = start / sr
@@ -114,9 +108,7 @@ class CPUOptimizedSpeakerDiarizer:
                 elif isinstance(result, (list, tuple)):
                     result_iter = result
                 else:
-                    self.logger.debug(
-                        f"Skipping unexpected diarize result type: {type(result)}"
-                    )
+                    self.logger.debug(f"Skipping unexpected diarize result type: {type(result)}")
                     result_iter = []
 
                 for seg in result_iter:
@@ -127,9 +119,7 @@ class CPUOptimizedSpeakerDiarizer:
                             s = dict(vars(seg))
                         else:
                             # Unsupported type (e.g., str); skip gracefully
-                            self.logger.debug(
-                                f"Skipping unexpected segment type: {type(seg)}"
-                            )
+                            self.logger.debug(f"Skipping unexpected segment type: {type(seg)}")
                             continue
 
                         # Normalize required fields
@@ -166,9 +156,7 @@ class CPUOptimizedSpeakerDiarizer:
                         )
                     else:
                         clusterer = _agglo(
-                            distance_threshold=getattr(
-                                cfg, "ahc_distance_threshold", 0.12
-                            ),
+                            distance_threshold=getattr(cfg, "ahc_distance_threshold", 0.12),
                             linkage=getattr(cfg, "ahc_linkage", "average"),
                             metric="cosine",
                         )
@@ -184,13 +172,11 @@ class CPUOptimizedSpeakerDiarizer:
             segments = self._merge_segments(segments)
 
             if self.config.max_speakers:
-                durations: Dict[str, float] = {}
+                durations: dict[str, float] = {}
                 for seg in segments:
                     durations.setdefault(seg["speaker"], 0.0)
                     durations[seg["speaker"]] += seg["end"] - seg["start"]
-                top = sorted(durations, key=durations.get, reverse=True)[
-                    : self.config.max_speakers
-                ]
+                top = sorted(durations, key=durations.get, reverse=True)[: self.config.max_speakers]
                 segments = [s for s in segments if s["speaker"] in top]
 
             self._last_segments = segments
@@ -198,9 +184,7 @@ class CPUOptimizedSpeakerDiarizer:
         except Exception as e:  # pragma: no cover - fallback behaviour
             self.logger.warning(f"CPU-optimized diarization failed: {e}")
             duration = len(audio) / sr if audio is not None else 0.0
-            self._last_segments = [
-                {"start": 0.0, "end": duration, "speaker": "Speaker_1"}
-            ]
+            self._last_segments = [{"start": 0.0, "end": duration, "speaker": "Speaker_1"}]
             return self._last_segments
 
     # ------------------------------------------------------------------
@@ -209,7 +193,7 @@ class CPUOptimizedSpeakerDiarizer:
         """Expose the underlying diarizer's speaker registry if present."""
         return getattr(self.base_diarizer, "registry", None)
 
-    def get_segment_embeddings(self) -> List[Dict[str, Any]]:
+    def get_segment_embeddings(self) -> list[dict[str, Any]]:
         """Return embeddings from the most recent diarization run."""
         return [
             {"speaker": s["speaker"], "embedding": s["embedding"]}

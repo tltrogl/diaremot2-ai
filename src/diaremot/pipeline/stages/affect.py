@@ -14,7 +14,7 @@ from .base import PipelineState
 __all__ = ["run"]
 
 
-def run(pipeline: "AudioAnalysisPipelineV2", state: PipelineState, guard: StageGuard) -> None:
+def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGuard) -> None:
     segments_final: list[dict[str, Any]] = []
 
     if pipeline.stats.config_snapshot.get("transcribe_failed"):
@@ -47,7 +47,9 @@ def run(pipeline: "AudioAnalysisPipelineV2", state: PipelineState, guard: StageG
             "text": text,
             "valence": float(vad.get("valence", 0.0)) if vad.get("valence") is not None else None,
             "arousal": float(vad.get("arousal", 0.0)) if vad.get("arousal") is not None else None,
-            "dominance": float(vad.get("dominance", 0.0)) if vad.get("dominance") is not None else None,
+            "dominance": (
+                float(vad.get("dominance", 0.0)) if vad.get("dominance") is not None else None
+            ),
             "emotion_top": speech_emotion.get("top", "neutral"),
             "emotion_scores_json": json.dumps(
                 speech_emotion.get("scores_8class", {"neutral": 1.0}), ensure_ascii=False

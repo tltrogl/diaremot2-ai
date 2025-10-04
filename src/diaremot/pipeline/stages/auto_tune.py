@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from typing import Any, Dict
+from typing import Any
 
 from ..auto_tuner import AutoTuner
 from ..logging_utils import StageGuard
@@ -12,7 +12,7 @@ from .base import PipelineState
 __all__ = ["run"]
 
 
-def _ensure_auto_tuner(pipeline: "AudioAnalysisPipelineV2") -> AutoTuner:
+def _ensure_auto_tuner(pipeline: AudioAnalysisPipelineV2) -> AutoTuner:
     tuner = getattr(pipeline, "auto_tuner", None)
     if tuner is None:
         tuner = AutoTuner()
@@ -20,7 +20,7 @@ def _ensure_auto_tuner(pipeline: "AudioAnalysisPipelineV2") -> AutoTuner:
     return tuner
 
 
-def _get_asr_config(pipeline: "AudioAnalysisPipelineV2") -> Dict[str, Any]:
+def _get_asr_config(pipeline: AudioAnalysisPipelineV2) -> dict[str, Any]:
     tx = getattr(pipeline, "tx", None)
     async_tx = getattr(tx, "_async_transcriber", None)
     if async_tx is not None and hasattr(async_tx, "config"):
@@ -30,9 +30,7 @@ def _get_asr_config(pipeline: "AudioAnalysisPipelineV2") -> Dict[str, Any]:
     return {}
 
 
-def run(
-    pipeline: "AudioAnalysisPipelineV2", state: PipelineState, guard: StageGuard
-) -> None:
+def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGuard) -> None:
     tuner = _ensure_auto_tuner(pipeline)
     diar_conf = getattr(pipeline, "diar_conf", None)
     asr_config = _get_asr_config(pipeline)
@@ -45,7 +43,7 @@ def run(
         asr_config=asr_config,
     )
 
-    applied: Dict[str, Dict[str, Dict[str, Any]]] = {
+    applied: dict[str, dict[str, dict[str, Any]]] = {
         "diarization": {},
         "asr": {},
     }
@@ -117,8 +115,6 @@ def run(
         )
     else:
         pipeline.corelog.info("[auto_tune] no adjustments required")
-        pipeline.corelog.event(
-            "auto_tune", "noop", metrics=result.metrics, notes=result.notes
-        )
+        pipeline.corelog.event("auto_tune", "noop", metrics=result.metrics, notes=result.notes)
 
     guard.done()

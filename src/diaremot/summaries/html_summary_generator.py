@@ -1,8 +1,8 @@
 """Enhanced HTML summary generator with core interface compatibility."""
 
 import json
-from typing import List, Dict, Any
 from pathlib import Path
+from typing import Any
 
 
 def fmt_hms(seconds: float) -> str:
@@ -38,9 +38,9 @@ class HTMLSummaryGenerator:
         self,
         out_dir: str,
         file_id: str,
-        segments: List[Dict[str, Any]],
-        speakers_summary: List[Dict[str, Any]],
-        overlap_stats: Dict[str, Any],
+        segments: list[dict[str, Any]],
+        speakers_summary: list[dict[str, Any]],
+        overlap_stats: dict[str, Any],
     ) -> str:
         """Core interface: generate HTML from pipeline data"""
         out_path = Path(out_dir) / "summary.html"
@@ -64,7 +64,7 @@ class HTMLSummaryGenerator:
         return str(out_path)
 
     def _build_html(
-        self, metadata: Dict, segments: List, speakers: List, overlap_stats: Dict
+        self, metadata: dict, segments: list, speakers: list, overlap_stats: dict
     ) -> str:
         duration = _coerce_float(metadata.get("duration_seconds", 0))
         title = metadata.get("title", "Audio Analysis")
@@ -79,11 +79,7 @@ class HTMLSummaryGenerator:
             lead_name = _get_speaker_name(
                 lead_speaker.get("speaker_id"), lead_speaker.get("speaker_name")
             )
-            lead_pct = (
-                100
-                * _coerce_float(lead_speaker.get("total_duration", 0))
-                / max(1, duration)
-            )
+            lead_pct = 100 * _coerce_float(lead_speaker.get("total_duration", 0)) / max(1, duration)
             exec_summary = f"{lead_name} spoke most ({lead_pct:.0f}%). Total: {fmt_hms(duration)}, {len(speakers)} speakers."
         else:
             exec_summary = f"Audio length: {fmt_hms(duration)}"
@@ -199,7 +195,7 @@ body {{ font: 14px system-ui; margin: 0; background: #f8f9fa; }}
 </body>
 </html>"""
 
-    def _build_speaker_cards(self, speakers: List, total_duration: float) -> str:
+    def _build_speaker_cards(self, speakers: list, total_duration: float) -> str:
         if not speakers:
             return "<p>No speakers identified</p>"
 
@@ -258,7 +254,7 @@ body {{ font: 14px system-ui; margin: 0; background: #f8f9fa; }}
 
         return "".join(cards)
 
-    def _build_key_moments_section(self, moments: List) -> str:
+    def _build_key_moments_section(self, moments: list) -> str:
         if not moments:
             return ""
 
@@ -285,7 +281,7 @@ body {{ font: 14px system-ui; margin: 0; background: #f8f9fa; }}
         </div>
         """
 
-    def _build_transcript(self, segments: List) -> str:
+    def _build_transcript(self, segments: list) -> str:
         if not segments:
             return "<p>No transcript available</p>"
 
@@ -311,12 +307,12 @@ body {{ font: 14px system-ui; margin: 0; background: #f8f9fa; }}
 def render_summary_html(
     *,
     file_id: str,
-    segments: List[Dict[str, Any]],
-    speakers_summary: List[Dict[str, Any]],
+    segments: list[dict[str, Any]],
+    speakers_summary: list[dict[str, Any]],
     quick_take: str,
-    key_moments: List[Dict[str, Any]],
-    action_items: List[Dict[str, Any]],
-    overlap_stats: Dict[str, Any],
+    key_moments: list[dict[str, Any]],
+    action_items: list[dict[str, Any]],
+    overlap_stats: dict[str, Any],
     outdir: str,
     conv_metrics: Any = None,
 ) -> str:

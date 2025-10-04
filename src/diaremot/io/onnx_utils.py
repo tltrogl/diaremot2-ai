@@ -54,16 +54,12 @@ def ensure_onnx_model(
 
         if ident.startswith("hf://"):
             repo_id, filename = ident[5:].rsplit("/", 1)
-        elif (
-            "/" in ident and not ident.startswith("./") and not ident.startswith("../")
-        ):
+        elif "/" in ident and not ident.startswith("./") and not ident.startswith("../"):
             repo_id, filename = ident.rsplit("/", 1)
         else:
             raise FileNotFoundError(ident)
 
-        path = Path(
-            hf_hub_download(repo_id, filename, local_files_only=local_files_only)
-        )
+        path = Path(hf_hub_download(repo_id, filename, local_files_only=local_files_only))
         if sha256:
             _check_sha256(path, sha256)
         return path
@@ -74,7 +70,7 @@ def ensure_onnx_model(
 
 def create_onnx_session(
     model_path: str | Path, *, cpu_only: bool = True, threads: int = 1
-) -> "ort.InferenceSession":
+) -> ort.InferenceSession:
     """Create an ONNX Runtime session with consistent CPU behaviour."""
     import onnxruntime as ort
 

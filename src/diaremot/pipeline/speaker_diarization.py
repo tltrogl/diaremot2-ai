@@ -4,27 +4,30 @@ from __future__ import annotations
 
 import json
 import logging
-from dataclasses import dataclass
-from datetime import datetime, timezone
+import os
 import socket
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FuturesTimeoutError
+from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import librosa
 import numpy as np
 import scipy.signal
-import os
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
+
 from ..io.onnx_utils import create_onnx_session
 
 WINDOWS_MODELS_ROOT = Path("D:/models") if os.name == "nt" else None
 
 # --- FIXED: sklearn AgglomerativeClustering wrapper for metric/affinity drift ---
 try:
-    from sklearn.cluster import AgglomerativeClustering as _SkAgglo
     import inspect as _inspect
 
-    def _agglo(distance_threshold: Optional[float], **kw):
+    from sklearn.cluster import AgglomerativeClustering as _SkAgglo
+
+    def _agglo(distance_threshold: float | None, **kw):
         init_sig = _inspect.signature(_SkAgglo.__init__)
         params = set(init_sig.parameters)
         wanted = {
@@ -47,7 +50,7 @@ try:
 except Exception:
     _SkAgglo = None
 
-    def _agglo(distance_threshold: Optional[float], **kw):
+    def _agglo(distance_threshold: float | None, **kw):
         raise RuntimeError("sklearn AgglomerativeClustering not available")
         # Unreachable return to satisfy static analysis
         return None
@@ -62,7 +65,7 @@ if not logger.handlers:
 logger.setLevel(logging.INFO)
 
 
-def _bool_env(name: str) -> Optional[bool]:
+def _bool_env(name: str) -> bool | None:
     """Parse a boolean environment variable."""
 
     val = os.getenv(name)
@@ -104,13 +107,13 @@ def _torch_repo_cached() -> bool:
     return any(path.exists() for path in candidates)
 
 
-def _resolve_state_shape(shape: Tuple[Any, ...] | None) -> Tuple[int, ...]:
+def _resolve_state_shape(shape: tuple[Any, ...] | None) -> tuple[int, ...]:
     """Return a concrete hidden-state shape for Silero ONNX sessions."""
 
     default = (2, 1, 128)
     if not shape:
         return default
-    resolved: List[int] = []
+    resolved: list[int] = []
     for idx, dim in enumerate(shape):
         if isinstance(dim, int) and dim > 0:
             resolved.append(int(dim))
@@ -143,7 +146,7 @@ class DiarizationConfig:
     # Clustering
     ahc_linkage: str = "average"
     ahc_distance_threshold: float = 0.12
-    speaker_limit: Optional[int] = None
+    speaker_limit: int | None = None
 
     # Post-processing
     collar_sec: float = 0.25
@@ -157,7 +160,7 @@ class DiarizationConfig:
     flag_band_high: float = 0.70
 
     # Embedding model
-    ecapa_model_path: Optional[str] = None
+    ecapa_model_path: str | None = None
 
     # Energy VAD fallback
     allow_energy_vad_fallback: bool = True
@@ -170,10 +173,10 @@ class DiarizedTurn:
     start: float
     end: float
     speaker: str
-    speaker_name: Optional[str] = None
-    candidate_name: Optional[str] = None
+    speaker_name: str | None = None
+    candidate_name: str | None = None
     needs_review: bool = False
-    embedding: Optional[np.ndarray] = None
+    embedding: np.ndarray | None = None
 
 
 class _SileroWrapper:
@@ -183,9 +186,7 @@ class _SileroWrapper:
     back to the TorchHub PyTorch implementation (fully CPU).
     """
 
-    def __init__(
-        self, threshold: float, speech_pad_sec: float = 0.05, backend: str = "auto"
-    ):
+    def __init__(self, threshold: float, speech_pad_sec: float = 0.05, backend: str = "auto"):
         self.threshold = float(threshold)
         self.speech_pad_sec = float(speech_pad_sec)
         self.backend_preference = (backend or "auto").lower()
@@ -194,14 +195,14 @@ class _SileroWrapper:
         self.session = None
         self.input_name = None
         self.output_name = None
-        self._onnx_input_name: Optional[str] = None
-        self._onnx_state_name: Optional[str] = None
-        self._onnx_sr_name: Optional[str] = None
-        self._onnx_state_output_index: Optional[int] = None
-        self._onnx_state_shape: Tuple[int, ...] = (2, 1, 128)
-        self._onnx_state_cache: Optional[np.ndarray] = None
-        self._onnx_context_cache: Optional[np.ndarray] = None
-        self._onnx_last_sr: Optional[int] = None
+        self._onnx_input_name: str | None = None
+        self._onnx_state_name: str | None = None
+        self._onnx_sr_name: str | None = None
+        self._onnx_state_output_index: int | None = None
+        self._onnx_state_shape: tuple[int, ...] = (2, 1, 128)
+        self._onnx_state_cache: np.ndarray | None = None
+        self._onnx_context_cache: np.ndarray | None = None
+        self._onnx_last_sr: int | None = None
         self._load()
 
     # ------------------------------------------------------------------
@@ -217,9 +218,7 @@ class _SileroWrapper:
 
             if not _torch_repo_cached():
                 # Skip TorchHub when offline to avoid hanging on git clone
-                if override is not True and not _can_reach_host(
-                    "github.com", timeout=3.0
-                ):
+                if override is not True and not _can_reach_host("github.com", timeout=3.0):
                     logger.info(
                         "Silero VAD TorchHub repo not cached and GitHub unreachable; "
                         "falling back to energy VAD"
@@ -275,16 +274,13 @@ class _SileroWrapper:
         def _load_onnx():
             try:
                 from pathlib import Path
+
                 from ..io.onnx_utils import create_onnx_session
 
                 onnx_path = os.getenv("SILERO_VAD_ONNX_PATH")
                 if not onnx_path:
                     candidates = [
-                        (
-                            WINDOWS_MODELS_ROOT / "silero_vad.onnx"
-                            if WINDOWS_MODELS_ROOT
-                            else None
-                        ),
+                        (WINDOWS_MODELS_ROOT / "silero_vad.onnx" if WINDOWS_MODELS_ROOT else None),
                         (
                             WINDOWS_MODELS_ROOT / "silero" / "vad.onnx"
                             if WINDOWS_MODELS_ROOT
@@ -318,9 +314,7 @@ class _SileroWrapper:
                     for inp in inputs:
                         lower = inp.name.lower()
                         if self._onnx_input_name is None and (
-                            lower == "input"
-                            or lower.endswith("/input")
-                            or "input" in lower
+                            lower == "input" or lower.endswith("/input") or "input" in lower
                         ):
                             self._onnx_input_name = inp.name
                         elif self._onnx_state_name is None and "state" in lower:
@@ -332,9 +326,7 @@ class _SileroWrapper:
                             except Exception:
                                 self._onnx_state_shape = (2, 1, 128)
                         elif self._onnx_sr_name is None and (
-                            lower == "sr"
-                            or "sample_rate" in lower
-                            or "samplerate" in lower
+                            lower == "sr" or "sample_rate" in lower or "samplerate" in lower
                         ):
                             self._onnx_sr_name = inp.name
 
@@ -396,18 +388,14 @@ class _SileroWrapper:
         override = _bool_env("SILERO_VAD_TORCH")
         should_try_torch = override is True
         if override is None:
-            should_try_torch = _torch_repo_cached() or _can_reach_host(
-                "github.com", timeout=3.0
-            )
+            should_try_torch = _torch_repo_cached() or _can_reach_host("github.com", timeout=3.0)
 
         if should_try_torch and _load_torch():
             return
         if should_try_torch:
             logger.info("Silero VAD Torch backend unavailable; proceeding without it")
         else:
-            logger.info(
-                "Silero VAD Torch backend skipped (offline/disabled); using fallbacks"
-            )
+            logger.info("Silero VAD Torch backend skipped (offline/disabled); using fallbacks")
 
     # ------------------------------------------------------------------
     def _detect_with_onnx(
@@ -417,7 +405,7 @@ class _SileroWrapper:
         *,
         min_speech_sec: float,
         min_silence_sec: float,
-    ) -> List[Tuple[float, float]]:
+    ) -> list[tuple[float, float]]:
         """Streaming Silero ONNX inference that mirrors TorchHub behaviour."""
         if self.session is None or self._onnx_input_name is None:
             return []
@@ -427,9 +415,7 @@ class _SileroWrapper:
             audio = audio.reshape(-1)
 
         if sr != 16000:
-            audio = scipy.signal.resample_poly(audio, 16000, sr).astype(
-                np.float32, copy=False
-            )
+            audio = scipy.signal.resample_poly(audio, 16000, sr).astype(np.float32, copy=False)
             sr = 16000
 
         if audio.size == 0:
@@ -461,18 +447,16 @@ class _SileroWrapper:
         self._onnx_last_sr = sr
 
         sr_array = np.array(sr, dtype=np.int64)
-        chunk_probs: List[float] = []
+        chunk_probs: list[float] = []
         offset = 0
 
         for _ in range(num_chunks):
             chunk = audio[offset : offset + chunk_size]
             offset += chunk_size
             chunk = chunk.reshape(batch_size, -1)
-            window = np.concatenate([context, chunk], axis=1).astype(
-                np.float32, copy=False
-            )
+            window = np.concatenate([context, chunk], axis=1).astype(np.float32, copy=False)
 
-            feeds: Dict[str, np.ndarray] = {self._onnx_input_name: window}
+            feeds: dict[str, np.ndarray] = {self._onnx_input_name: window}
             if self._onnx_state_name:
                 feeds[self._onnx_state_name] = state
             if self._onnx_sr_name:
@@ -499,9 +483,8 @@ class _SileroWrapper:
             probs = np.clip(probs, 0.0, 1.0)
             chunk_probs.extend(probs.tolist())
 
-            if (
-                self._onnx_state_output_index is not None
-                and self._onnx_state_output_index < len(ort_outs)
+            if self._onnx_state_output_index is not None and self._onnx_state_output_index < len(
+                ort_outs
             ):
                 try:
                     state_out = np.asarray(
@@ -526,8 +509,8 @@ class _SileroWrapper:
         total_duration = orig_samples / float(sr)
         speech_mask = chunk_probs > self.threshold
 
-        segments: List[Tuple[float, float]] = []
-        start_idx: Optional[int] = None
+        segments: list[tuple[float, float]] = []
+        start_idx: int | None = None
         for idx, flag in enumerate(speech_mask):
             if flag and start_idx is None:
                 start_idx = idx
@@ -565,7 +548,7 @@ class _SileroWrapper:
     # ------------------------------------------------------------------
     def detect(
         self, wav: np.ndarray, sr: int, min_speech_sec: float, min_silence_sec: float
-    ) -> List[Tuple[float, float]]:
+    ) -> list[tuple[float, float]]:
         """Run VAD and return speech regions."""
         if self.session is not None:
             try:
@@ -604,10 +587,10 @@ class _SileroWrapper:
 class _ECAPAWrapper:
     """ECAPA-TDNN embedding extraction via ONNX Runtime."""
 
-    def __init__(self, model_path: Optional[Path] = None) -> None:
+    def __init__(self, model_path: Path | None = None) -> None:
         self.session = None
-        self.input_name: Optional[str] = None
-        self.output_name: Optional[str] = None
+        self.input_name: str | None = None
+        self.output_name: str | None = None
         self.model_path = Path(model_path) if model_path else None
         self._load()
 
@@ -622,11 +605,7 @@ class _ECAPAWrapper:
                     model_path = Path(env_path)
                 else:
                     candidates = [
-                        (
-                            WINDOWS_MODELS_ROOT / "ecapa_tdnn.onnx"
-                            if WINDOWS_MODELS_ROOT
-                            else None
-                        ),
+                        (WINDOWS_MODELS_ROOT / "ecapa_tdnn.onnx" if WINDOWS_MODELS_ROOT else None),
                         Path.cwd() / "models" / "ecapa_tdnn.onnx",
                     ]
                     model_path = next(
@@ -648,9 +627,7 @@ class _ECAPAWrapper:
             logger.error(f"ECAPA ONNX model unavailable: {e}")
             self.session = None
 
-    def embed_batch(
-        self, batch: List[np.ndarray], sr: int
-    ) -> List[Optional[np.ndarray]]:
+    def embed_batch(self, batch: list[np.ndarray], sr: int) -> list[np.ndarray | None]:
         if self.session is None or not batch:
             return [None] * len(batch)
         try:
@@ -680,9 +657,7 @@ class _ECAPAWrapper:
                 if mel.shape[0] > max_frames:
                     max_frames = mel.shape[0]
 
-            pad = np.zeros(
-                (len(batch), max_frames, mel_specs[0].shape[1]), dtype=np.float32
-            )
+            pad = np.zeros((len(batch), max_frames, mel_specs[0].shape[1]), dtype=np.float32)
             for i, mel in enumerate(mel_specs):
                 pad[i, : mel.shape[0], :] = mel.astype(np.float32)
 
@@ -705,20 +680,15 @@ class _ECAPAWrapper:
 class SpeakerRegistry:
     def __init__(self, path: str):
         self.path = Path(path)
-        self._speakers: Dict[str, Dict[str, Any]] = {}
-        self._metadata: Dict[str, Any] = {}
+        self._speakers: dict[str, dict[str, Any]] = {}
+        self._metadata: dict[str, Any] = {}
         self._use_wrapped_format: bool = False
         self._load()
 
     @staticmethod
     def _iso_now() -> str:
         """Return an ISO-8601 UTC timestamp without microseconds."""
-        return (
-            datetime.now(timezone.utc)
-            .replace(microsecond=0)
-            .isoformat()
-            .replace("+00:00", "Z")
-        )
+        return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
     def _load(self) -> None:
         """Load registry data, supporting legacy flat and metadata-wrapped schemas."""
@@ -740,9 +710,7 @@ class SpeakerRegistry:
                     self._use_wrapped_format = True
                 else:
                     # Legacy flat dictionary schema
-                    self._speakers = {
-                        k: v for k, v in data.items() if isinstance(k, str)
-                    }
+                    self._speakers = {k: v for k, v in data.items() if isinstance(k, str)}
             else:
                 logger.warning("Registry load expected a JSON object at %s", self.path)
         except Exception as e:
@@ -775,7 +743,7 @@ class SpeakerRegistry:
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)
             temp_path = self.path.with_suffix(".tmp")
-            payload: Dict[str, Any]
+            payload: dict[str, Any]
             if self._use_wrapped_format or self._metadata:
                 self._touch_metadata()
                 payload = {**self._metadata, "speakers": self._speakers}
@@ -797,16 +765,12 @@ class SpeakerRegistry:
     def enroll(self, name: str, centroid: np.ndarray) -> None:
         stamp = self._iso_now()
         self._speakers[name] = {
-            "centroid": (
-                centroid.tolist() if isinstance(centroid, np.ndarray) else centroid
-            ),
+            "centroid": (centroid.tolist() if isinstance(centroid, np.ndarray) else centroid),
             "samples": 1,
             "last_seen": stamp,
         }
 
-    def update_centroid(
-        self, name: str, centroid: np.ndarray, alpha: float = 0.30
-    ) -> None:
+    def update_centroid(self, name: str, centroid: np.ndarray, alpha: float = 0.30) -> None:
         if not self.has(name):
             self.enroll(name, centroid)
             return
@@ -822,7 +786,7 @@ class SpeakerRegistry:
         existing["last_seen"] = self._iso_now()
         self._speakers[name] = existing
 
-    def match(self, centroid: np.ndarray) -> Tuple[Optional[str], float]:
+    def match(self, centroid: np.ndarray) -> tuple[str | None, float]:
         if not self._speakers:
             return None, 0.0
         # Ensure 1-D vectors for cosine similarity
@@ -832,17 +796,13 @@ class SpeakerRegistry:
             ref = np.asarray(rec.get("centroid", []), dtype=np.float32).reshape(-1)
             if ref.size == 0:
                 continue
-            sim = float(
-                np.dot(c, ref) / (np.linalg.norm(c) * np.linalg.norm(ref) + 1e-9)
-            )
+            sim = float(np.dot(c, ref) / (np.linalg.norm(c) * np.linalg.norm(ref) + 1e-9))
             if sim > best_sim:
                 best, best_sim = name, sim
         return best, best_sim
 
 
-def _merge_regions(
-    spans: List[Tuple[float, float]], gap: float
-) -> List[Tuple[float, float]]:
+def _merge_regions(spans: list[tuple[float, float]], gap: float) -> list[tuple[float, float]]:
     if not spans:
         return []
     spans = sorted(spans, key=lambda x: x[0])
@@ -857,7 +817,7 @@ def _merge_regions(
 
 def _energy_vad_fallback(
     wav: np.ndarray, sr: int, gate_db: float, hop_sec: float
-) -> List[Tuple[float, float]]:
+) -> list[tuple[float, float]]:
     """Simple energy-based VAD when Silero fails."""
     if wav.size == 0:
         return []
@@ -906,9 +866,9 @@ class SpeakerDiarizer:
                 logger.warning(f"Registry unavailable: {e}")
 
         # Holds turns from the most recent diarization run
-        self._last_turns: List[DiarizedTurn] = []
+        self._last_turns: list[DiarizedTurn] = []
 
-    def get_segment_embeddings(self) -> List[Dict[str, Any]]:
+    def get_segment_embeddings(self) -> list[dict[str, Any]]:
         """Return turn embeddings from the last diarization run."""
         return [
             {"speaker": t.speaker, "embedding": t.embedding}
@@ -916,7 +876,7 @@ class SpeakerDiarizer:
             if t.embedding is not None
         ]
 
-    def diarize_audio(self, wav: np.ndarray, sr: int) -> List[Dict[str, Any]]:
+    def diarize_audio(self, wav: np.ndarray, sr: int) -> list[dict[str, Any]]:
         """Main diarization entry point."""
         self._last_turns = []
 
@@ -927,9 +887,7 @@ class SpeakerDiarizer:
         if wav.ndim > 1:
             wav = np.mean(wav, axis=0)
         if sr != self.config.target_sr:
-            wav = scipy.signal.resample_poly(wav, self.config.target_sr, sr).astype(
-                np.float32
-            )
+            wav = scipy.signal.resample_poly(wav, self.config.target_sr, sr).astype(np.float32)
             sr = self.config.target_sr
         else:
             wav = wav.astype(np.float32)
@@ -993,7 +951,7 @@ class SpeakerDiarizer:
             labels = np.zeros(len(embeddings), dtype=int)
 
         # Attach cluster labels to windows
-        for w, label in zip(windows, labels):
+        for w, label in zip(windows, labels, strict=False):
             w["speaker"] = f"Speaker_{label + 1}"
 
         # Step 4: FIXED - Build continuous turns
@@ -1009,8 +967,8 @@ class SpeakerDiarizer:
         return [self._turn_to_dict(t) for t in turns]
 
     def _extract_embedding_windows(
-        self, wav: np.ndarray, sr: int, speech_regions: List[Tuple[float, float]]
-    ) -> List[Dict[str, Any]]:
+        self, wav: np.ndarray, sr: int, speech_regions: list[tuple[float, float]]
+    ) -> list[dict[str, Any]]:
         """Extract overlapping windows for embedding extraction."""
         windows = []
 
@@ -1045,9 +1003,9 @@ class SpeakerDiarizer:
 
     def _build_continuous_segments(
         self,
-        windows: List[Dict[str, Any]],
-        speech_regions: List[Tuple[float, float]],
-    ) -> List[DiarizedTurn]:
+        windows: list[dict[str, Any]],
+        speech_regions: list[tuple[float, float]],
+    ) -> list[DiarizedTurn]:
         """FIXED: Build continuous speaker segments from clustered windows."""
         if not windows:
             return []
@@ -1119,9 +1077,7 @@ class SpeakerDiarizer:
                         "embedding": w["embedding"],
                     }
                 )
-                events.append(
-                    {"time": w["end"], "type": "end", "speaker": w["speaker"]}
-                )
+                events.append({"time": w["end"], "type": "end", "speaker": w["speaker"]})
 
             events.sort(key=lambda x: (x["time"], 0 if x["type"] == "end" else 1))
 
@@ -1138,18 +1094,14 @@ class SpeakerDiarizer:
                     span_votes = {}
                     for w in region_windows:
                         if w["start"] <= current_time and w["end"] >= event_time:
-                            duration = min(w["end"], event_time) - max(
-                                w["start"], current_time
-                            )
+                            duration = min(w["end"], event_time) - max(w["start"], current_time)
                             if duration > 0:
                                 span_votes[w["speaker"]] = (
                                     span_votes.get(w["speaker"], 0) + duration
                                 )
 
                     if span_votes:
-                        dominant_speaker = max(span_votes.items(), key=lambda x: x[1])[
-                            0
-                        ]
+                        dominant_speaker = max(span_votes.items(), key=lambda x: x[1])[0]
 
                         # Aggregate embeddings for windows belonging to this span
                         emb_list = [
@@ -1164,9 +1116,7 @@ class SpeakerDiarizer:
                         if emb_list:
                             pooled = np.mean(np.vstack(emb_list), axis=0)
                             norm = np.linalg.norm(pooled)
-                            speaker_embedding = (
-                                pooled / (norm + 1e-8) if norm > 0 else pooled
-                            )
+                            speaker_embedding = pooled / (norm + 1e-8) if norm > 0 else pooled
 
                         segments.append(
                             DiarizedTurn(
@@ -1194,9 +1144,7 @@ class SpeakerDiarizer:
                     if w["start"] <= current_time and w["end"] >= region_end:
                         duration = region_end - max(w["start"], current_time)
                         if duration > 0:
-                            span_votes[w["speaker"]] = (
-                                span_votes.get(w["speaker"], 0) + duration
-                            )
+                            span_votes[w["speaker"]] = span_votes.get(w["speaker"], 0) + duration
 
                 if span_votes:
                     dominant_speaker = max(span_votes.items(), key=lambda x: x[1])[0]
@@ -1212,9 +1160,7 @@ class SpeakerDiarizer:
                     if emb_list:
                         pooled = np.mean(np.vstack(emb_list), axis=0)
                         norm = np.linalg.norm(pooled)
-                        speaker_embedding = (
-                            pooled / (norm + 1e-8) if norm > 0 else pooled
-                        )
+                        speaker_embedding = pooled / (norm + 1e-8) if norm > 0 else pooled
 
                     segments.append(
                         DiarizedTurn(
@@ -1239,9 +1185,7 @@ class SpeakerDiarizer:
                 last_duration = last.end - last.start
                 seg_duration = seg.end - seg.start
                 if last.embedding is not None and seg.embedding is not None:
-                    pooled = (
-                        last.embedding * last_duration + seg.embedding * seg_duration
-                    )
+                    pooled = last.embedding * last_duration + seg.embedding * seg_duration
                     norm = np.linalg.norm(pooled)
                     last.embedding = pooled / (norm + 1e-8) if norm > 0 else pooled
                 last.end = seg.end
@@ -1250,7 +1194,7 @@ class SpeakerDiarizer:
 
         return merged
 
-    def _merge_short_gaps(self, turns: List[DiarizedTurn]) -> List[DiarizedTurn]:
+    def _merge_short_gaps(self, turns: list[DiarizedTurn]) -> list[DiarizedTurn]:
         """Merge turns from same speaker separated by short gaps."""
         if not turns:
             return []
@@ -1271,7 +1215,7 @@ class SpeakerDiarizer:
 
         return merged
 
-    def _assign_speaker_names(self, turns: List[DiarizedTurn]) -> List[DiarizedTurn]:
+    def _assign_speaker_names(self, turns: list[DiarizedTurn]) -> list[DiarizedTurn]:
         """Assign speaker names using registry if available."""
         if not self.registry:
             return turns
@@ -1282,16 +1226,12 @@ class SpeakerDiarizer:
                 if name and similarity >= self.config.auto_assign_cosine:
                     turn.speaker_name = name
                     turn.candidate_name = name
-                    if (
-                        self.config.flag_band_low
-                        <= similarity
-                        <= self.config.flag_band_high
-                    ):
+                    if self.config.flag_band_low <= similarity <= self.config.flag_band_high:
                         turn.needs_review = True
 
         return turns
 
-    def reassign_with_registry(self, turns: List[Dict[str, Any]]) -> None:
+    def reassign_with_registry(self, turns: list[dict[str, Any]]) -> None:
         """Reassign speaker names after registry updates."""
         if not self.registry:
             return
@@ -1304,7 +1244,7 @@ class SpeakerDiarizer:
                     turn["speaker_name"] = name
                     turn["candidate_name"] = name
 
-    def _turn_to_dict(self, turn: DiarizedTurn) -> Dict[str, Any]:
+    def _turn_to_dict(self, turn: DiarizedTurn) -> dict[str, Any]:
         """Convert DiarizedTurn to dict format expected by core."""
         return {
             "start": turn.start,
@@ -1313,7 +1253,5 @@ class SpeakerDiarizer:
             "speaker_name": turn.speaker_name,
             "candidate_name": turn.candidate_name,
             "needs_review": turn.needs_review,
-            "embedding": (
-                turn.embedding.tolist() if turn.embedding is not None else None
-            ),
+            "embedding": (turn.embedding.tolist() if turn.embedding is not None else None),
         }

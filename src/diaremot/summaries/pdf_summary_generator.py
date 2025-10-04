@@ -3,16 +3,17 @@ pdf_summary_generator.py — Human-friendly PDF mirroring HTML features.
 """
 
 from __future__ import annotations
-from typing import Dict, List, Any
-from pathlib import Path
-import json
-import datetime
 
-from reportlab.lib.pagesizes import letter
-from reportlab.lib.units import inch
-from reportlab.lib.styles import ParagraphStyle
-from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+import datetime
+import json
+from pathlib import Path
+from typing import Any
+
 from reportlab.lib import colors
+from reportlab.lib.pagesizes import letter
+from reportlab.lib.styles import ParagraphStyle
+from reportlab.lib.units import inch
+from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 
 def _fmt_hms(seconds: float) -> str:
@@ -47,8 +48,8 @@ def _safe_json(s):
 
 
 def _build_speaker_rows_from_profiles(
-    spk_profiles: Dict[str, Any],
-) -> List[Dict[str, Any]]:
+    spk_profiles: dict[str, Any],
+) -> list[dict[str, Any]]:
     rows = []
     for sid, prof in (spk_profiles or {}).items():
         rows.append(
@@ -76,9 +77,9 @@ class PDFSummaryGenerator:
         self,
         out_dir: str,
         file_id: str,
-        segments: List[Dict[str, Any]],
-        speakers_summary: List[Dict[str, Any]],
-        overlap_stats: Dict[str, Any],
+        segments: list[dict[str, Any]],
+        speakers_summary: list[dict[str, Any]],
+        overlap_stats: dict[str, Any],
     ) -> str:
         """
         Core interface: generate PDF from pipeline data
@@ -106,8 +107,8 @@ class PDFSummaryGenerator:
         duration: float,
         num_speakers: int,
         num_segments: int,
-        speakers: List,
-        segments: List,
+        speakers: list,
+        segments: list,
     ) -> str:
         gen_ts = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%SZ")
 
@@ -123,9 +124,7 @@ class PDFSummaryGenerator:
 
         # Title
         title_style = ParagraphStyle("title", fontSize=18, leading=22, spaceAfter=12)
-        meta_style = ParagraphStyle(
-            "meta", fontSize=10, textColor=colors.grey, spaceAfter=6
-        )
+        meta_style = ParagraphStyle("meta", fontSize=10, textColor=colors.grey, spaceAfter=6)
         story.append(Paragraph(f"<b>{title}</b>", title_style))
         story.append(
             Paragraph(
@@ -230,9 +229,9 @@ class PDFSummaryGenerator:
         # Key moments
         moments = []
         if segments:
-            sorted_segs = sorted(
-                segments, key=lambda s: _float(s.get("arousal", 0)), reverse=True
-            )[:5]
+            sorted_segs = sorted(segments, key=lambda s: _float(s.get("arousal", 0)), reverse=True)[
+                :5
+            ]
             for seg in sorted_segs:
                 if _float(seg.get("arousal", 0)) > 0.3:
                     text = seg.get("text", "") or ""
@@ -265,9 +264,7 @@ class PDFSummaryGenerator:
         doc.build(story)
         return str(out_path)
 
-    def generate_pdf_legacy(
-        self, analysis_results: Dict[str, Any], output_path: str
-    ) -> str:
+    def generate_pdf_legacy(self, analysis_results: dict[str, Any], output_path: str) -> str:
         """Legacy interface for backward compatibility"""
         out_path = Path(output_path)
         out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -279,9 +276,7 @@ class PDFSummaryGenerator:
         nsegments = int(_float(meta.get("num_segments", 0)))
 
         # Get speaker data
-        spk_rows = _build_speaker_rows_from_profiles(
-            analysis_results.get("speaker_profiles", {})
-        )
+        spk_rows = _build_speaker_rows_from_profiles(analysis_results.get("speaker_profiles", {}))
         segments = analysis_results.get("segments", [])
 
         return self._generate_pdf(

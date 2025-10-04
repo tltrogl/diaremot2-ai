@@ -34,9 +34,7 @@ def download_file(
     tmp_path: Path | None = None
     try:
         with urlopen(url, timeout=timeout) as response:
-            with NamedTemporaryFile(
-                dir=str(destination.parent), delete=False
-            ) as tmp_file:
+            with NamedTemporaryFile(dir=str(destination.parent), delete=False) as tmp_file:
                 tmp_path = Path(tmp_file.name)
                 for chunk in iter(lambda: response.read(chunk_size), b""):
                     tmp_file.write(chunk)

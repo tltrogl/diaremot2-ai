@@ -90,9 +90,7 @@ def clear_pipeline_cache(cache_root: Path | None = None) -> None:
         try:
             shutil.rmtree(cache_dir, ignore_errors=True)
         except PermissionError:
-            raise RuntimeError(
-                "Could not clear cache directory due to insufficient permissions"
-            )
+            raise RuntimeError("Could not clear cache directory due to insufficient permissions")
     cache_dir.mkdir(parents=True, exist_ok=True)
 
 
@@ -113,9 +111,7 @@ def run_pipeline(
 
     if clear_cache:
         try:
-            clear_pipeline_cache(
-                Path(config.get("cache_root", ".cache")) if config else None
-            )
+            clear_pipeline_cache(Path(config.get("cache_root", ".cache")) if config else None)
         except RuntimeError:
             if config is None:
                 config = dict(DEFAULT_PIPELINE_CONFIG)
@@ -141,9 +137,7 @@ def resume(
     if metadata is not None:
         pipe.corelog.info(
             "Resuming from %s checkpoint created at %s",
-            metadata.stage.value
-            if hasattr(metadata.stage, "value")
-            else metadata.stage,
+            metadata.stage.value if hasattr(metadata.stage, "value") else metadata.stage,
             metadata.timestamp,
         )
     return pipe.process_audio_file(input_path, outdir)
@@ -172,9 +166,7 @@ class AudioAnalysisPipelineV2:
         extra_roots = cfg.get("cache_roots", [])
         if isinstance(extra_roots, str | Path):
             extra_roots = [extra_roots]
-        self.cache_roots: list[Path] = [self.cache_root] + [
-            Path(p) for p in extra_roots
-        ]
+        self.cache_roots: list[Path] = [self.cache_root] + [Path(p) for p in extra_roots]
         self.cache_root.mkdir(parents=True, exist_ok=True)
 
         # Persist config for later checks
@@ -204,14 +196,10 @@ class AudioAnalysisPipelineV2:
             self.log_dir / "run.jsonl",
             console_level=(logging.WARNING if self.quiet else logging.INFO),
         )
-        self.stats = RunStats(
-            run_id=self.run_id, file_id="", schema_version=self.schema_version
-        )
+        self.stats = RunStats(run_id=self.run_id, file_id="", schema_version=self.schema_version)
 
         # Checkpoint manager
-        self.checkpoints = PipelineCheckpointManager(
-            cfg.get("checkpoint_dir", "checkpoints")
-        )
+        self.checkpoints = PipelineCheckpointManager(cfg.get("checkpoint_dir", "checkpoints"))
 
         # Optional early dependency verification
         if bool(cfg.get("validate_dependencies", False)):
@@ -239,9 +227,7 @@ class AudioAnalysisPipelineV2:
         self.pdf = None
 
         affect_kwargs: dict[str, Any] = {
-            "text_emotion_model": cfg.get(
-                "text_emotion_model", "SamLowe/roberta-base-go_emotions"
-            ),
+            "text_emotion_model": cfg.get("text_emotion_model", "SamLowe/roberta-base-go_emotions"),
             "intent_labels": cfg.get("intent_labels", INTENT_LABELS_DEFAULT),
             "affect_backend": cfg.get("affect_backend", "auto"),
             "affect_text_model_dir": cfg.get("affect_text_model_dir"),
@@ -251,9 +237,7 @@ class AudioAnalysisPipelineV2:
 
         try:
             # Preprocessor
-            denoise_mode = (
-                "spectral_sub_soft" if cfg.get("noise_reduction", True) else "none"
-            )
+            denoise_mode = "spectral_sub_soft" if cfg.get("noise_reduction", True) else "none"
             self.pp_conf = PreprocessConfig(
                 target_sr=cfg.get("target_sr", 16000),
                 denoise=denoise_mode,
@@ -275,9 +259,7 @@ class AudioAnalysisPipelineV2:
             ecapa_path = cfg.get("ecapa_model_path")
             search_paths = [
                 ecapa_path,
-                WINDOWS_MODELS_ROOT / "ecapa_tdnn.onnx"
-                if WINDOWS_MODELS_ROOT
-                else None,
+                WINDOWS_MODELS_ROOT / "ecapa_tdnn.onnx" if WINDOWS_MODELS_ROOT else None,
                 Path("models") / "ecapa_tdnn.onnx",
                 Path("..") / "models" / "ecapa_tdnn.onnx",
                 Path("..") / "diaremot" / "models" / "ecapa_tdnn.onnx",
@@ -298,7 +280,9 @@ class AudioAnalysisPipelineV2:
             self.diar_conf = DiarizationConfig(
                 target_sr=self.pp_conf.target_sr,
                 registry_path=registry_path,
-                ahc_distance_threshold=cfg.get("ahc_distance_threshold", 0.02),
+                ahc_distance_threshold=cfg.get(
+                    "ahc_distance_threshold", 0.15
+                ),  # Much looser clustering to prevent speaker fragmentation
                 speaker_limit=cfg.get("speaker_limit", None),
                 ecapa_model_path=ecapa_path,
                 vad_backend=cfg.get("vad_backend", "auto"),
@@ -310,30 +294,22 @@ class AudioAnalysisPipelineV2:
                 vad_min_silence_sec=cfg.get(
                     "vad_min_silence_sec", DiarizationConfig.vad_min_silence_sec
                 ),
-                speech_pad_sec=cfg.get(
-                    "vad_speech_pad_sec", DiarizationConfig.speech_pad_sec
-                ),
-                allow_energy_vad_fallback=not bool(
-                    cfg.get("disable_energy_vad_fallback", False)
-                ),
-                energy_gate_db=cfg.get(
-                    "energy_gate_db", DiarizationConfig.energy_gate_db
-                ),
-                energy_hop_sec=cfg.get(
-                    "energy_hop_sec", DiarizationConfig.energy_hop_sec
-                ),
+                speech_pad_sec=cfg.get("vad_speech_pad_sec", DiarizationConfig.speech_pad_sec),
+                allow_energy_vad_fallback=not bool(cfg.get("disable_energy_vad_fallback", False)),
+                energy_gate_db=cfg.get("energy_gate_db", DiarizationConfig.energy_gate_db),
+                energy_hop_sec=cfg.get("energy_hop_sec", DiarizationConfig.energy_hop_sec),
             )
-            # Make Silero VAD less strict to avoid energy-VAD fallback
+            # Fix VAD oversegmentation: stricter thresholds, longer minimums, less padding
             try:
-                # Only relax defaults if user did not override via CLI
+                # Only apply if user did not override via CLI
                 if "vad_threshold" not in cfg:
-                    self.diar_conf.vad_threshold = 0.22
+                    self.diar_conf.vad_threshold = 0.35  # Much stricter to avoid micro-snippets
                 if "vad_min_speech_sec" not in cfg:
-                    self.diar_conf.vad_min_speech_sec = 0.40
+                    self.diar_conf.vad_min_speech_sec = 0.8  # Longer minimum to merge breaths
                 if "vad_min_silence_sec" not in cfg:
-                    self.diar_conf.vad_min_silence_sec = 0.40
+                    self.diar_conf.vad_min_silence_sec = 0.8  # Longer gaps required
                 if "vad_speech_pad_sec" not in cfg:
-                    self.diar_conf.speech_pad_sec = 0.15
+                    self.diar_conf.speech_pad_sec = 0.1  # Less padding to avoid overlap
             except Exception:
                 pass
 
@@ -346,15 +322,11 @@ class AudioAnalysisPipelineV2:
                         CPUOptimizedSpeakerDiarizer,
                     )
 
-                    cpu_conf = CPUOptimizationConfig(
-                        max_speakers=self.diar_conf.speaker_limit
-                    )
+                    cpu_conf = CPUOptimizationConfig(max_speakers=self.diar_conf.speaker_limit)
                     self.diar = CPUOptimizedSpeakerDiarizer(self.diar, cpu_conf)
                     self.corelog.info("[diarizer] using CPU-optimized wrapper")
                 except Exception as _e:
-                    self.corelog.warn(
-                        f"[diarizer] CPU wrapper unavailable, using baseline: {_e}"
-                    )
+                    self.corelog.warn(f"[diarizer] CPU wrapper unavailable, using baseline: {_e}")
 
             # Transcriber - Force CPU-only configuration
             from .transcription_module import AudioTranscriber
@@ -365,14 +337,10 @@ class AudioAnalysisPipelineV2:
                 "language": cfg.get("language", None),
                 "beam_size": cfg.get("beam_size", 1),
                 "temperature": cfg.get("temperature", 0.0),
-                "compression_ratio_threshold": cfg.get(
-                    "compression_ratio_threshold", 2.5
-                ),
+                "compression_ratio_threshold": cfg.get("compression_ratio_threshold", 2.5),
                 "log_prob_threshold": cfg.get("log_prob_threshold", -1.0),
                 "no_speech_threshold": cfg.get("no_speech_threshold", 0.50),
-                "condition_on_previous_text": cfg.get(
-                    "condition_on_previous_text", False
-                ),
+                "condition_on_previous_text": cfg.get("condition_on_previous_text", False),
                 "word_timestamps": cfg.get("word_timestamps", True),
                 "max_asr_window_sec": cfg.get("max_asr_window_sec", 480),
                 "vad_min_silence_ms": cfg.get("vad_min_silence_ms", 1800),
@@ -409,9 +377,7 @@ class AudioAnalysisPipelineV2:
             try:
                 sed_enabled = bool(cfg.get("enable_sed", True))
                 if PANNSEventTagger is not None and sed_enabled:
-                    self.sed_tagger = PANNSEventTagger(
-                        SEDConfig() if SEDConfig else None
-                    )
+                    self.sed_tagger = PANNSEventTagger(SEDConfig() if SEDConfig else None)
                 elif not sed_enabled:
                     self.corelog.warn(
                         "[sed] disabled via configuration; pipeline outputs will lack background tags"
@@ -426,18 +392,10 @@ class AudioAnalysisPipelineV2:
             # Model tracking
             self.stats.models.update(
                 {
-                    "preprocessor": getattr(
-                        self.pre, "__class__", type(self.pre)
-                    ).__name__,
-                    "diarizer": getattr(
-                        self.diar, "__class__", type(self.diar)
-                    ).__name__,
-                    "transcriber": getattr(
-                        self.tx, "__class__", type(self.tx)
-                    ).__name__,
-                    "affect": getattr(
-                        self.affect, "__class__", type(self.affect)
-                    ).__name__,
+                    "preprocessor": getattr(self.pre, "__class__", type(self.pre)).__name__,
+                    "diarizer": getattr(self.diar, "__class__", type(self.diar)).__name__,
+                    "transcriber": getattr(self.tx, "__class__", type(self.tx)).__name__,
+                    "affect": getattr(self.affect, "__class__", type(self.affect)).__name__,
                 }
             )
 
@@ -555,14 +513,12 @@ class AudioAnalysisPipelineV2:
             i0 = int(start * sr)
             i1 = int(end * sr)
             clip = wav[max(0, i0) : max(0, i1)]
-            loud = (
-                float(np.sqrt(np.mean(clip.astype(np.float32) ** 2)))
-                if clip.size > 0
-                else 0.0
-            )
+            loud = float(np.sqrt(np.mean(clip.astype(np.float32) ** 2))) if clip.size > 0 else 0.0
 
             results[i] = {
                 "wpm": float(wpm),
+                "duration_s": float(dur),
+                "words": int(words),
                 "pause_count": 0,
                 "pause_time_s": 0.0,
                 "pause_ratio": 0.0,
@@ -570,6 +526,10 @@ class AudioAnalysisPipelineV2:
                 "f0_std_hz": 0.0,
                 "loudness_rms": float(loud),
                 "disfluency_count": 0,
+                "vq_jitter_pct": 0.0,
+                "vq_shimmer_db": 0.0,
+                "vq_hnr_db": 0.0,
+                "vq_cpps_db": 0.0,
             }
         return results
 
@@ -588,9 +548,7 @@ class AudioAnalysisPipelineV2:
     ):
         """Write all output files"""
         # Primary CSV
-        write_segments_csv(
-            outp / "diarized_transcript_with_emotion.csv", segments_final
-        )
+        write_segments_csv(outp / "diarized_transcript_with_emotion.csv", segments_final)
 
         # JSONL segments
         write_segments_jsonl(outp / "segments.jsonl", segments_final)
@@ -665,7 +623,6 @@ class AudioAnalysisPipelineV2:
             self.corelog.error(f"Pipeline failed with unhandled error: {exc}")
             if not state.segments_final and state.norm_tx:
                 state.segments_final = [
-
                     ensure_segment_keys(
                         {
                             "file_id": self.stats.file_id,
@@ -738,8 +695,7 @@ class AudioAnalysisPipelineV2:
                 manifest["transcriber"] = tx_info
                 if tx_info.get("fallback_triggered"):
                     self.corelog.warn(
-                        "[tx] Fallback engaged: "
-                        + str(tx_info.get("fallback_reason", "unknown"))
+                        "[tx] Fallback engaged: " + str(tx_info.get("fallback_reason", "unknown"))
                     )
             if "background_sed" in getattr(self.stats, "config_snapshot", {}):
                 manifest["background_sed"] = self.stats.config_snapshot.get("background_sed")
@@ -760,7 +716,10 @@ class AudioAnalysisPipelineV2:
                         f"  - {st}: FAIL in {_fmt_hms_ms(elapsed_ms)} — {failure.get('error')} | Fix: {failure.get('suggestion')}"
                     )
                 else:
-                    if st in {"paralinguistics", "affect_and_assemble"} and self.stats.config_snapshot.get("transcribe_failed"):
+                    if st in {
+                        "paralinguistics",
+                        "affect_and_assemble",
+                    } and self.stats.config_snapshot.get("transcribe_failed"):
                         self.corelog.warn(f"  - {st}: SKIPPED (transcribe_failed)")
                     else:
                         elapsed_ms = float(self.stats.stage_timings_ms.get(st, 0.0))
@@ -775,6 +734,7 @@ class AudioAnalysisPipelineV2:
             progress=100.0,
         )
         return manifest
+
     # Helper methods for output generation
     def _summarize_speakers(
         self,
@@ -837,21 +797,19 @@ class AudioAnalysisPipelineV2:
 
         return prof
 
-    def _quick_take(
-        self, speakers: dict[str, dict[str, Any]], duration_s: float
-    ) -> str:
+    def _quick_take(self, speakers: dict[str, dict[str, Any]], duration_s: float) -> str:
         if not speakers:
             return "No speakers identified."
-        most = max(
-            speakers.items(), key=lambda kv: float(kv[1].get("total_duration", 0.0))
-        )[1]
+        most = max(speakers.items(), key=lambda kv: float(kv[1].get("total_duration", 0.0)))[1]
         tone = "neutral"
         v = float(most.get("avg_valence", 0.0))
         if v > 0.2:
             tone = "positive"
         elif v < -0.2:
             tone = "negative"
-        return f"{len(speakers)} speakers over {int(duration_s // 60)} min; most-active tone {tone}."
+        return (
+            f"{len(speakers)} speakers over {int(duration_s // 60)} min; most-active tone {tone}."
+        )
 
     def _moments_to_check(self, segments: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if not segments:

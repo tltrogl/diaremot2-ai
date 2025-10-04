@@ -24,10 +24,11 @@ import argparse
 import importlib
 import json
 from pathlib import Path
-from typing import Dict
 
 from .audio_pipeline_core import (
     CORE_DEPENDENCY_REQUIREMENTS,
+)
+from .audio_pipeline_core import (
     diagnostics as core_diagnostics,
 )
 from .diagnostics_smoke import run_pipeline_smoke_test
@@ -43,13 +44,13 @@ MODELS = {
 }
 
 
-def check_dependencies() -> Dict[str, str]:
+def check_dependencies() -> dict[str, str]:
     """Return the version/health of each core dependency."""
 
     diag = core_diagnostics(require_versions=True)
     summary = diag.get("summary", {})
 
-    report: Dict[str, str] = {}
+    report: dict[str, str] = {}
 
     for pkg, min_version in CORE_DEPENDENCY_REQUIREMENTS.items():
         entry = summary.get(pkg, {})
@@ -84,11 +85,11 @@ def check_dependencies() -> Dict[str, str]:
     return report
 
 
-def check_models(local_only: bool = False) -> Dict[str, str]:
+def check_models(local_only: bool = False) -> dict[str, str]:
     """Ensure required ONNX models are available."""
     from ..io.onnx_utils import ensure_onnx_model
 
-    report: Dict[str, str] = {}
+    report: dict[str, str] = {}
     for name, src in MODELS.items():
         try:
             path = ensure_onnx_model(src, local_files_only=local_only)
@@ -98,7 +99,7 @@ def check_models(local_only: bool = False) -> Dict[str, str]:
     return report
 
 
-def run_smoke_test() -> Dict[str, str]:
+def run_smoke_test() -> dict[str, str]:
     """Run a very small end‑to‑end pipeline test."""
 
     result = run_pipeline_smoke_test(tmp_dir=Path("healthcheck_tmp"))
@@ -111,15 +112,11 @@ def run_smoke_test() -> Dict[str, str]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="DiaRemo pipeline health check")
-    parser.add_argument(
-        "--skip-models", action="store_true", help="skip model availability checks"
-    )
+    parser.add_argument("--skip-models", action="store_true", help="skip model availability checks")
     parser.add_argument(
         "--skip-smoke", action="store_true", help="skip running the pipeline smoke test"
     )
-    parser.add_argument(
-        "--local-only", action="store_true", help="do not download missing models"
-    )
+    parser.add_argument("--local-only", action="store_true", help="do not download missing models")
     args = parser.parse_args()
 
     report = {"dependencies": check_dependencies()}

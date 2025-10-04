@@ -27,9 +27,7 @@ def test_intent_model_dir_from_env_override(
     assert analyzer.affect_intent_model_dir == str(target)
 
 
-def test_intent_model_dir_from_model_root(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_intent_model_dir_from_model_root(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.delenv("DIAREMOT_INTENT_MODEL_DIR", raising=False)
     model_root = tmp_path / "models"
     bart_dir = model_root / "bart"
@@ -46,9 +44,7 @@ def test_intent_model_dir_from_model_root(
     assert analyzer.affect_intent_model_dir == str(nested)
 
 
-def test_intent_model_dir_missing_weights(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_intent_model_dir_missing_weights(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     invalid_dir = tmp_path / "bart_model"
     invalid_dir.mkdir()
 
@@ -113,7 +109,7 @@ def test_intent_onnx_backend_uses_local_dir(
             self.hypothesis_template = "This example is {}."
 
         @classmethod
-        def from_pretrained(cls, path: str) -> "_DummyAutoConfig":
+        def from_pretrained(cls, path: str) -> _DummyAutoConfig:
             assert Path(path) == model_dir
             return cls()
 
@@ -143,9 +139,7 @@ def test_intent_onnx_backend_uses_local_dir(
         lambda _path: _DummySession(created_tokenizer),
     )
 
-    analyzer = EmotionIntentAnalyzer(
-        affect_backend="onnx", affect_intent_model_dir=str(model_dir)
-    )
+    analyzer = EmotionIntentAnalyzer(affect_backend="onnx", affect_intent_model_dir=str(model_dir))
 
     top, top3 = analyzer._infer_intent("Is this working?")
 

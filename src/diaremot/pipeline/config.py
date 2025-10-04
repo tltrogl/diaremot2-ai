@@ -52,7 +52,7 @@ class PipelineConfig:
     registry_path: Path = Path("speaker_registry.json")
     ahc_distance_threshold: float = DiarizationConfig.ahc_distance_threshold
     speaker_limit: int | None = None
-    whisper_model: str = "faster-whisper-tiny.en"
+    whisper_model: str = "tiny.en"
     asr_backend: str = "faster"
     compute_type: str = "int8"
     cpu_threads: int = 1
@@ -105,9 +105,7 @@ class PipelineConfig:
         self.log_dir = Path(self.log_dir)
         self.checkpoint_dir = Path(self.checkpoint_dir)
         self.affect_text_model_dir = _coerce_optional_path(self.affect_text_model_dir)
-        self.affect_intent_model_dir = _coerce_optional_path(
-            self.affect_intent_model_dir
-        )
+        self.affect_intent_model_dir = _coerce_optional_path(self.affect_intent_model_dir)
 
         if isinstance(self.cache_roots, (str, Path)):
             self.cache_roots = [Path(self.cache_roots)]
@@ -131,9 +129,7 @@ class PipelineConfig:
         self.loudness_mode = self._lower_choice(
             "loudness_mode", self.loudness_mode, {"asr", "broadcast"}
         )
-        self.language_mode = self._lower_choice(
-            "language_mode", self.language_mode, None
-        )
+        self.language_mode = self._lower_choice("language_mode", self.language_mode, None)
 
         if self.speaker_limit is not None and self.speaker_limit < 1:
             raise ValueError("speaker_limit must be >= 1 or None")
@@ -141,18 +137,12 @@ class PipelineConfig:
         self._validate_positive_int("cpu_threads", self.cpu_threads)
         self._validate_positive_int("beam_size", self.beam_size)
         self._validate_positive_int("max_asr_window_sec", self.max_asr_window_sec)
-        self._validate_positive_float(
-            "chunk_threshold_minutes", self.chunk_threshold_minutes
-        )
+        self._validate_positive_float("chunk_threshold_minutes", self.chunk_threshold_minutes)
         self._validate_positive_float("chunk_size_minutes", self.chunk_size_minutes)
-        _ensure_numeric_range(
-            "chunk_overlap_seconds", self.chunk_overlap_seconds, ge=0.0
-        )
+        _ensure_numeric_range("chunk_overlap_seconds", self.chunk_overlap_seconds, ge=0.0)
         _ensure_numeric_range("vad_threshold", self.vad_threshold, ge=0.0, le=1.0)
         _ensure_numeric_range("temperature", self.temperature, ge=0.0, le=1.0)
-        _ensure_numeric_range(
-            "no_speech_threshold", self.no_speech_threshold, ge=0.0, le=1.0
-        )
+        _ensure_numeric_range("no_speech_threshold", self.no_speech_threshold, ge=0.0, le=1.0)
         _ensure_numeric_range("vad_min_speech_sec", self.vad_min_speech_sec, ge=0.0)
         _ensure_numeric_range("vad_min_silence_sec", self.vad_min_silence_sec, ge=0.0)
         _ensure_numeric_range("vad_speech_pad_sec", self.vad_speech_pad_sec, ge=0.0)
@@ -160,14 +150,10 @@ class PipelineConfig:
         _ensure_numeric_range("segment_timeout_sec", self.segment_timeout_sec, gt=0.0)
         _ensure_numeric_range("batch_timeout_sec", self.batch_timeout_sec, gt=0.0)
         self._validate_positive_int("target_sr", self.target_sr)
-        _ensure_numeric_range(
-            "ahc_distance_threshold", self.ahc_distance_threshold, ge=0.0
-        )
+        _ensure_numeric_range("ahc_distance_threshold", self.ahc_distance_threshold, ge=0.0)
 
         if self.chunk_size_minutes * 60.0 <= self.chunk_overlap_seconds:
-            raise ValueError(
-                "chunk_overlap_seconds must be smaller than chunk_size_minutes * 60"
-            )
+            raise ValueError("chunk_overlap_seconds must be smaller than chunk_size_minutes * 60")
         if self.chunk_threshold_minutes < self.chunk_size_minutes:
             raise ValueError("chunk_threshold_minutes must be >= chunk_size_minutes")
 
@@ -190,7 +176,9 @@ class PipelineConfig:
         if not isinstance(value, (int, float)) or value <= 0:
             raise ValueError(f"{name} must be a number > 0")
 
-    def model_dump(self, *, mode: str = "python") -> dict[str, Any]:  # noqa: D401 - compatibility shim
+    def model_dump(
+        self, *, mode: str = "python"
+    ) -> dict[str, Any]:  # noqa: D401 - compatibility shim
         """Return the configuration as a dictionary."""
 
         if mode not in {"python", "json"}:  # pragma: no cover - defensive guard
@@ -201,9 +189,7 @@ class PipelineConfig:
         return data
 
     @classmethod
-    def model_validate(
-        cls, data: Mapping[str, Any] | PipelineConfig
-    ) -> PipelineConfig:
+    def model_validate(cls, data: Mapping[str, Any] | PipelineConfig) -> PipelineConfig:
         """Validate a mapping and construct a configuration instance."""
 
         if isinstance(data, PipelineConfig):
@@ -269,9 +255,9 @@ def build_pipeline_config(
     return validated.model_dump(mode="python")
 
 
-def _iter_dependency_status() -> Iterator[
-    tuple[str, str, Any, str | None, Exception | None, Exception | None]
-]:
+def _iter_dependency_status() -> (
+    Iterator[tuple[str, str, Any, str | None, Exception | None, Exception | None]]
+):
     for mod, min_ver in CORE_DEPENDENCY_REQUIREMENTS.items():
         import_error: Exception | None = None
         metadata_error: Exception | None = None

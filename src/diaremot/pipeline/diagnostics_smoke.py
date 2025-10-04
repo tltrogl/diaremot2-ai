@@ -104,9 +104,7 @@ def prepare_smoke_wav(
 
         sf.write(wav_path, audio, sample_rate)
     except Exception as exc:  # pragma: no cover - optional dependency
-        raise RuntimeError(
-            "soundfile is required to prepare diagnostics audio"
-        ) from exc
+        raise RuntimeError("soundfile is required to prepare diagnostics audio") from exc
     return wav_path
 
 

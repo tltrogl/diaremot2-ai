@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from ..logging_utils import StageGuard
 from ...summaries.conversation_analysis import (
     ConversationMetrics,
     analyze_conversation_flow,
 )
 from ...summaries.speakers_summary_builder import build_speakers_summary
+from ..logging_utils import StageGuard
 from .base import PipelineState
 
 __all__ = [
@@ -18,9 +18,7 @@ __all__ = [
 ]
 
 
-def run_overlap(
-    pipeline: "AudioAnalysisPipelineV2", state: PipelineState, guard: StageGuard
-) -> None:
+def run_overlap(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGuard) -> None:
     overlap_stats = {"overlap_total_sec": 0.0, "overlap_ratio": 0.0}
     per_speaker = {}
     try:
@@ -38,9 +36,7 @@ def run_overlap(
         made_provided: set[str] = set()
 
         def _ensure_entry(key: str) -> dict[str, float | int]:
-            return per_speaker_map.setdefault(
-                key, {"made": 0, "received": 0, "overlap_sec": 0.0}
-            )
+            return per_speaker_map.setdefault(key, {"made": 0, "received": 0, "overlap_sec": 0.0})
 
         for speaker_id, values in (overlap.get("by_speaker") or {}).items():
             if not isinstance(values, dict):
@@ -86,7 +82,7 @@ def run_overlap(
 
 
 def run_conversation(
-    pipeline: "AudioAnalysisPipelineV2", state: PipelineState, guard: StageGuard
+    pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGuard
 ) -> None:
     try:
         metrics = analyze_conversation_flow(state.segments_final, state.duration_s)
@@ -121,7 +117,7 @@ def run_conversation(
 
 
 def run_speaker_rollups(
-    pipeline: "AudioAnalysisPipelineV2", state: PipelineState, guard: StageGuard
+    pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGuard
 ) -> None:
     try:
         summary = build_speakers_summary(
@@ -141,9 +137,7 @@ def run_speaker_rollups(
     guard.done(count=len(state.speakers_summary))
 
 
-def run_outputs(
-    pipeline: "AudioAnalysisPipelineV2", state: PipelineState, guard: StageGuard
-) -> None:
+def run_outputs(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGuard) -> None:
     pipeline._write_outputs(
         state.input_audio_path,
         state.out_dir,

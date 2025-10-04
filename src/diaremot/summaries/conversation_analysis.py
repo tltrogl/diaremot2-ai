@@ -1,7 +1,8 @@
 """Conversation flow analysis and metrics calculation with robust error handling."""
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Any
+from typing import Any
+
 import numpy as np
 
 
@@ -12,15 +13,15 @@ class ConversationMetrics:
     avg_turn_duration_sec: float
     conversation_pace_turns_per_min: float
     silence_ratio: float
-    speaker_dominance: Dict[str, float]  # speaker_id -> % of total time
-    response_latency_stats: Dict[str, float]  # avg, median response times
+    speaker_dominance: dict[str, float]  # speaker_id -> % of total time
+    response_latency_stats: dict[str, float]  # avg, median response times
     topic_coherence_score: float  # 0-1, semantic consistency
-    energy_flow: List[Dict[str, Any]]  # time-series of engagement
-    interruptions_per_speaker: Dict[str, float] = field(default_factory=dict)
+    energy_flow: list[dict[str, Any]]  # time-series of engagement
+    interruptions_per_speaker: dict[str, float] = field(default_factory=dict)
 
 
 def analyze_conversation_flow(
-    segments: List[Dict[str, Any]], total_duration_sec: float
+    segments: list[dict[str, Any]], total_duration_sec: float
 ) -> ConversationMetrics:
     """Analyze conversation patterns and dynamics with robust error handling."""
     try:
@@ -80,13 +81,11 @@ def analyze_conversation_flow(
         turns = []
         prev_speaker = None
         prev_end = 0.0
-        interrupts: Dict[str, int] = {}
+        interrupts: dict[str, int] = {}
 
         for seg in segs:
             try:
-                current_speaker = (
-                    seg.get("speaker_id") or seg.get("speaker") or "Unknown"
-                )
+                current_speaker = seg.get("speaker_id") or seg.get("speaker") or "Unknown"
                 start = float(seg.get("start", 0) or 0)
                 end = float(seg.get("end", 0) or 0)
                 duration = max(0.0, end - start)
@@ -114,18 +113,14 @@ def analyze_conversation_flow(
         # Safe division for turns per minute
         try:
             duration_minutes = total_duration_sec / 60.0
-            turns_per_min = (
-                len(turns) / duration_minutes if duration_minutes > 0 else 0.0
-            )
+            turns_per_min = len(turns) / duration_minutes if duration_minutes > 0 else 0.0
         except ZeroDivisionError:
             turns_per_min = 0.0
 
         # Interruption rate per minute
         try:
             interrupt_rate = (
-                sum(interrupts.values()) / duration_minutes
-                if duration_minutes > 0
-                else 0.0
+                sum(interrupts.values()) / duration_minutes if duration_minutes > 0 else 0.0
             )
             interrupts_per_speaker = {
                 spk: (cnt / duration_minutes if duration_minutes > 0 else 0.0)
@@ -189,7 +184,7 @@ def analyze_conversation_flow(
         return _empty_metrics()
 
 
-def _calculate_topic_coherence(segments: List[Dict[str, Any]]) -> float:
+def _calculate_topic_coherence(segments: list[dict[str, Any]]) -> float:
     """Calculate topic coherence with error handling."""
     try:
         if len(segments) < 2:
@@ -225,8 +220,8 @@ def _calculate_topic_coherence(segments: List[Dict[str, Any]]) -> float:
 
 
 def _calculate_energy_flow(
-    segments: List[Dict[str, Any]], total_duration: float
-) -> List[Dict[str, Any]]:
+    segments: list[dict[str, Any]], total_duration: float
+) -> list[dict[str, Any]]:
     """Calculate engagement/energy over time windows with error handling."""
     try:
         if total_duration <= 0:
@@ -330,10 +325,10 @@ def _empty_metrics() -> ConversationMetrics:
 
 
 def build_conversation_analysis(
-    segments: List[Dict[str, Any]],
+    segments: list[dict[str, Any]],
     total_duration_sec: float,
-    overlap_stats: Dict[str, Any],
-) -> Dict[str, Any]:
+    overlap_stats: dict[str, Any],
+) -> dict[str, Any]:
     """Core interface: build conversation analysis from pipeline data"""
     metrics = analyze_conversation_flow(segments, total_duration_sec)
 

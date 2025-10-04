@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 import math
-from typing import Any, Dict, Mapping, Optional
+from collections.abc import Mapping
+from dataclasses import dataclass, field
+from typing import Any
 
 import numpy as np
 
@@ -18,12 +19,12 @@ except Exception:  # pragma: no cover - defensive import fallback
 class AutoTuneResult:
     """Container describing recommended adjustments."""
 
-    diarization: Dict[str, float] = field(default_factory=dict)
-    asr: Dict[str, float | int] = field(default_factory=dict)
-    metrics: Dict[str, float] = field(default_factory=dict)
+    diarization: dict[str, float] = field(default_factory=dict)
+    asr: dict[str, float | int] = field(default_factory=dict)
+    metrics: dict[str, float] = field(default_factory=dict)
     notes: list[str] = field(default_factory=list)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "diarization": dict(self.diarization),
             "asr": dict(self.asr),
@@ -51,7 +52,7 @@ class AutoTuner:
     def recommend(
         self,
         *,
-        health: Optional[AudioHealth],
+        health: AudioHealth | None,
         audio: np.ndarray,
         sr: int,
         diar_config: Mapping[str, Any] | Any,
@@ -132,9 +133,7 @@ class AutoTuner:
                 if base_min_speech is not None:
                     new_min_speech = max(0.30, min(base_min_speech, 0.45))
                     if _changed(base_min_speech, new_min_speech):
-                        result.diarization["vad_min_speech_sec"] = _round3(
-                            new_min_speech
-                        )
+                        result.diarization["vad_min_speech_sec"] = _round3(new_min_speech)
                         result.notes.append("shorten_min_speech_low_snr")
                 if base_pad is not None:
                     new_pad = min(0.30, max(base_pad, 0.22))
@@ -216,7 +215,7 @@ class AutoTuner:
         return result
 
 
-def _safe_float(value: Any) -> Optional[float]:
+def _safe_float(value: Any) -> float | None:
     try:
         if value is None:
             return None
@@ -228,7 +227,7 @@ def _safe_float(value: Any) -> Optional[float]:
         return None
 
 
-def _safe_int(value: Any) -> Optional[int]:
+def _safe_int(value: Any) -> int | None:
     try:
         if value is None:
             return None

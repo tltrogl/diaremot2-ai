@@ -1,0 +1,375 @@
+file,kind,name,lineno,doc
+src/diaremot/__init__.py,def,_get_or_create_logger,78,"Return the package logger, configuring it on first use."
+src/diaremot/__init__.py,def,_install_legacy_alias,48,
+src/diaremot/__init__.py,def,create_integrated_pipeline,236,Construct the pipeline alongside the ancillary managers.
+src/diaremot/__init__.py,def,get_checkpoint_manager,211,Return the pipeline checkpoint manager for resume support.
+src/diaremot/__init__.py,def,get_diarizer,116,Return a ``SpeakerDiarizer`` instance with optional overrides.
+src/diaremot/__init__.py,def,get_pipeline,174,Return the ``AudioAnalysisPipelineV2`` entry point.
+src/diaremot/__init__.py,def,get_preprocessor,91,Return an ``AudioPreprocessor`` instance configured for CPU use.
+src/diaremot/__init__.py,def,get_registry_manager,190,Return the speaker registry manager used across the pipeline.
+src/diaremot/__init__.py,def,get_transcriber,141,Return an ``AudioTranscriber`` configured for CPU-only inference.
+src/diaremot/__init__.py,def,validate_system,261,Run a comprehensive system validation for the public API.
+src/diaremot/affect/emotion_analyzer.py,class,EmotionAnalysisResult,205,
+src/diaremot/affect/emotion_analyzer.py,class,EmotionIntentAnalyzer,224,
+src/diaremot/affect/emotion_analyzer.py,def,_ensure_16k_mono,179,
+src/diaremot/affect/emotion_analyzer.py,def,_entropy,129,
+src/diaremot/affect/emotion_analyzer.py,def,_norm_entropy,134,
+src/diaremot/affect/emotion_analyzer.py,def,_normalize_scores,147,"Normalize a mapping of scores, guarding against bad inputs."
+src/diaremot/affect/emotion_analyzer.py,def,_top_margin,140,
+src/diaremot/affect/emotion_analyzer.py,def,_topk_distribution,172,
+src/diaremot/affect/emotion_analyzer.py,def,_trim_max_len,194,
+src/diaremot/affect/emotion_analyzer.py,def,analyze_segment_batch,1011,
+src/diaremot/affect/paralinguistics.py,class,ParalinguisticsConfig,60,Production-optimized configuration for paralinguistic analysis
+src/diaremot/affect/paralinguistics.py,def,_advanced_audio_quality_assessment,505,Advanced audio quality assessment for voice quality reliability
+src/diaremot/affect/paralinguistics.py,def,_advanced_disfluency_detection,931,Advanced disfluency detection with improved pattern recognition
+src/diaremot/affect/paralinguistics.py,def,_compute_rms_fallback_v2,1526,CPU-optimized RMS computation fallback when librosa is unavailable
+src/diaremot/affect/paralinguistics.py,def,_compute_voice_quality_fallback_v2,717,Enhanced fallback voice quality estimation with improved algorithms
+src/diaremot/affect/paralinguistics.py,def,_compute_voice_quality_parselmouth_v2,587,Enhanced voice quality analysis using latest Parselmouth techniques
+src/diaremot/affect/paralinguistics.py,def,_enhanced_pitch_statistics,347,Enhanced pitch statistics with robust outlier handling
+src/diaremot/affect/paralinguistics.py,def,_enhanced_syllable_estimation,1032,Enhanced syllable estimation with improved rules
+src/diaremot/affect/paralinguistics.py,def,_enhanced_word_tokenization,900,Enhanced word tokenization preserving contractions and handling edge cases
+src/diaremot/affect/paralinguistics.py,def,_get_cached_pitch_params,259,Cached pitch extraction parameters for CPU optimization
+src/diaremot/affect/paralinguistics.py,def,_get_empty_features_v2,1476,Return empty feature set when audio is unavailable
+src/diaremot/affect/paralinguistics.py,def,_get_error_features_v2,1642,Return error feature set when processing fails
+src/diaremot/affect/paralinguistics.py,def,_get_optimized_frame_params,161,CPU-optimized frame/hop calculation with power-of-2 alignment
+src/diaremot/affect/paralinguistics.py,def,_get_performance_rating,2114,Get performance rating based on processing time vs audio duration
+src/diaremot/affect/paralinguistics.py,def,_optimized_pause_analysis,207,CPU-optimized pause analysis with vectorized operations
+src/diaremot/affect/paralinguistics.py,def,_optimized_spectral_features,419,CPU-optimized spectral feature computation
+src/diaremot/affect/paralinguistics.py,def,_robust_pitch_extraction_v2,271,Enhanced robust pitch extraction with multiple fallbacks
+src/diaremot/affect/paralinguistics.py,def,_single_pitch_extraction,312,Single-chunk pitch extraction with fallback methods
+src/diaremot/affect/paralinguistics.py,def,_vectorized_silence_detection_v2,173,Enhanced vectorized silence detection with memory optimization
+src/diaremot/affect/paralinguistics.py,def,_vectorized_syllable_count_v2,1089,Enhanced vectorized syllable counting
+src/diaremot/affect/paralinguistics.py,def,analyze_speech_patterns_v2,1688,Advanced speech pattern analysis across multiple segments
+src/diaremot/affect/paralinguistics.py,def,benchmark_performance_v2,2003,Comprehensive performance benchmarking for the paralinguistics module
+src/diaremot/affect/paralinguistics.py,def,compute_overlap_and_interruptions,2513,
+src/diaremot/affect/paralinguistics.py,def,compute_segment_features,2494,
+src/diaremot/affect/paralinguistics.py,def,compute_segment_features_v2,1102,Production-optimized paralinguistic feature extraction with enhanced capabilities
+src/diaremot/affect/paralinguistics.py,def,detect_backchannels_v2,1851,Enhanced backchannel detection using audio and linguistic cues
+src/diaremot/affect/paralinguistics.py,def,detect_speech_anomalies_v2,1762,Detect speech anomalies and unusual patterns
+src/diaremot/affect/paralinguistics.py,def,extract,2587,Compute paralinguistic features per segment for pipeline consumption.
+src/diaremot/affect/paralinguistics.py,def,get_config_preset,2136,Get predefined configuration presets for different use cases
+src/diaremot/affect/paralinguistics.py,def,main,2258,Main entry point for command-line usage and testing
+src/diaremot/affect/paralinguistics.py,def,process_segments_batch,2505,
+src/diaremot/affect/paralinguistics.py,def,process_segments_batch_v2,1561,Batch process multiple segments with CPU optimization and progress tracking
+src/diaremot/affect/paralinguistics.py,def,validate_module,2420,Validate module functionality and dependencies
+src/diaremot/affect/sed_panns.py,class,PANNSEventTagger,150,Lightweight wrapper for PANNs AudioSet tagging on CPU.
+src/diaremot/affect/sed_panns.py,class,SEDConfig,88,Configuration for optional sound event detection.
+src/diaremot/affect/sed_panns.py,def,_iter_env_roots,140,
+src/diaremot/affect/sed_panns.py,def,_load_label_file,128,Extract label names from a PANNs CSV manifest.
+src/diaremot/affect/sed_panns.py,def,_suppress_stdout_stderr,114,Temporarily silence noisy stdout/stderr printers.
+src/diaremot/cli.py,def,_common_options,202,
+src/diaremot/cli.py,def,_core,59,
+src/diaremot/cli.py,def,_default_config,198,
+src/diaremot/cli.py,def,_load_profile,94,
+src/diaremot/cli.py,def,_load_segments_csv,670,
+src/diaremot/cli.py,def,_load_segments_jsonl,654,
+src/diaremot/cli.py,def,_load_speakers_csv,678,
+src/diaremot/cli.py,def,_manifest_output_root,139,
+src/diaremot/cli.py,def,_merge_configs,125,
+src/diaremot/cli.py,def,_normalise_path,119,
+src/diaremot/cli.py,def,_resolve_manifest_path,149,
+src/diaremot/cli.py,def,_validate_assets,158,
+src/diaremot/cli.py,def,asr_resume,453,
+src/diaremot/cli.py,def,asr_run,257,
+src/diaremot/cli.py,def,core_build_config,77,
+src/diaremot/cli.py,def,core_diagnostics,82,
+src/diaremot/cli.py,def,core_resume,86,
+src/diaremot/cli.py,def,core_run_pipeline,90,
+src/diaremot/cli.py,def,diagnostics,636,Run dependency diagnostics and emit a JSON summary.
+src/diaremot/cli.py,def,main_diagnostics,648,Console script entry point for :func:`diagnostics`.
+src/diaremot/cli.py,def,report_gen,687,
+src/diaremot/cli.py,def,vad_debug,790,
+src/diaremot/io/download_utils.py,def,download_file,11,Download a file from ``url`` and atomically move it into ``destination``.
+src/diaremot/io/onnx_utils.py,def,_check_sha256,17,Validate file integrity via SHA256.
+src/diaremot/io/onnx_utils.py,def,create_onnx_session,75,Create an ONNX Runtime session with consistent CPU behaviour.
+src/diaremot/io/onnx_utils.py,def,ensure_onnx_model,24,"Return a local path for a model, downloading from Hugging Face if needed."
+src/diaremot/io/speaker_registry_manager.py,class,SpeakerRegistryManager,20,Manage persistence and concurrency for the speaker registry.
+src/diaremot/pipeline/audio_preprocessing.py,class,AudioHealth,91,
+src/diaremot/pipeline/audio_preprocessing.py,class,AudioPreprocessor,715,
+src/diaremot/pipeline/audio_preprocessing.py,class,ChunkInfo,104,
+src/diaremot/pipeline/audio_preprocessing.py,class,PreprocessConfig,33,
+src/diaremot/pipeline/audio_preprocessing.py,def,_butter_highpass,537,
+src/diaremot/pipeline/audio_preprocessing.py,def,_cleanup_chunks,499,Robust cleanup of temporary chunk files with retry logic.
+src/diaremot/pipeline/audio_preprocessing.py,def,_create_audio_chunks,309,
+src/diaremot/pipeline/audio_preprocessing.py,def,_db,546,
+src/diaremot/pipeline/audio_preprocessing.py,def,_decode_with_ffmpeg,152,Decode arbitrary containers via ffmpeg → temp wav → soundfile.
+src/diaremot/pipeline/audio_preprocessing.py,def,_dynamic_range_db,604,
+src/diaremot/pipeline/audio_preprocessing.py,def,_estimate_loudness_lufs_approx,611,
+src/diaremot/pipeline/audio_preprocessing.py,def,_exp_smooth,572,
+src/diaremot/pipeline/audio_preprocessing.py,def,_frame_params,554,
+src/diaremot/pipeline/audio_preprocessing.py,def,_get_audio_duration,231,Get audio duration with a robust fallback chain.
+src/diaremot/pipeline/audio_preprocessing.py,def,_hann_smooth,562,
+src/diaremot/pipeline/audio_preprocessing.py,def,_interp_per_sample,581,
+src/diaremot/pipeline/audio_preprocessing.py,def,_is_uncompressed_pcm,123,Return True when the file is a WAV/AIFF PCM variant we can read directly.
+src/diaremot/pipeline/audio_preprocessing.py,def,_load_uncompressed_with_soundfile,138,Read PCM WAV/AIFF directly via libsndfile.
+src/diaremot/pipeline/audio_preprocessing.py,def,_merge_chunked_audio,465,
+src/diaremot/pipeline/audio_preprocessing.py,def,_oversampled_clip_detect,588,
+src/diaremot/pipeline/audio_preprocessing.py,def,_percentile_db,600,
+src/diaremot/pipeline/audio_preprocessing.py,def,_probe_audio_metadata,296,Return the duration and cached soundfile.Info for ``path``.
+src/diaremot/pipeline/audio_preprocessing.py,def,_rms_db,550,
+src/diaremot/pipeline/audio_preprocessing.py,def,_safe_load_audio,205,
+src/diaremot/pipeline/audio_preprocessing.py,def,_simple_vad,626,
+src/diaremot/pipeline/audio_preprocessing.py,def,_spectral_subtract_soft_vad,645,
+src/diaremot/pipeline/cache_env.py,def,_configure_once,53,
+src/diaremot/pipeline/cache_env.py,def,_should_skip,11,Return True if existing path already satisfies the cache requirement.
+src/diaremot/pipeline/cache_env.py,def,configure_local_cache_env,28,Ensure HuggingFace/Torch caches resolve inside the repo-local `.cache` dir.
+src/diaremot/pipeline/cli_entry.py,def,_args_to_config,238,
+src/diaremot/pipeline/cli_entry.py,def,_build_arg_parser,22,
+src/diaremot/pipeline/cli_entry.py,def,_handle_cache_clear,281,
+src/diaremot/pipeline/cli_entry.py,def,main,303,
+src/diaremot/pipeline/config.py,class,PipelineConfig,46,Validated configuration for the end-to-end pipeline.
+src/diaremot/pipeline/config.py,def,_coerce_optional_path,39,
+src/diaremot/pipeline/config.py,def,_ensure_numeric_range,18,Validate numeric range constraints for configuration fields.
+src/diaremot/pipeline/config.py,def,_iter_dependency_status,269,
+src/diaremot/pipeline/config.py,def,_verify_core_dependencies,292,
+src/diaremot/pipeline/config.py,def,build_pipeline_config,239,Return a validated pipeline configuration merged with overrides.
+src/diaremot/pipeline/config.py,def,dependency_health_summary,327,
+src/diaremot/pipeline/config.py,def,diagnostics,376,Return diagnostic information about optional runtime dependencies.
+src/diaremot/pipeline/config.py,def,verify_dependencies,370,Expose lightweight dependency verification for external callers.
+src/diaremot/pipeline/cpu_optimized_diarizer.py,class,CPUOptimizationConfig,27,Configuration for chunked CPU diarization.
+src/diaremot/pipeline/cpu_optimized_diarizer.py,class,CPUOptimizedSpeakerDiarizer,37,"Chunked, CPU-friendly diarization wrapper."
+src/diaremot/pipeline/dependency_checks.py,def,_dependency_health_summary,76,
+src/diaremot/pipeline/dependency_checks.py,def,_iter_dependency_status,16,
+src/diaremot/pipeline/dependency_checks.py,def,_verify_core_dependencies,39,Verify core runtime dependencies are importable (and optionally versioned).
+src/diaremot/pipeline/dependency_checks.py,def,dependency_summary,137,Expose the structured dependency summary for diagnostics consumers.
+src/diaremot/pipeline/dependency_checks.py,def,diagnostics,125,Return diagnostic information about optional runtime dependencies.
+src/diaremot/pipeline/dependency_checks.py,def,verify_dependencies,119,Expose lightweight dependency verification for external callers.
+src/diaremot/pipeline/diagnostics_smoke.py,class,SmokeTestResult,46,Structured response emitted by :func:`run_pipeline_smoke_test`.
+src/diaremot/pipeline/diagnostics_smoke.py,def,burst_audio_factory,63,Generate the bursty synthetic waveform used by the validation script.
+src/diaremot/pipeline/diagnostics_smoke.py,def,prepare_smoke_wav,86,Create a temporary WAV file containing synthetic diagnostics audio.
+src/diaremot/pipeline/diagnostics_smoke.py,def,run_pipeline_smoke_test,110,Execute a fast end-to-end pipeline run using synthetic audio.
+src/diaremot/pipeline/diagnostics_smoke.py,def,silence_audio_factory,56,Return a simple block of silence for ultra-fast diagnostics.
+src/diaremot/pipeline/logging_utils.py,class,CoreLogger,57,
+src/diaremot/pipeline/logging_utils.py,class,JSONLWriter,14,
+src/diaremot/pipeline/logging_utils.py,class,RunStats,33,
+src/diaremot/pipeline/logging_utils.py,class,StageGuard,129,
+src/diaremot/pipeline/logging_utils.py,def,_fmt_hms,94,Return a human readable H:MM:SS style string for ``seconds``.
+src/diaremot/pipeline/logging_utils.py,def,_fmt_hms_ms,107,Return a human readable string with millisecond precision.
+src/diaremot/pipeline/orchestrator.py,class,AudioAnalysisPipelineV2,159,
+src/diaremot/pipeline/orchestrator.py,def,clear_pipeline_cache,83,Remove cached diarization/transcription artefacts.
+src/diaremot/pipeline/orchestrator.py,def,diagnostics,152,Return diagnostic information about optional runtime dependencies.
+src/diaremot/pipeline/orchestrator.py,def,resume,129,Resume a previous run using available checkpoints/caches.
+src/diaremot/pipeline/orchestrator.py,def,run_pipeline,105,Execute the pipeline for ``input_path`` writing artefacts to ``outdir``.
+src/diaremot/pipeline/orchestrator.py,def,verify_dependencies,99,Expose lightweight dependency verification for external callers.
+src/diaremot/pipeline/outputs.py,def,default_affect,55,
+src/diaremot/pipeline/outputs.py,def,ensure_segment_keys,81,
+src/diaremot/pipeline/outputs.py,def,write_qc_report,128,
+src/diaremot/pipeline/outputs.py,def,write_segments_csv,94,
+src/diaremot/pipeline/outputs.py,def,write_segments_jsonl,104,
+src/diaremot/pipeline/outputs.py,def,write_speakers_summary,191,
+src/diaremot/pipeline/outputs.py,def,write_timeline_csv,112,
+src/diaremot/pipeline/pipeline_checkpoint_system.py,class,CheckpointContext,527,Context manager for automatic checkpoint handling
+src/diaremot/pipeline/pipeline_checkpoint_system.py,class,CheckpointMetadata,34,Metadata for checkpoint files
+src/diaremot/pipeline/pipeline_checkpoint_system.py,class,PipelineCheckpointManager,63,Manages checkpoints and resume functionality for WhisperX pipeline
+src/diaremot/pipeline/pipeline_checkpoint_system.py,class,PipelineIntegration,586,Helper class to integrate checkpoint system with existing pipeline
+src/diaremot/pipeline/pipeline_checkpoint_system.py,class,ProcessingStage,20,Pipeline processing stages
+src/diaremot/pipeline/pipeline_checkpoint_system.py,class,ProgressState,50,Current processing progress state
+src/diaremot/pipeline/pipeline_checkpoint_system.py,def,main,687,CLI interface for checkpoint management
+src/diaremot/pipeline/pipeline_config.py,def,build_pipeline_config,73,Return a pipeline configuration merged with overrides.
+src/diaremot/pipeline/pipeline_config.py,def,clear_pipeline_cache,87,Remove cached diarization/transcription artefacts.
+src/diaremot/pipeline/pipeline_diagnostic.py,class,PipelineDiagnostic,29,
+src/diaremot/pipeline/pipeline_diagnostic.py,def,_module_available,23,Return ``True`` if ``module_name`` can be imported.
+src/diaremot/pipeline/pipeline_diagnostic.py,def,main,357,
+src/diaremot/pipeline/pipeline_healthcheck.py,def,check_dependencies,46,Return the version/health of each core dependency.
+src/diaremot/pipeline/pipeline_healthcheck.py,def,check_models,87,Ensure required ONNX models are available.
+src/diaremot/pipeline/pipeline_healthcheck.py,def,main,112,
+src/diaremot/pipeline/pipeline_healthcheck.py,def,run_smoke_test,101,Run a very small end‑to‑end pipeline test.
+src/diaremot/pipeline/provider_registry.py,def,get_provider,18,"Fetch a provider, optionally falling back to a default factory."
+src/diaremot/pipeline/provider_registry.py,def,provide,29,Resolve a provider and invoke it with the supplied arguments.
+src/diaremot/pipeline/provider_registry.py,def,register_provider,12,Register a factory for pipeline components.
+src/diaremot/pipeline/run_pipeline.py,def,build_pipeline_config,25,
+src/diaremot/pipeline/run_pipeline.py,def,clear_pipeline_cache,62,
+src/diaremot/pipeline/run_pipeline.py,def,diagnostics,54,
+src/diaremot/pipeline/run_pipeline.py,def,resume,38,
+src/diaremot/pipeline/run_pipeline.py,def,run_pipeline,29,
+src/diaremot/pipeline/run_pipeline.py,def,verify_dependencies,58,
+src/diaremot/pipeline/runtime_env.py,def,_candidate_cache_roots,33,
+src/diaremot/pipeline/runtime_env.py,def,_ensure_writable_directory,55,Return ``True`` when ``path`` can be created and written to.
+src/diaremot/pipeline/runtime_env.py,def,_find_project_root,20,Walk upward from ``start`` until a project marker is found.
+src/diaremot/pipeline/runtime_env.py,def,configure_local_cache_env,76,"Ensure all cache directories resolve to a writable, local cache root."
+src/diaremot/pipeline/runtime_env.py,def,resolve_default_whisper_model,126,
+src/diaremot/pipeline/speaker_diarization.py,class,DiarizationConfig,125,
+src/diaremot/pipeline/speaker_diarization.py,class,DiarizedTurn,169,
+src/diaremot/pipeline/speaker_diarization.py,class,SpeakerDiarizer,884,
+src/diaremot/pipeline/speaker_diarization.py,class,SpeakerRegistry,699,
+src/diaremot/pipeline/speaker_diarization.py,class,_ECAPAWrapper,600,ECAPA-TDNN embedding extraction via ONNX Runtime.
+src/diaremot/pipeline/speaker_diarization.py,class,_SileroWrapper,179,Silero VAD wrapper with optional ONNX Runtime backend.
+src/diaremot/pipeline/speaker_diarization.py,def,_bool_env,65,Parse a boolean environment variable.
+src/diaremot/pipeline/speaker_diarization.py,def,_can_reach_host,79,Return True when a TCP connection to ``host`` succeeds quickly.
+src/diaremot/pipeline/speaker_diarization.py,def,_energy_vad_fallback,852,Simple energy-based VAD when Silero fails.
+src/diaremot/pipeline/speaker_diarization.py,def,_merge_regions,837,
+src/diaremot/pipeline/speaker_diarization.py,def,_resolve_state_shape,107,Return a concrete hidden-state shape for Silero ONNX sessions.
+src/diaremot/pipeline/speaker_diarization.py,def,_torch_repo_cached,89,Detect whether the Silero TorchHub repo already exists locally.
+src/diaremot/pipeline/stages/affect.py,def,run,17,
+src/diaremot/pipeline/stages/asr.py,def,_placeholder_segment,17,
+src/diaremot/pipeline/stages/asr.py,def,run,33,
+src/diaremot/pipeline/stages/base.py,class,PipelineState,16,Mutable state passed between pipeline stages.
+src/diaremot/pipeline/stages/base.py,class,StageDefinition,50,
+src/diaremot/pipeline/stages/dependency_check.py,def,run,12,
+src/diaremot/pipeline/stages/diarize.py,def,_fallback_turn,17,
+src/diaremot/pipeline/stages/diarize.py,def,_jsonable_turns,26,
+src/diaremot/pipeline/stages/diarize.py,def,run,56,
+src/diaremot/pipeline/stages/paralinguistics.py,def,run,11,
+src/diaremot/pipeline/stages/preprocess.py,def,run_background_sed,119,
+src/diaremot/pipeline/stages/preprocess.py,def,run_preprocess,15,
+src/diaremot/pipeline/stages/summaries.py,def,run_conversation,88,
+src/diaremot/pipeline/stages/summaries.py,def,run_outputs,144,
+src/diaremot/pipeline/stages/summaries.py,def,run_overlap,21,
+src/diaremot/pipeline/stages/summaries.py,def,run_speaker_rollups,123,
+src/diaremot/pipeline/stages/utils.py,def,atomic_write_json,41,
+src/diaremot/pipeline/stages/utils.py,def,compute_audio_sha16,13,
+src/diaremot/pipeline/stages/utils.py,def,compute_pp_signature,30,
+src/diaremot/pipeline/stages/utils.py,def,read_json_safe,49,
+src/diaremot/pipeline/transcription_module.py,class,AsyncTranscriber,422,High-performance async transcription engine
+src/diaremot/pipeline/transcription_module.py,class,AudioTranscriber,1361,Synchronous wrapper around AsyncTranscriber for backward compatibility
+src/diaremot/pipeline/transcription_module.py,class,BackendAvailability,48,Singleton to track available backends
+src/diaremot/pipeline/transcription_module.py,class,BatchingConfig,185,Configuration for intelligent batching
+src/diaremot/pipeline/transcription_module.py,class,ModelManager,200,Centralized model management with lazy loading and memory optimization
+src/diaremot/pipeline/transcription_module.py,class,TranscriptionError,1500,Custom exception for transcription errors
+src/diaremot/pipeline/transcription_module.py,class,TranscriptionSegment,132,Enhanced segment with validation and serialization
+src/diaremot/pipeline/transcription_module.py,def,_get_resampling_kernel,96,Cached resampling kernel generation for common SR pairs
+src/diaremot/pipeline/transcription_module.py,def,benchmark_transcription,1565,Benchmark transcription performance with synthetic audio
+src/diaremot/pipeline/transcription_module.py,def,create_transcriber,1450,Factory function to create optimized transcriber
+src/diaremot/pipeline/transcription_module.py,def,estimate_snr_db,1418,Fast SNR estimation with caching
+src/diaremot/pipeline/transcription_module.py,def,estimate_snr_db_cached,1413,"Return cached SNR if available, else conservative default."
+src/diaremot/pipeline/transcription_module.py,def,get_system_capabilities,1523,Get comprehensive system capability information
+src/diaremot/pipeline/transcription_module.py,def,resample_audio_fast,107,Optimized audio resampling with caching and fast paths
+src/diaremot/pipeline/transcription_module.py,def,setup_logging,1506,Setup optimized logging for transcription module
+src/diaremot/pipeline/validate_system_complete.py,def,cleanup_test_files,281,Clean up test files
+src/diaremot/pipeline/validate_system_complete.py,def,create_test_audio,39,Create a short test audio file
+src/diaremot/pipeline/validate_system_complete.py,def,run_comprehensive_validation,222,Run all validation tests
+src/diaremot/pipeline/validate_system_complete.py,def,set_cpu_environment,30,Set CPU-only environment
+src/diaremot/pipeline/validate_system_complete.py,def,test_full_pipeline,123,Test the complete pipeline
+src/diaremot/pipeline/validate_system_complete.py,def,test_parselmouth,197,Verify Parselmouth integration via paralinguistics
+src/diaremot/pipeline/validate_system_complete.py,def,test_transcription_directly,60,Test transcription module directly
+src/diaremot/summaries/conversation_analysis.py,class,ConversationMetrics,9,
+src/diaremot/summaries/conversation_analysis.py,def,_calculate_energy_flow,227,Calculate engagement/energy over time windows with error handling.
+src/diaremot/summaries/conversation_analysis.py,def,_calculate_topic_coherence,192,Calculate topic coherence with error handling.
+src/diaremot/summaries/conversation_analysis.py,def,_empty_metrics,316,Return empty/default metrics for edge cases.
+src/diaremot/summaries/conversation_analysis.py,def,analyze_conversation_flow,22,Analyze conversation patterns and dynamics with robust error handling.
+src/diaremot/summaries/conversation_analysis.py,def,build_conversation_analysis,332,Core interface: build conversation analysis from pipeline data
+src/diaremot/summaries/html_summary_generator.py,class,HTMLSummaryGenerator,36,
+src/diaremot/summaries/html_summary_generator.py,def,_coerce_float,14,
+src/diaremot/summaries/html_summary_generator.py,def,_get_speaker_name,30,
+src/diaremot/summaries/html_summary_generator.py,def,_safe_json,21,
+src/diaremot/summaries/html_summary_generator.py,def,fmt_hms,8,
+src/diaremot/summaries/html_summary_generator.py,def,render_summary_html,311,Compatibility wrapper expected by the pipeline.
+src/diaremot/summaries/pdf_summary_generator.py,class,PDFSummaryGenerator,74,
+src/diaremot/summaries/pdf_summary_generator.py,def,_build_speaker_rows_from_profiles,49,
+src/diaremot/summaries/pdf_summary_generator.py,def,_float,31,
+src/diaremot/summaries/pdf_summary_generator.py,def,_fmt_hms,18,
+src/diaremot/summaries/pdf_summary_generator.py,def,_safe_json,38,
+src/diaremot/summaries/speakers_summary_builder.py,def,_float,50,
+src/diaremot/summaries/speakers_summary_builder.py,def,_median,74,
+src/diaremot/summaries/speakers_summary_builder.py,def,_normalize,86,
+src/diaremot/summaries/speakers_summary_builder.py,def,_safe_json,57,
+src/diaremot/summaries/speakers_summary_builder.py,def,_top_k,82,
+src/diaremot/summaries/speakers_summary_builder.py,def,_words,68,
+src/diaremot/summaries/speakers_summary_builder.py,def,build_speakers_summary,91,Build speaker summary from segments data (matches core interface)
+src/diaremot/utils/hash.py,def,_iter_chunks,11,
+src/diaremot/utils/hash.py,def,hash_file,19,Return the hexadecimal digest for ``path`` using ``algo``.
+export_panns_onnx.py,class,_PannsWrapper,43,Expose selected outputs from a PANNs model for ONNX export.
+export_panns_onnx.py,def,_load_checkpoint,73,
+export_panns_onnx.py,def,export_model,147,
+export_panns_onnx.py,def,main,204,
+export_panns_onnx.py,def,parse_args,107,
+tests/conftest.py,def,pytest_configure,8,
+tests/test_cli.py,def,runner,24,
+tests/test_cli.py,def,test_cli_requires_input_argument,28,
+tests/test_cli.py,def,test_cli_run_invokes_pipeline,34,
+tests/test_cli.py,def,test_cli_validates_affect_backend_paths,81,
+tests/test_cli.py,def,test_diagnostics_entrypoint_accepts_strict,117,
+tests/test_diarization_defaults.py,def,test_default_threshold_merges_single_speaker,19,Single-speaker audio should yield a single speaker label with defaults.
+tests/test_pipeline_checkpoint_manager.py,def,_counting_open_factory,16,
+tests/test_pipeline_checkpoint_manager.py,def,audio_file,10,
+tests/test_pipeline_checkpoint_manager.py,def,test_checkpoint_manager_reuses_cached_hash,26,
+tests/test_pipeline_checkpoint_manager.py,def,test_seeded_hash_prevents_disk_reads,47,
+tests/test_pipeline_cli_entry_module.py,def,test_args_to_config_accepts_affect_backend_auto,62,
+tests/test_pipeline_cli_entry_module.py,def,test_args_to_config_defaults_preserve_chunking,48,
+tests/test_pipeline_cli_entry_module.py,def,test_args_to_config_handles_chunk_toggle,33,
+tests/test_pipeline_cli_entry_module.py,def,test_args_to_config_includes_flags,13,
+tests/test_pipeline_cli_entry_module.py,def,test_audio_pipeline_core_main_guard,154,
+tests/test_pipeline_cli_entry_module.py,def,test_main_runs_pipeline,93,
+tests/test_pipeline_cli_entry_module.py,def,test_main_verify_deps,78,
+tests/test_pipeline_config_module.py,def,test_build_pipeline_config_merges_and_validates,12,
+tests/test_pipeline_config_module.py,def,test_dependency_summary_handles_import_errors,25,
+tests/test_pipeline_config_module.py,def,test_pipeline_config_normalises_path_and_choice_fields,41,
+tests/test_pipeline_config_module.py,def,test_pipeline_config_rejects_invalid_formats,72,
+tests/test_pipeline_logging_utils_module.py,def,test_jsonl_writer_appends_records,14,
+tests/test_pipeline_logging_utils_module.py,def,test_runstats_mark_aggregates_counts,28,
+tests/test_pipeline_logging_utils_module.py,def,test_stageguard_swallows_optional_exceptions,37,
+tests/test_pipeline_outputs_module.py,def,test_ensure_segment_keys_populates_defaults,17,
+tests/test_pipeline_outputs_module.py,def,test_write_qc_report_serialises_payload,60,
+tests/test_pipeline_outputs_module.py,def,test_writers_produce_files,30,
+tests/test_pipeline_stages_module.py,def,stub_pipeline,32,
+tests/test_pipeline_stages_module.py,def,test_run_overlap_maps_interruptions,164,
+tests/test_pipeline_stages_module.py,def,test_stage_registry_order,14,
+tests/test_pipeline_stages_module.py,def,test_stage_services_execute_full_cycle,125,
+tests/test_run_pipeline_shim.py,def,shim,11,
+tests/test_run_pipeline_shim.py,def,test_shim_delegates_functions,25,
+tests/test_run_pipeline_shim.py,def,test_shim_exports_core_types,19,
+tests/test_runtime_env.py,def,test_configure_local_cache_env_repo_cache_fallback,68,Project installs should fall back when the repo cache directory is unwritable.
+tests/test_runtime_env.py,def,test_configure_local_cache_env_site_packages,6,Site-packages layout should fall back to a user cache when cwd is unwritable.
+tests/test_silero_wrapper.py,class,_DummySession,47,
+tests/test_silero_wrapper.py,class,_DummyTensor,41,
+tests/test_silero_wrapper.py,def,test_silero_wrapper_detect_onnx_shapes,72,
+tests/test_speaker_registry.py,class,RegistryFactoryIntegrationTest,128,
+tests/test_speaker_registry.py,class,SpeakerRegistrySchemaTest,52,
+tests/test_speaker_registry.py,def,_install_test_stubs,21,Provide light-weight stubs for optional heavy dependencies.
+tests/test_stageguard.py,def,_install_audio_pipeline_stubs,45,
+tests/test_stageguard.py,def,_make_guard,334,
+tests/test_stageguard.py,def,_register_stub,23,
+tests/test_stageguard.py,def,test_cpu_diarizer_uses_optimized_wrapper,499,
+tests/test_stageguard.py,def,test_process_audio_file_handles_missing_paraling,382,
+tests/test_stageguard.py,def,test_stageguard_handles_timeout,345,
+tests/test_stageguard.py,def,test_stageguard_optional_module_missing,364,
+tests/test_stageguard.py,def,test_stageguard_preprocess_is_critical,373,
+tests/test_stageguard.py,def,test_stageguard_reraises_unexpected,354,
+tmp_models.py,class,AttBlock,114,
+tmp_models.py,class,Cnn10,572,
+tmp_models.py,class,Cnn14,159,
+tmp_models.py,class,Cnn14_16k,2980,
+tmp_models.py,class,Cnn14_8k,3096,
+tmp_models.py,class,Cnn14_DecisionLevelAtt,3788,
+tmp_models.py,class,Cnn14_DecisionLevelAvg,3663,
+tmp_models.py,class,Cnn14_DecisionLevelMax,3542,
+tmp_models.py,class,Cnn14_emb128,1361,
+tmp_models.py,class,Cnn14_emb32,1470,
+tmp_models.py,class,Cnn14_emb512,1252,
+tmp_models.py,class,Cnn14_mel128,3432,
+tmp_models.py,class,Cnn14_mel32,3323,
+tmp_models.py,class,Cnn14_mixup_time_domain,3212,
+tmp_models.py,class,Cnn14_no_dropout,366,
+tmp_models.py,class,Cnn14_no_specaug,268,
+tmp_models.py,class,Cnn6,469,
+tmp_models.py,class,ConvBlock,25,
+tmp_models.py,class,ConvBlock5x5,76,
+tmp_models.py,class,ConvPreWavBlock,2567,
+tmp_models.py,class,DaiNet19,2203,
+tmp_models.py,class,DaiNetResBlock,2118,
+tmp_models.py,class,InvertedResidual,1716,
+tmp_models.py,class,LeeNet11,1953,
+tmp_models.py,class,LeeNet24,2052,
+tmp_models.py,class,LeeNetConvBlock,1925,
+tmp_models.py,class,LeeNetConvBlock2,2011,
+tmp_models.py,class,MobileNetV1,1579,
+tmp_models.py,class,MobileNetV2,1772,
+tmp_models.py,class,Res1dNet31,2457,
+tmp_models.py,class,Res1dNet51,2512,
+tmp_models.py,class,ResNet22,934,
+tmp_models.py,class,ResNet38,1040,
+tmp_models.py,class,ResNet54,1146,
+tmp_models.py,class,Wavegram_Cnn14,2610,
+tmp_models.py,class,Wavegram_Logmel128_Cnn14,2841,
+tmp_models.py,class,Wavegram_Logmel_Cnn14,2702,
+tmp_models.py,class,_ResNet,831,
+tmp_models.py,class,_ResNetWav1d,2354,
+tmp_models.py,class,_ResnetBasicBlock,694,
+tmp_models.py,class,_ResnetBasicBlockWav1d,2285,
+tmp_models.py,class,_ResnetBottleneck,763,
+tmp_models.py,def,_resnet_conv1x1,689,
+tmp_models.py,def,_resnet_conv1x1_wav1d,2280,
+tmp_models.py,def,_resnet_conv3x1_wav1d,2266,
+tmp_models.py,def,_resnet_conv3x3,675,
+tmp_models.py,def,init_bn,19,Initialize a Batchnorm layer.
+tmp_models.py,def,init_layer,10,Initialize a Linear or Convolutional layer.

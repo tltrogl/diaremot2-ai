@@ -4,11 +4,9 @@ import numpy as np
 import pytest
 
 from diaremot.pipeline.logging_utils import StageGuard
-
 from diaremot.pipeline.orchestrator import AudioAnalysisPipelineV2
 from diaremot.pipeline.outputs import default_affect
-from diaremot.pipeline.stages import PIPELINE_STAGES, PipelineState
-from diaremot.pipeline.stages import dependency_check
+from diaremot.pipeline.stages import PIPELINE_STAGES, PipelineState, dependency_check
 from diaremot.pipeline.stages.summaries import run_overlap
 
 
@@ -164,7 +162,11 @@ def stub_pipeline(tmp_path, monkeypatch):
             "transcribe_failed": False,
             "dependency_ok": True,
             "dependency_summary": {},
-            "auto_tune": {"metrics": {}, "notes": ["pending"], "applied": {"diarization": {}, "asr": {}}},
+            "auto_tune": {
+                "metrics": {},
+                "notes": ["pending"],
+                "applied": {"diarization": {}, "asr": {}},
+            },
         }
 
     monkeypatch.setattr(AudioAnalysisPipelineV2, "_init_components", _stub_init)

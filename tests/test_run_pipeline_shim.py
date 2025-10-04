@@ -2,7 +2,6 @@ import importlib
 
 import pytest
 
-
 MODULE_PATH = "diaremot.pipeline.run_pipeline"
 CORE_PATH = "diaremot.pipeline.audio_pipeline_core"
 
@@ -63,9 +62,7 @@ def test_shim_delegates_functions(monkeypatch, shim):
     assert config == {"config": {"beam_size": 2}}
     assert calls["build"] == {"beam_size": 2}
 
-    result = module.run_pipeline(
-        "input.wav", "out", config={"beam": 3}, clear_cache=True
-    )
+    result = module.run_pipeline("input.wav", "out", config={"beam": 3}, clear_cache=True)
     assert result == {"status": "ok"}
     assert calls["run"] == ("input.wav", "out", {"beam": 3}, True)
 
@@ -86,9 +83,3 @@ def test_shim_delegates_functions(monkeypatch, shim):
 
     module.clear_pipeline_cache(cache_root=".cache-test")
     assert calls["clear"] == ".cache-test"
-
-
-
-
-
-

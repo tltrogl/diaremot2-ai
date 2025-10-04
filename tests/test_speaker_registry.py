@@ -35,15 +35,14 @@ def _install_test_stubs() -> None:
 
     signal_stub = types.ModuleType("scipy.signal")
     signal_stub.resample_poly = lambda audio, up, down: audio
-    setattr(scipy_stub, "signal", signal_stub)
+    scipy_stub.signal = signal_stub
     sys.modules["scipy.signal"] = signal_stub
 
 
 _install_test_stubs()
 
-from diaremot.pipeline.speaker_diarization import SpeakerRegistry  # noqa: E402
-
 import diaremot  # noqa: E402
+from diaremot.pipeline.speaker_diarization import SpeakerRegistry  # noqa: E402
 
 if getattr(np, "__stub__", False) or not hasattr(np, "zeros"):
     pytest.skip("numpy not available", allow_module_level=True)
@@ -65,13 +64,9 @@ class SpeakerRegistrySchemaTest(unittest.TestCase):
             registry = SpeakerRegistry(str(path))
             self.assertTrue(registry.has("Alice"))
 
-            registry.update_centroid(
-                "Alice", np.asarray([0.2, 0.1, 0.3], dtype=np.float32)
-            )
+            registry.update_centroid("Alice", np.asarray([0.2, 0.1, 0.3], dtype=np.float32))
             registry.enroll("Bob", np.asarray([0.3, 0.4, 0.5], dtype=np.float32))
-            match_name, _ = registry.match(
-                np.asarray([0.3, 0.4, 0.5], dtype=np.float32)
-            )
+            match_name, _ = registry.match(np.asarray([0.3, 0.4, 0.5], dtype=np.float32))
             self.assertIn(match_name, {"Alice", "Bob"})
 
             registry.save()
@@ -104,13 +99,9 @@ class SpeakerRegistrySchemaTest(unittest.TestCase):
             registry = SpeakerRegistry(str(path))
             self.assertTrue(registry.has("Alice"))
 
-            registry.update_centroid(
-                "Alice", np.asarray([0.2, 0.1, 0.3], dtype=np.float32)
-            )
+            registry.update_centroid("Alice", np.asarray([0.2, 0.1, 0.3], dtype=np.float32))
             registry.enroll("Bob", np.asarray([0.3, 0.4, 0.5], dtype=np.float32))
-            _match_name, score = registry.match(
-                np.asarray([0.2, 0.1, 0.3], dtype=np.float32)
-            )
+            _match_name, score = registry.match(np.asarray([0.2, 0.1, 0.3], dtype=np.float32))
             self.assertGreaterEqual(score, 0.0)
 
             registry.save()
@@ -138,9 +129,7 @@ class RegistryFactoryIntegrationTest(unittest.TestCase):
 
             # Ensure persistence works by instantiating a fresh manager.
             reloaded = diaremot.get_registry_manager(str(path))
-            match_name, reload_score = reloaded.match(
-                np.asarray([0.3, 0.2, 0.1], dtype=np.float32)
-            )
+            match_name, reload_score = reloaded.match(np.asarray([0.3, 0.2, 0.1], dtype=np.float32))
             self.assertEqual(match_name, "Alice")
             self.assertGreater(reload_score, 0.0)
 
@@ -150,9 +139,3 @@ class RegistryFactoryIntegrationTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
-
-
-
-
-

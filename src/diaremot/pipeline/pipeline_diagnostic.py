@@ -11,11 +11,14 @@ import json
 import shutil
 import subprocess
 import sys
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Dict, Iterable, Tuple
+from typing import Any
 
 from .audio_pipeline_core import (
     CORE_DEPENDENCY_REQUIREMENTS,
+)
+from .audio_pipeline_core import (
     diagnostics as core_diagnostics,
 )
 
@@ -47,7 +50,7 @@ class PipelineDiagnostic:
         modules: Iterable[str],
         *,
         warn_is_issue: bool = False,
-    ) -> Tuple[list[str], list[str]]:
+    ) -> tuple[list[str], list[str]]:
         """Collect issues/warnings for a subset of dependency modules."""
 
         diag = self._core_summary(require_versions=True)
@@ -86,7 +89,7 @@ class PipelineDiagnostic:
 
         return issues, warnings
 
-    def check_cache_issues(self) -> Tuple[bool, str]:
+    def check_cache_issues(self) -> tuple[bool, str]:
         """Check for cache-related issues"""
         cache_dir = Path(".cache")
         if not cache_dir.exists():
@@ -114,7 +117,7 @@ class PipelineDiagnostic:
             self.issues.append(f"Failed to clear cache: {e}")
             return False
 
-    def check_audio_dependencies(self) -> Tuple[bool, str]:
+    def check_audio_dependencies(self) -> tuple[bool, str]:
         """Check audio processing dependencies"""
         issues, warnings = self._summarize_modules(
             ("numpy", "scipy", "librosa", "soundfile"),
@@ -184,7 +187,7 @@ class PipelineDiagnostic:
 
         return fixed
 
-    def check_model_dependencies(self) -> Tuple[bool, str]:
+    def check_model_dependencies(self) -> tuple[bool, str]:
         """Check ML model dependencies"""
         issues, warnings = self._summarize_modules(
             (
@@ -206,7 +209,7 @@ class PipelineDiagnostic:
             return False, f"Model dependencies issues: {', '.join(issues)}"
         return True, "Model dependencies OK"
 
-    def check_pipeline_config(self) -> Tuple[bool, str]:
+    def check_pipeline_config(self) -> tuple[bool, str]:
         """Check pipeline configuration"""
         config_file = Path("pipeline_config.json")
 
@@ -236,7 +239,7 @@ class PipelineDiagnostic:
         except Exception:
             return False
 
-    def run_diagnostics(self) -> Dict:
+    def run_diagnostics(self) -> dict:
         """Run all diagnostics"""
         print("=" * 60)
         print("PIPELINE DIAGNOSTIC TOOL")
@@ -284,10 +287,7 @@ class PipelineDiagnostic:
                 any_fixed = True
 
         # Fix audio dependencies if needed
-        if any(
-            "audio" in issue.lower() or "soundfile" in issue.lower()
-            for issue in self.issues
-        ):
+        if any("audio" in issue.lower() or "soundfile" in issue.lower() for issue in self.issues):
             print("Fixing audio dependencies...")
             if self.fix_audio_dependencies():
                 print("  ✓ Audio dependencies updated")
@@ -295,7 +295,7 @@ class PipelineDiagnostic:
 
         return any_fixed
 
-    def generate_report(self, results: Dict) -> None:
+    def generate_report(self, results: dict) -> None:
         """Generate diagnostic report"""
         print("\n" + "=" * 60)
         print("DIAGNOSTIC REPORT")
@@ -333,9 +333,7 @@ class PipelineDiagnostic:
             if any("soundfile" in issue.lower() for issue in self.issues):
                 print("2. Install libsndfile (Windows):")
                 print("   • Via conda: conda install -c conda-forge libsndfile")
-                print(
-                    "   • Or download from: https://github.com/libsndfile/libsndfile/releases"
-                )
+                print("   • Or download from: https://github.com/libsndfile/libsndfile/releases")
 
         # Save report to file
         report_path = Path("diagnostic_report.json")

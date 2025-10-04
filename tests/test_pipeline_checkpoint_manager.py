@@ -60,9 +60,3 @@ def test_seeded_hash_prevents_disk_reads(monkeypatch, tmp_path, audio_file):
     )
 
     assert counting_open.calls == 0
-
-
-
-
-
-

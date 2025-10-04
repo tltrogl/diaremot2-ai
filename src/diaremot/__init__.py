@@ -12,7 +12,7 @@ import os
 import sys
 import types
 from pathlib import Path
-from typing import Optional, Dict, Any, Tuple
+from typing import Any
 
 from .io.download_utils import download_file
 
@@ -88,7 +88,7 @@ def _get_or_create_logger():
     return logger
 
 
-def get_preprocessor(config: Optional[Dict[str, Any]] = None):
+def get_preprocessor(config: dict[str, Any] | None = None):
     """Get AudioPreprocessor with configuration"""
     if "preprocessor" not in _cached_modules:
         try:
@@ -113,13 +113,13 @@ def get_preprocessor(config: Optional[Dict[str, Any]] = None):
     return AudioPreprocessor(preprocess_config)
 
 
-def get_diarizer(config: Optional[Dict[str, Any]] = None):
+def get_diarizer(config: dict[str, Any] | None = None):
     """Get SpeakerDiarizer with configuration and registry integration"""
     if "diarizer" not in _cached_modules:
         try:
             from .pipeline.speaker_diarization import (
-                SpeakerDiarizer,
                 DiarizationConfig,
+                SpeakerDiarizer,
             )
 
             _cached_modules["diarizer"] = (SpeakerDiarizer, DiarizationConfig)
@@ -138,7 +138,7 @@ def get_diarizer(config: Optional[Dict[str, Any]] = None):
     return SpeakerDiarizer(diar_config)
 
 
-def get_transcriber(config: Optional[Dict[str, Any]] = None):
+def get_transcriber(config: dict[str, Any] | None = None):
     """Get AudioTranscriber with CPU optimization"""
     if "transcriber" not in _cached_modules:
         try:
@@ -170,7 +170,7 @@ def get_transcriber(config: Optional[Dict[str, Any]] = None):
     return create_transcriber(**cpu_config)
 
 
-def get_pipeline(config: Optional[Dict[str, Any]] = None):
+def get_pipeline(config: dict[str, Any] | None = None):
     """Get enhanced AudioAnalysisPipelineV2 with full integration"""
     if "pipeline" not in _cached_modules:
         try:
@@ -186,7 +186,7 @@ def get_pipeline(config: Optional[Dict[str, Any]] = None):
     return AudioAnalysisPipelineV2(config)
 
 
-def get_registry_manager(registry_path: Optional[str] = None):
+def get_registry_manager(registry_path: str | None = None):
     """Get thread-safe speaker registry manager"""
     if "registry" not in _cached_modules:
         try:
@@ -207,7 +207,7 @@ def get_registry_manager(registry_path: Optional[str] = None):
     return SpeakerRegistryManager(resolved)
 
 
-def get_checkpoint_manager(checkpoint_dir: Optional[str] = None):
+def get_checkpoint_manager(checkpoint_dir: str | None = None):
     """Get pipeline checkpoint manager for resume functionality"""
     if "checkpoint" not in _cached_modules:
         try:
@@ -216,25 +216,21 @@ def get_checkpoint_manager(checkpoint_dir: Optional[str] = None):
             )
 
             _cached_modules["checkpoint"] = PipelineCheckpointManager
-            _get_or_create_logger().info(
-                "PipelineCheckpointManager loaded successfully"
-            )
+            _get_or_create_logger().info("PipelineCheckpointManager loaded successfully")
         except ImportError as e:
             _get_or_create_logger().error(f"Failed to load checkpoint system: {e}")
             raise
 
     PipelineCheckpointManager = _cached_modules["checkpoint"]
     resolved = (
-        checkpoint_dir
-        or os.getenv("DIAREMOT_CHECKPOINT_DIR")
-        or str(Path.cwd() / "checkpoints")
+        checkpoint_dir or os.getenv("DIAREMOT_CHECKPOINT_DIR") or str(Path.cwd() / "checkpoints")
     )
     return PipelineCheckpointManager(resolved)
 
 
 def create_integrated_pipeline(
-    config: Optional[Dict[str, Any]] = None,
-) -> Tuple[Any, Dict[str, Any]]:
+    config: dict[str, Any] | None = None,
+) -> tuple[Any, dict[str, Any]]:
     """Create fully integrated pipeline with all components"""
     config = config or {}
 
@@ -257,7 +253,7 @@ def create_integrated_pipeline(
 
 
 # Package health check
-def validate_system() -> Dict[str, Any]:
+def validate_system() -> dict[str, Any]:
     """Comprehensive system validation"""
     status = {
         "timestamp": __import__("time").strftime("%Y-%m-%d %H:%M:%S"),

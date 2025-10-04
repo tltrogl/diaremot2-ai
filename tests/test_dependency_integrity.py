@@ -8,10 +8,10 @@ heavy frameworks so they stay inexpensive in CI environments.
 from __future__ import annotations
 
 import ast
-import sys
-from pathlib import Path
-from typing import Iterable
 import re
+import sys
+from collections.abc import Iterable
+from pathlib import Path
 
 try:  # Python >=3.11
     import tomllib  # type: ignore[attr-defined]
@@ -130,13 +130,6 @@ def test_third_party_imports_are_declared() -> None:
         if dep_name not in deps:
             missing[name] = f"expected dependency '{dep_name}' not listed"
 
-    assert not missing, (
-        "Detected imports without matching dependency pins: "
-        + ", ".join(f"{mod} ({reason})" for mod, reason in sorted(missing.items()))
+    assert not missing, "Detected imports without matching dependency pins: " + ", ".join(
+        f"{mod} ({reason})" for mod, reason in sorted(missing.items())
     )
-
-
-
-
-
-

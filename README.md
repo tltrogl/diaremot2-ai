@@ -21,7 +21,13 @@ Outputs:
 ## Model set (CPU‑friendly)
 
 - **Diarization**: Diart (Silero VAD + ECAPA‑TDNN embeddings + AHC). Prefers ONNX, Torch fallback for Silero VAD.
-- **ASR**: Faster‑Whisper `tiny‑en` via CTranslate2 (`compute_type=int8`).
+  - **Adaptive VAD tuning**: Pipeline automatically relaxes VAD thresholds for soft-speech scenarios:
+    - `vad_threshold`: 0.22 (relaxed from CLI default 0.30)
+    - `vad_min_speech_sec`: 0.40s (relaxed from 0.80s)
+    - `vad_min_silence_sec`: 0.40s (relaxed from 0.80s)
+    - `speech_pad_sec`: 0.15s (relaxed from 0.20s)
+  - Override adaptive tuning via CLI: `--vad-threshold 0.3 --vad-min-speech-sec 0.8`
+- **ASR**: Faster‑Whisper `tiny.en` via CTranslate2 (default `compute_type=int8`).
 - **Tone (V/A/D)**: `audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim`.
 - **Speech emotion (8‑class)**: `Dpngtm/wav2vec2-emotion-recognition`.
 - **Text emotions (28)**: `SamLowe/roberta-base-go_emotions` (full distribution; keep top‑5).
@@ -37,49 +43,32 @@ Outputs:
 py -3.11 -m venv .venv
 . .\.venv\Scripts\Activate.ps1
 python -m pip install -U pip wheel setuptools
-python -m pip install -r requirements.txt
-python -m pip install -e .
+pip install -r requirements.txt
+pip install -e .
+```
+3) Dev tools:
+```powershell
+pip install ruff pytest mypy
 ```
 
-Tkinter bindings are required for the desktop GUI. Install the platform-specific
-system package before launching the app:
-
-```bash
-# Debian/Ubuntu: sudo apt-get update && sudo apt-get install -y python3-tk
-# macOS (Homebrew): brew install python-tk@3.11  # adjust to your Python version
-# Windows: ensure the "tcl/tk" Optional Feature is selected in the Python installer
-```
-
-### 3) Stage the pretrained models
-
-Set `DIAREMOT_MODEL_DIR` to the folder that contains the ONNX/CT2 assets listed
-below. The CLI and GUI both look in this path when loading models.
-
-```bash
-export DIAREMOT_MODEL_DIR=/opt/models         # Linux/macOS
-# Windows PowerShell
-#   $env:DIAREMOT_MODEL_DIR = "D:\models"
-```
-
-### 4) Run the pipeline
+## Codex Cloud usage
 
 ```bash
 ./setup.sh
 ./maint-codex.sh
-python -m diaremot.cli run --audio data/sample.wav --tag smoke --compute-type int8
+python -m diaremot.cli run --input data/sample.wav --outdir outputs/ --asr-compute-type int8
 ```
 
 ## Environment variables
 
 - `DIAREMOT_MODEL_DIR` — models root (e.g., `/workspace/models`).
-- `DIAREMOT_INTENT_MODEL_DIR` — optional override for the intent (BART) model. Defaults to
-  `<DIAREMOT_MODEL_DIR>/bart` when present, and automatically falls back to
-  `D:\diaremot\diaremot2-1\models\bart\` on Windows installs if that folder exists.
 - `HF_HOME`, `HUGGINGFACE_HUB_CACHE`, `TRANSFORMERS_CACHE`, `TORCH_HOME` — `./.cache/`.
 - Threads: `OMP_NUM_THREADS`, `MKL_NUM_THREADS`, `NUMEXPR_MAX_THREADS`.
 - `TOKENIZERS_PARALLELISM=false`.
 
 ## CSV schema (primary)
+
+The canonical schema is defined in `src/diaremot/pipeline/outputs.py::SEGMENT_COLUMNS` (39 columns):
 
 ```
 file_id,start,end,speaker_id,speaker_name,text,
@@ -90,12 +79,25 @@ intent_top,intent_top3_json,
 events_top3_json,noise_tag,
 asr_logprob_avg,snr_db,snr_db_sed,
 wpm,duration_s,words,pause_ratio,
+low_confidence_ser,vad_unstable,affect_hint,
+pause_count,pause_time_s,
+f0_mean_hz,f0_std_hz,
+loudness_rms,disfluency_count,
+error_flags,
 vq_jitter_pct,vq_shimmer_db,vq_hnr_db,vq_cpps_db,voice_quality_hint
 ```
 
-`events_top3_json` carries the top-k AudioSet clusters detected globally or per
-segment (when available), `noise_tag` surfaces the dominant background class,
-and `snr_db_sed` converts the SED noise score into an approximate SNR value for
-triage. The CSV also exposes normalized segment duration, token counts, and the
-pause ratio derived from paralinguistics, keeping downstream consumers aligned
-with the contract.
+**Key columns:**
+- `events_top3_json` — Top-k AudioSet clusters detected per segment
+- `noise_tag` — Dominant background class
+- `snr_db_sed` — Approximate SNR from SED noise score
+- `low_confidence_ser` — Speech emotion recognition confidence flag
+- `vad_unstable` — VAD instability indicator
+- `affect_hint` — Affect state summary (e.g., "calm-positive", "agitated-negative")
+- `pause_count`, `pause_time_s` — Pause metrics from paralinguistics
+- `f0_mean_hz`, `f0_std_hz` — Pitch statistics
+- `loudness_rms` — RMS loudness
+- `disfluency_count` — Filler words and hesitations
+- `error_flags` — Processing error indicators
+- `vq_jitter_pct`, `vq_shimmer_db`, `vq_hnr_db`, `vq_cpps_db` — Voice quality (Praat-Parselmouth)
+- `voice_quality_hint` — Voice quality interpretation

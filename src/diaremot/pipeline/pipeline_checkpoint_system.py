@@ -5,14 +5,14 @@ Handles incremental saves, resume functionality, and stage-based progress tracki
 """
 
 import json
+import logging
 import pickle
 import threading
-from pathlib import Path
-from typing import Dict, Any, Optional, List, Tuple, Union
+from dataclasses import asdict, dataclass
 from datetime import datetime
-from dataclasses import dataclass, asdict
 from enum import Enum
-import logging
+from pathlib import Path
+from typing import Any
 
 from ..utils.hash import hash_file
 
@@ -39,7 +39,7 @@ class CheckpointMetadata:
     file_hash: str
     audio_file: str
     progress_percent: float
-    stage_data: Dict[str, Any]
+    stage_data: dict[str, Any]
     total_segments: int = 0
     completed_segments: int = 0
     estimated_total_time: float = 0.0
@@ -57,7 +57,7 @@ class ProgressState:
     segments_total: int
     start_time: float
     last_checkpoint_time: float
-    estimated_completion: Optional[float] = None
+    estimated_completion: float | None = None
 
 
 class PipelineCheckpointManager:
@@ -82,14 +82,14 @@ class PipelineCheckpointManager:
         self._lock = threading.RLock()
 
         # Current state tracking
-        self.current_progress: Optional[ProgressState] = None
+        self.current_progress: ProgressState | None = None
         self.auto_checkpoint_interval = 300  # 5 minutes
 
         # Setup logging
         self.logger = logging.getLogger(__name__)
 
         # Cache for file hashes during a single pipeline run
-        self._hash_cache: Dict[str, str] = {}
+        self._hash_cache: dict[str, str] = {}
 
     def _cache_key(self, file_path: Path) -> str:
         file_path = Path(file_path)
@@ -98,14 +98,12 @@ class PipelineCheckpointManager:
         except Exception:
             return str(file_path)
 
-    def _normalize_hash_value(self, value: Optional[str]) -> str:
+    def _normalize_hash_value(self, value: str | None) -> str:
         if not value:
             return ""
         return value[:16]
 
-    def _get_file_hash(
-        self, file_path: Path, precomputed_hash: Optional[str] = None
-    ) -> str:
+    def _get_file_hash(self, file_path: Path, precomputed_hash: str | None = None) -> str:
         """Generate hash for file identification"""
         key = self._cache_key(file_path)
 
@@ -126,12 +124,12 @@ class PipelineCheckpointManager:
             self._hash_cache[key] = normalized
             return normalized
 
-    def seed_file_hash(self, audio_file: Union[str, Path], file_hash: str) -> None:
+    def seed_file_hash(self, audio_file: str | Path, file_hash: str) -> None:
         """Seed the file-hash cache with a precomputed value."""
         self._get_file_hash(Path(audio_file), precomputed_hash=file_hash)
 
     def _get_checkpoint_path(
-        self, audio_file: str, stage: ProcessingStage, file_hash: Optional[str] = None
+        self, audio_file: str, stage: ProcessingStage, file_hash: str | None = None
     ) -> Path:
         """Get checkpoint file path for audio file and stage"""
         audio_path = Path(audio_file)
@@ -140,12 +138,10 @@ class PipelineCheckpointManager:
         return self.checkpoint_dir / filename
 
     def _get_metadata_path(
-        self, audio_file: str, stage: ProcessingStage, file_hash: Optional[str] = None
+        self, audio_file: str, stage: ProcessingStage, file_hash: str | None = None
     ) -> Path:
         """Get metadata file path"""
-        checkpoint_path = self._get_checkpoint_path(
-            audio_file, stage, file_hash=file_hash
-        )
+        checkpoint_path = self._get_checkpoint_path(audio_file, stage, file_hash=file_hash)
         return checkpoint_path.with_suffix(".meta")
 
     def create_checkpoint(
@@ -154,18 +150,14 @@ class PipelineCheckpointManager:
         stage: ProcessingStage,
         data: Any,
         progress: float = 0.0,
-        stage_data: Optional[Dict] = None,
-        file_hash: Optional[str] = None,
+        stage_data: dict | None = None,
+        file_hash: str | None = None,
     ) -> bool:
         """Create checkpoint for current stage"""
         with self._lock:
             try:
-                checkpoint_path = self._get_checkpoint_path(
-                    audio_file, stage, file_hash=file_hash
-                )
-                metadata_path = self._get_metadata_path(
-                    audio_file, stage, file_hash=file_hash
-                )
+                checkpoint_path = self._get_checkpoint_path(audio_file, stage, file_hash=file_hash)
+                metadata_path = self._get_metadata_path(audio_file, stage, file_hash=file_hash)
                 audio_path = Path(audio_file)
                 resolved_hash = self._get_file_hash(audio_path)
 
@@ -181,17 +173,13 @@ class PipelineCheckpointManager:
                     audio_file=audio_file,
                     progress_percent=progress,
                     stage_data=stage_data or {},
-                    elapsed_time=(
-                        self._get_elapsed_time() if self.current_progress else 0.0
-                    ),
+                    elapsed_time=(self._get_elapsed_time() if self.current_progress else 0.0),
                 )
 
                 # Save metadata (convert enum to string for JSON serialization)
                 with open(metadata_path, "w") as f:
                     metadata_dict = asdict(metadata)
-                    metadata_dict["stage"] = (
-                        metadata.stage.value
-                    )  # Convert enum to string
+                    metadata_dict["stage"] = metadata.stage.value  # Convert enum to string
                     json.dump(metadata_dict, f, indent=2)
 
                 self.logger.info(f"Checkpoint created: {stage.value} ({progress:.1f}%)")
@@ -205,22 +193,18 @@ class PipelineCheckpointManager:
         self,
         audio_file: str,
         stage: ProcessingStage,
-        file_hash: Optional[str] = None,
-    ) -> Tuple[Any, CheckpointMetadata]:
+        file_hash: str | None = None,
+    ) -> tuple[Any, CheckpointMetadata]:
         """Load checkpoint data and metadata"""
         try:
-            checkpoint_path = self._get_checkpoint_path(
-                audio_file, stage, file_hash=file_hash
-            )
-            metadata_path = self._get_metadata_path(
-                audio_file, stage, file_hash=file_hash
-            )
+            checkpoint_path = self._get_checkpoint_path(audio_file, stage, file_hash=file_hash)
+            metadata_path = self._get_metadata_path(audio_file, stage, file_hash=file_hash)
 
             if not checkpoint_path.exists() or not metadata_path.exists():
                 return None, None
 
             # Load metadata first
-            with open(metadata_path, "r") as f:
+            with open(metadata_path) as f:
                 metadata_dict = json.load(f)
                 metadata_dict["stage"] = ProcessingStage(metadata_dict["stage"])
                 metadata = CheckpointMetadata(**metadata_dict)
@@ -228,27 +212,21 @@ class PipelineCheckpointManager:
             # Verify file hasn't changed
             current_hash = self._get_file_hash(Path(audio_file))
             if current_hash != metadata.file_hash:
-                self.logger.warning(
-                    f"File hash mismatch for {audio_file}, checkpoint may be stale"
-                )
+                self.logger.warning(f"File hash mismatch for {audio_file}, checkpoint may be stale")
                 return None, None
 
             # Load checkpoint data
             with open(checkpoint_path, "rb") as f:
                 data = pickle.load(f)
 
-            self.logger.info(
-                f"Checkpoint loaded: {stage.value} ({metadata.progress_percent:.1f}%)"
-            )
+            self.logger.info(f"Checkpoint loaded: {stage.value} ({metadata.progress_percent:.1f}%)")
             return data, metadata
 
         except Exception as e:
             self.logger.error(f"Failed to load checkpoint: {e}")
             return None, None
 
-    def get_resume_point(
-        self, audio_file: str
-    ) -> Tuple[ProcessingStage, Any, CheckpointMetadata]:
+    def get_resume_point(self, audio_file: str) -> tuple[ProcessingStage, Any, CheckpointMetadata]:
         """Find the latest checkpoint to resume from"""
         audio_path = Path(audio_file)
         file_hash = self._get_file_hash(audio_path)
@@ -263,9 +241,7 @@ class PipelineCheckpointManager:
             if stage == ProcessingStage.COMPLETE:
                 continue
 
-            data, metadata = self.load_checkpoint(
-                audio_file, stage, file_hash=hash_hint
-            )
+            data, metadata = self.load_checkpoint(audio_file, stage, file_hash=hash_hint)
             if data is not None and metadata is not None:
                 checkpoint_time = datetime.fromisoformat(metadata.timestamp)
 
@@ -296,9 +272,7 @@ class PipelineCheckpointManager:
 
             self.logger.info(f"Started processing: {audio_file}")
 
-    def update_progress(
-        self, stage: ProcessingStage, progress: float, segments_completed: int = 0
-    ):
+    def update_progress(self, stage: ProcessingStage, progress: float, segments_completed: int = 0):
         """Update current progress"""
         with self._lock:
             if not self.current_progress:
@@ -337,7 +311,7 @@ class PipelineCheckpointManager:
         )
         return time_since_checkpoint >= self.auto_checkpoint_interval
 
-    def get_progress_summary(self) -> Dict[str, Any]:
+    def get_progress_summary(self) -> dict[str, Any]:
         """Get current progress summary"""
         if not self.current_progress:
             return {"status": "not_started"}
@@ -406,9 +380,7 @@ class PipelineCheckpointManager:
         if removed_count > 0:
             self.logger.info(f"Cleaned up {removed_count} old checkpoints")
 
-    def list_checkpoints(
-        self, audio_file: Optional[str] = None
-    ) -> List[Dict[str, Any]]:
+    def list_checkpoints(self, audio_file: str | None = None) -> list[dict[str, Any]]:
         """List available checkpoints"""
         checkpoints = []
 
@@ -423,7 +395,7 @@ class PipelineCheckpointManager:
 
         for metadata_file in self.checkpoint_dir.glob(pattern):
             try:
-                with open(metadata_file, "r") as f:
+                with open(metadata_file) as f:
                     metadata = json.load(f)
 
                 checkpoints.append(
@@ -432,21 +404,16 @@ class PipelineCheckpointManager:
                         "stage": metadata.get("stage", "unknown"),
                         "progress": f"{metadata.get('progress_percent', 0):.1f}%",
                         "timestamp": metadata.get("timestamp", "unknown"),
-                        "elapsed_time": self._format_duration(
-                            metadata.get("elapsed_time", 0)
-                        ),
+                        "elapsed_time": self._format_duration(metadata.get("elapsed_time", 0)),
                         "file_size": (
-                            metadata_file.with_suffix(".checkpoint").stat().st_size
-                            / 1024
+                            metadata_file.with_suffix(".checkpoint").stat().st_size / 1024
                             if metadata_file.with_suffix(".checkpoint").exists()
                             else 0
                         ),
                     }
                 )
             except Exception as e:
-                self.logger.warning(
-                    f"Failed to read checkpoint metadata {metadata_file}: {e}"
-                )
+                self.logger.warning(f"Failed to read checkpoint metadata {metadata_file}: {e}")
 
         return sorted(checkpoints, key=lambda x: x["timestamp"], reverse=True)
 
@@ -507,9 +474,7 @@ class PipelineCheckpointManager:
                     except Exception as e:
                         self.logger.warning(f"Failed to delete {file_path}: {e}")
 
-            self.logger.info(
-                f"Deleted {removed_count} checkpoint files for {audio_file}"
-            )
+            self.logger.info(f"Deleted {removed_count} checkpoint files for {audio_file}")
             return removed_count > 0
 
         except Exception as e:
@@ -546,9 +511,7 @@ class CheckpointContext:
         self.data, metadata = self.manager.load_checkpoint(self.audio_file, self.stage)
         if self.data is not None:
             self.progress = metadata.progress_percent
-            self.manager.logger.info(
-                f"Resuming {self.stage.value} from {self.progress:.1f}%"
-            )
+            self.manager.logger.info(f"Resuming {self.stage.value} from {self.progress:.1f}%")
 
         return self
 
@@ -577,9 +540,7 @@ class CheckpointContext:
                 self.audio_file, self.stage, self.data, self.progress
             )
             if success:
-                self.manager.current_progress.last_checkpoint_time = (
-                    datetime.now().timestamp()
-                )
+                self.manager.current_progress.last_checkpoint_time = datetime.now().timestamp()
 
 
 # Integration helper for existing WhisperX modules
@@ -600,9 +561,7 @@ class PipelineIntegration:
                 if ctx.data is not None:
                     # Resume from checkpoint
                     segments = ctx.data.get("segments", [])
-                    completed_segments = len(
-                        [s for s in segments if s.get("completed", False)]
-                    )
+                    completed_segments = len([s for s in segments if s.get("completed", False)])
                     start_segment = completed_segments
                 else:
                     # Start fresh
@@ -616,9 +575,7 @@ class PipelineIntegration:
                 for i in range(start_segment, total_segments):
                     # Process individual segment
                     try:
-                        segment_result = transcription_func(
-                            audio_file, segment_index=i, **kwargs
-                        )
+                        segment_result = transcription_func(audio_file, segment_index=i, **kwargs)
                         segment_result["completed"] = True
 
                         if i < len(segments):
@@ -642,7 +599,7 @@ class PipelineIntegration:
     def wrap_diarization(self, diarization_func):
         """Wrap diarization function with checkpointing"""
 
-        def wrapped_diarization(audio_file: str, transcription_data: Dict, **kwargs):
+        def wrapped_diarization(audio_file: str, transcription_data: dict, **kwargs):
             with self.checkpoint_manager.processing_context(
                 audio_file, ProcessingStage.DIARIZATION
             ) as ctx:
@@ -661,7 +618,7 @@ class PipelineIntegration:
     def wrap_emotion_analysis(self, emotion_func):
         """Wrap emotion analysis with checkpointing"""
 
-        def wrapped_emotion_analysis(audio_file: str, diarization_data: Dict, **kwargs):
+        def wrapped_emotion_analysis(audio_file: str, diarization_data: dict, **kwargs):
             with self.checkpoint_manager.processing_context(
                 audio_file, ProcessingStage.EMOTION_ANALYSIS
             ) as ctx:
@@ -690,13 +647,9 @@ def main():
 
     parser = argparse.ArgumentParser(description="WhisperX Checkpoint Manager")
     parser.add_argument("--checkpoint-dir", default="checkpoints")
-    parser.add_argument(
-        "--action", choices=["list", "clean", "delete", "status"], required=True
-    )
+    parser.add_argument("--action", choices=["list", "clean", "delete", "status"], required=True)
     parser.add_argument("--audio-file", help="Audio file path")
-    parser.add_argument(
-        "--keep", type=int, default=3, help="Number of checkpoints to keep"
-    )
+    parser.add_argument("--keep", type=int, default=3, help="Number of checkpoints to keep")
 
     args = parser.parse_args()
 
@@ -710,17 +663,11 @@ def main():
 
         print(f"Found {len(checkpoints)} checkpoints:")
         print("-" * 80)
-        print(
-            f"{'Audio File':<25} {'Stage':<20} {'Progress':<10} {'Size (KB)':<10} {'Timestamp'}"
-        )
+        print(f"{'Audio File':<25} {'Stage':<20} {'Progress':<10} {'Size (KB)':<10} {'Timestamp'}")
         print("-" * 80)
 
         for cp in checkpoints:
-            audio_name = (
-                Path(cp["audio_file"]).name
-                if cp["audio_file"] != "unknown"
-                else "unknown"
-            )
+            audio_name = Path(cp["audio_file"]).name if cp["audio_file"] != "unknown" else "unknown"
             print(
                 f"{audio_name:<25} {cp['stage']:<20} {cp['progress']:<10} {cp['file_size']:<10.1f} {cp['timestamp']}"
             )

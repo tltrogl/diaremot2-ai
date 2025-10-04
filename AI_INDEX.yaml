@@ -1,0 +1,232 @@
+meta:
+  generated: '2025-10-04T00:00:00Z'
+  generator: claude-sonnet-4.5
+  purpose: Project index mapping pipeline stages → code, models, and outputs (CPU-only).
+  verified_against:
+  - src/diaremot/pipeline/stages/__init__.py
+  - src/diaremot/pipeline/outputs.py
+  - src/diaremot/cli.py
+  - AGENTS.md
+project:
+  name: DiaRemot — CPU‑Only Speech Intelligence Pipeline
+  overview: 'Long‑form, noisy audio → diarized transcript with per‑segment tone (V/A/D), 8‑class speech emotion, GoEmotions
+    (28) text emotions, intent (MNLI zero‑shot), SED for context, **required paralinguistics** (WPM/pauses + Praat‑Parselmouth:
+    jitter/shimmer/HNR/CPPS), persistent speakers, and HTML summary.'
+pipeline_spec:
+  dependency_check:
+    name: Dependency Validation
+    description: Validate runtime dependencies (transformers, onnxruntime, etc.)
+    stage_order: 1
+  preprocess:
+    name: Quiet‑Boost
+    stage_order: 2
+    steps:
+    - high‑pass (80–120 Hz)
+    - light denoise
+    - gated gain for low‑RMS speech
+    - gentle compression
+    - −20 LUFS loudness normalize
+    - resample → 16 kHz mono
+    preserve_transients: true
+  auto_tune:
+    name: Adaptive VAD Tuning
+    stage_order: 3
+    description: Adaptive VAD parameter tuning based on audio characteristics
+    runs_after: preprocess
+    runs_before: background_sed
+  background_sed:
+    name: Sound Event Detection
+    stage_order: 4
+    enabled: true
+    model: 'PANNs CNN14 (ONNX) — fallback: YAMNet'
+    framing:
+      frame_s: 1.0
+      hop_s: 0.5
+      mel_bins: 64
+      feature: log‑mel
+    post:
+      median_frames: 3
+      enter_thresh: 0.5
+      exit_thresh: 0.35
+      min_dur_s: 0.3
+      merge_gap_s: 0.2
+    labels_collapse: AudioSet 527 → ~20 groups
+    default: true
+    notes: Included in a normal run by default. If model assets are missing, stage logs a warning; prefer installing CNN14
+      ONNX + labels.
+  diarize:
+    name: Speaker Diarization
+    stage_order: 5
+    stack: Silero VAD + ECAPA‑TDNN (embeddings) + Agglomerative clustering (AHC)
+    params:
+      vad_threshold: 0.3
+      vad_min_speech_sec: 0.8
+      vad_min_silence_sec: 0.8
+      speech_pad_sec: 0.2
+      ahc_distance_threshold: 0.12
+      collar_sec: 0.25
+      min_turn_sec: 1.5
+    notes: CLI defaults shown above. Orchestrator may apply adaptive overrides (vad_threshold=0.22, vad_min_speech_sec=0.40, vad_min_silence_sec=0.40, speech_pad_sec=0.15, ahc_distance_threshold=0.02) based on audio characteristics.
+  transcribe:
+    name: Automatic Speech Recognition
+    stage_order: 6
+    backend: faster‑whisper (CTranslate2)
+    model: tiny‑en
+    compute_type: int8
+    compute_type_note: Default varies by entry point - asr_app.run uses int8, main cli.run uses float32. Override with --asr-compute-type
+    params:
+      beam_size: 1–2
+      temperature: 0.0
+      vad_filter: true
+      no_speech_threshold: 0.5
+    run_on: diarized speech turns only
+  paralinguistics:
+    name: Paralinguistic Feature Extraction
+    stage_order: 7
+    required: true
+    tooling: Praat‑Parselmouth
+    metrics:
+    - WPM
+    - duration_s
+    - words
+    - pause_count
+    - pause_time_s
+    - pause_ratio
+    - f0_mean_hz
+    - f0_std_hz
+    - loudness_rms
+    - disfluency_count
+    - vq_jitter_pct
+    - vq_shimmer_db
+    - vq_hnr_db
+    - vq_cpps_db
+    notes: Mandatory stage. Failures are surfaced; nulls only if a hard error is explicitly handled. All metrics output to SEGMENT_COLUMNS.
+  affect_and_assemble:
+    name: Affect Analysis and Assembly
+    stage_order: 8
+    audio_affect:
+      tone_VAD: audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim
+      speech_emotion_8: Dpngtm/wav2vec2-emotion-recognition
+      windowing: ≤30 s turns; average back to segment
+    text_analysis:
+      text_emotions_28: SamLowe/roberta-base-go_emotions (return_all_scores)
+      intent_zero_shot: facebook/bart-large-mnli on fixed intents
+      intents:
+      - question
+      - request
+      - instruction
+      - command
+      - complaint
+      - apology
+      - opinion
+      - agreement
+      - disagreement
+      - suggestion
+      - status_update
+      - small_talk
+      - gratitude
+      - greeting
+      - farewell
+    notes: Assembles final segment records with all audio + text + paralinguistic features.
+  overlap_interruptions:
+    name: Overlap and Interruption Analysis
+    stage_order: 9
+    description: Turn-taking analysis, interruption detection, overlap statistics
+  conversation_analysis:
+    name: Conversation Flow Analysis
+    stage_order: 10
+    description: Flow metrics (turn-taking balance, response latencies, dominance)
+  speaker_rollups:
+    name: Per-Speaker Summaries
+    stage_order: 11
+    description: Per-speaker summaries (total duration, V/A/D averages, emotion mix, WPM, voice quality)
+    speaker_registry:
+      embedding: ECAPA centroid per cluster
+      auto_assign: cosine ≥ 0.70
+      flag_range: 0.60–0.70
+  outputs:
+    name: File Output Generation
+    stage_order: 12
+    files:
+    - diarized_transcript_with_emotion.csv
+    - segments.jsonl
+    - speakers_summary.csv
+    - summary.html
+    - summary.pdf (optional, requires wkhtmltopdf)
+    - speaker_registry.json
+    - events_timeline.csv
+    - events.jsonl
+    - timeline.csv
+    - qc_report.json
+    schema: src/diaremot/pipeline/outputs.py::SEGMENT_COLUMNS (39 columns)
+models:
+- stage: diarization
+  name: Silero VAD
+  backend: Torch (preferred) or ONNX
+- stage: embeddings
+  name: ECAPA‑TDNN
+  backend: ONNX
+- stage: asr
+  name: Whisper tiny‑en
+  backend: CTranslate2
+  compute_type: int8
+- stage: tone
+  name: audeering/wav2vec2‑large‑robust‑12‑ft‑emotion‑msp‑dim
+  backend: Transformers (CPU)
+- stage: speech_emotion
+  name: Dpngtm/wav2vec2‑emotion‑recognition
+  backend: Transformers (CPU)
+- stage: text_emotions
+  name: SamLowe/roberta‑base‑go_emotions
+  backend: Transformers (CPU)
+- stage: intent
+  name: facebook/bart‑large‑mnli
+  backend: Transformers (CPU)
+  onnx_fallback: Prefers local ONNX exports (model_uint8.onnx under affect_intent_model_dir)
+- stage: sed
+  name: PANNs CNN14
+  backend: ONNXRuntime
+cpu_guardrails:
+  threads:
+    OMP_NUM_THREADS: 4
+    MKL_NUM_THREADS: 4
+    ASR_cpu_threads: 1
+  chunking:
+    ASR_max_chunk_min: 10
+    affect_max_turn_s: 30
+  caches:
+    HF_HOME: .cache/hf
+    HUGGINGFACE_HUB_CACHE: .cache/hf
+    TRANSFORMERS_CACHE: .cache/transformers
+    TORCH_HOME: .cache/torch
+  fallbacks: If any model missing, write neutral/empty fields and log conspicuously
+repo_layout:
+  package_root: src/diaremot
+  key_modules:
+    cli: src/diaremot/cli.py
+    orchestrator: src/diaremot/pipeline/orchestrator.py
+    stages: src/diaremot/pipeline/stages/
+    diarization: src/diaremot/pipeline/speaker_diarization.py
+    asr: src/diaremot/pipeline/stages/asr.py
+    affect: src/diaremot/affect/emotion_analyzer.py
+    paralinguistics: src/diaremot/affect/paralinguistics.py
+    sed: src/diaremot/affect/sed_panns.py
+    outputs: src/diaremot/pipeline/outputs.py
+    runtime_env: src/diaremot/pipeline/runtime_env.py
+    checkpoint: src/diaremot/pipeline/pipeline_checkpoint_system.py
+  entry_points:
+    typer_app: diaremot.cli:app
+    python_module: python -m diaremot.pipeline.run_pipeline
+    cli_entry: python -m diaremot.pipeline.cli_entry
+cli_examples:
+  main_app:
+    basic: python -m diaremot.cli run --input data/sample.wav --outdir outputs/ --asr-compute-type int8
+    with_profile: python -m diaremot.cli run --input data/sample.wav --outdir outputs/ --profile fast
+  asr_app:
+    basic: python -m diaremot.cli asr run --input data/sample.wav --outdir outputs/
+  cli_entry:
+    basic: python -m diaremot.pipeline.cli_entry --input data/sample.wav --outdir outputs/ --asr-compute-type int8
+  standardized_args:
+    input: --input (short: -i)
+    output: --outdir (short: -o)
+    compute_type: --asr-compute-type

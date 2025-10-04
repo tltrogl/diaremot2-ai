@@ -30,7 +30,7 @@ def _placeholder_segment(seg: dict[str, Any]) -> Any:
     )()
 
 
-def run(pipeline: "AudioAnalysisPipelineV2", state: PipelineState, guard: StageGuard) -> None:
+def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGuard) -> None:
     tx_in: list[dict[str, Any]] = []
     speaker_name_map: dict[str, str] = {}
     for turn in state.turns:
@@ -74,13 +74,9 @@ def run(pipeline: "AudioAnalysisPipelineV2", state: PipelineState, guard: StageG
             norm_tx.append(
                 {
                     "start": float(
-                        segment.get("start", 0.0)
-                        or segment.get("start_time", 0.0)
-                        or 0.0
+                        segment.get("start", 0.0) or segment.get("start_time", 0.0) or 0.0
                     ),
-                    "end": float(
-                        segment.get("end", 0.0) or segment.get("end_time", 0.0) or 0.0
-                    ),
+                    "end": float(segment.get("end", 0.0) or segment.get("end_time", 0.0) or 0.0),
                     "speaker_id": segment.get("speaker_id"),
                     "speaker_name": segment.get("speaker_name"),
                     "text": segment.get("text", ""),

@@ -4,7 +4,6 @@ from pathlib import Path
 
 import numpy as np
 
-
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 SRC_ROOT = PROJECT_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
@@ -130,7 +129,9 @@ def test_intent_pipeline_fallback_when_no_text(monkeypatch):
     analyzer = emotion_analyzer.EmotionIntentAnalyzer(affect_backend="onnx")
 
     monkeypatch.setattr(emotion_analyzer, "create_onnx_session", lambda *args, **kwargs: None)
-    monkeypatch.setattr(emotion_analyzer, "ensure_onnx_model", lambda *args, **kwargs: Path("missing"))
+    monkeypatch.setattr(
+        emotion_analyzer, "ensure_onnx_model", lambda *args, **kwargs: Path("missing")
+    )
 
     top, top3 = analyzer._infer_intent("")
 

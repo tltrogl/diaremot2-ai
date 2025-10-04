@@ -3,20 +3,21 @@
 # and processes them in manageable chunks to prevent memory issues
 
 from __future__ import annotations
-import numpy as np
-import soundfile as sf
-import librosa
-from scipy.signal import butter, filtfilt
-from scipy.ndimage import median_filter
-from dataclasses import dataclass
-from typing import Optional, Tuple, Dict, List
-from pathlib import Path
-import warnings
+
 import logging
-import tempfile
-import time
 import os
 import subprocess
+import tempfile
+import time
+import warnings
+from dataclasses import dataclass
+from pathlib import Path
+
+import librosa
+import numpy as np
+import soundfile as sf
+from scipy.ndimage import median_filter
+from scipy.signal import butter, filtfilt
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +40,7 @@ class PreprocessConfig:
     chunk_threshold_minutes: float = 30.0  # Split audio longer than this
     chunk_size_minutes: float = 20.0  # Each chunk duration
     chunk_overlap_seconds: float = 30.0  # Overlap between chunks
-    chunk_temp_dir: Optional[str] = None  # Use system temp if None
+    chunk_temp_dir: str | None = None  # Use system temp if None
 
     # High-pass
     hpf_hz: float = 80.0
@@ -97,7 +98,7 @@ class AudioHealth:
     dynamic_range_db: float
     floor_clipping_ratio: float
     is_chunked: bool = False
-    chunk_info: Optional[Dict] = None
+    chunk_info: dict | None = None
 
 
 @dataclass
@@ -137,7 +138,7 @@ def _is_uncompressed_pcm(info: sf.Info) -> bool:
 
 def _load_uncompressed_with_soundfile(
     source: Path, target_sr: int, mono: bool
-) -> Tuple[np.ndarray, int]:
+) -> tuple[np.ndarray, int]:
     """Read PCM WAV/AIFF directly via libsndfile."""
 
     y, sr = sf.read(source, always_2d=False, dtype="float32")
@@ -149,9 +150,7 @@ def _load_uncompressed_with_soundfile(
     return y.astype(np.float32), sr
 
 
-def _decode_with_ffmpeg(
-    source: Path, target_sr: int, mono: bool
-) -> Tuple[np.ndarray, int]:
+def _decode_with_ffmpeg(source: Path, target_sr: int, mono: bool) -> tuple[np.ndarray, int]:
     """Decode arbitrary containers via ffmpeg → temp wav → soundfile."""
 
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
@@ -202,12 +201,10 @@ def _decode_with_ffmpeg(
             pass
 
 
-def _safe_load_audio(
-    path: str, target_sr: int, mono: bool = True
-) -> Tuple[np.ndarray, int]:
+def _safe_load_audio(path: str, target_sr: int, mono: bool = True) -> tuple[np.ndarray, int]:
     p = Path(path)
 
-    info: Optional[sf.Info] = None
+    info: sf.Info | None = None
     try:
         info = sf.info(p)
     except Exception as exc_info:
@@ -228,7 +225,7 @@ def _safe_load_audio(
         raise RuntimeError(f"Cannot decode audio file {p} via ffmpeg: {exc}") from exc
 
 
-def _get_audio_duration(path: str, info: Optional[sf.Info] = None) -> float:
+def _get_audio_duration(path: str, info: sf.Info | None = None) -> float:
     """Get audio duration with a robust fallback chain."""
 
     if info is not None:
@@ -293,10 +290,10 @@ def _get_audio_duration(path: str, info: Optional[sf.Info] = None) -> float:
     return 0.0
 
 
-def _probe_audio_metadata(path: str) -> Tuple[float, Optional[sf.Info]]:
+def _probe_audio_metadata(path: str) -> tuple[float, sf.Info | None]:
     """Return the duration and cached soundfile.Info for ``path``."""
 
-    info: Optional[sf.Info] = None
+    info: sf.Info | None = None
     try:
         info = sf.info(path)
     except Exception as exc_info:
@@ -310,9 +307,9 @@ def _create_audio_chunks(
     audio_path: str,
     config: PreprocessConfig,
     *,
-    duration: Optional[float] = None,
-    info: Optional[sf.Info] = None,
-) -> List[ChunkInfo]:
+    duration: float | None = None,
+    info: sf.Info | None = None,
+) -> list[ChunkInfo]:
     logger.info(f"[chunks] Creating audio chunks for long file: {audio_path}")
 
     # Load audio file info (robust to compressed containers)
@@ -433,9 +430,7 @@ def _create_audio_chunks(
                     pass
 
         # Save chunk to temp file
-        chunk_filename = (
-            f"chunk_{chunk_id:03d}_{int(start_time):04d}s-{int(end_time):04d}s.wav"
-        )
+        chunk_filename = f"chunk_{chunk_id:03d}_{int(start_time):04d}s-{int(end_time):04d}s.wav"
         chunk_path = temp_dir / chunk_filename
         sf.write(chunk_path, chunk_audio, sr)
 
@@ -462,9 +457,7 @@ def _create_audio_chunks(
     return chunks
 
 
-def _merge_chunked_audio(
-    chunks: List[Tuple[np.ndarray, ChunkInfo]], target_sr: int
-) -> np.ndarray:
+def _merge_chunked_audio(chunks: list[tuple[np.ndarray, ChunkInfo]], target_sr: int) -> np.ndarray:
     logger.info(f"Merging {len(chunks)} processed chunks")
 
     if not chunks:
@@ -496,7 +489,7 @@ def _merge_chunked_audio(
     return merged.astype(np.float32)
 
 
-def _cleanup_chunks(chunks: List[ChunkInfo]) -> None:
+def _cleanup_chunks(chunks: list[ChunkInfo]) -> None:
     """Robust cleanup of temporary chunk files with retry logic."""
     logger.info(f"Cleaning up {len(chunks)} temporary chunk files")
     temp_dirs = set()
@@ -551,7 +544,7 @@ def _rms_db(y: np.ndarray) -> float:
     return _db(float(np.sqrt(np.mean(np.square(y)) + 1e-12)))
 
 
-def _frame_params(sr: int, frame_ms: int, hop_ms: int) -> Tuple[int, int]:
+def _frame_params(sr: int, frame_ms: int, hop_ms: int) -> tuple[int, int]:
     n_fft = int(round(frame_ms * 0.001 * sr))
     n_fft = max(256, 1 << int(np.ceil(np.log2(max(8, n_fft)))))
     hop = int(round(hop_ms * 0.001 * sr))
@@ -585,9 +578,7 @@ def _interp_per_sample(env: np.ndarray, hop: int, length: int) -> np.ndarray:
     return np.interp(t, t_env, env, left=env[0], right=env[-1])
 
 
-def _oversampled_clip_detect(
-    y: np.ndarray, factor: int = 4, thresh: float = 0.999
-) -> bool:
+def _oversampled_clip_detect(y: np.ndarray, factor: int = 4, thresh: float = 0.999) -> bool:
     if factor <= 1:
         return bool(np.any(np.abs(y) >= thresh))
     # Linear oversample (cheap; good enough for QC)
@@ -645,7 +636,7 @@ def _simple_vad(
 def _spectral_subtract_soft_vad(
     y: np.ndarray,
     sr: int,
-    speech_mask: Optional[np.ndarray],
+    speech_mask: np.ndarray | None,
     alpha_db: float,
     beta: float,
     p: float,
@@ -655,7 +646,7 @@ def _spectral_subtract_soft_vad(
     frame_ms: int,
     hop_ms: int,
     backoff_thresh: float,
-) -> Tuple[np.ndarray, float]:
+) -> tuple[np.ndarray, float]:
     n_fft, hop = _frame_params(sr, frame_ms, hop_ms)
     S = librosa.stft(y, n_fft=n_fft, hop_length=hop, window="hann")
     mag, phase = np.abs(S), np.angle(S)
@@ -698,9 +689,7 @@ def _spectral_subtract_soft_vad(
         floor_hits = (residual2 <= floor2).sum()
         total_bins = residual2.size
         floor_ratio = float(floor_hits) / float(total_bins + 1e-12)
-        logger.warning(
-            "[denoise] High floor clipping; applied backoff (ratio=%.3f)", floor_ratio
-        )
+        logger.warning("[denoise] High floor clipping; applied backoff (ratio=%.3f)", floor_ratio)
 
     S_hat = M * mag * np.exp(1j * phase)
     y_hat = librosa.istft(S_hat, hop_length=hop, window="hann", length=len(y))
@@ -713,32 +702,28 @@ def _spectral_subtract_soft_vad(
 
 
 class AudioPreprocessor:
-    def __init__(self, config: Optional[PreprocessConfig] = None):
+    def __init__(self, config: PreprocessConfig | None = None):
         self.config = config or PreprocessConfig()
 
-    def process_file(self, path: str) -> Tuple[np.ndarray, int, Optional[AudioHealth]]:
+    def process_file(self, path: str) -> tuple[np.ndarray, int, AudioHealth | None]:
         # Check if file needs chunking
         duration, info = _probe_audio_metadata(path)
         threshold_seconds = self.config.chunk_threshold_minutes * 60.0
 
         if self.config.auto_chunk_enabled and duration > threshold_seconds:
-            logger.info(
-                f"Long audio detected ({duration / 60:.1f}min), using auto-chunking"
-            )
+            logger.info(f"Long audio detected ({duration / 60:.1f}min), using auto-chunking")
             return self._process_file_chunked(path, duration, info)
         else:
             logger.info(f"Processing audio normally ({duration / 60:.1f}min)")
-            y, sr = _safe_load_audio(
-                path, target_sr=self.config.target_sr, mono=self.config.mono
-            )
+            y, sr = _safe_load_audio(path, target_sr=self.config.target_sr, mono=self.config.mono)
             return self.process_array(y, sr)
 
     def _process_file_chunked(
         self,
         path: str,
         duration: float,
-        info: Optional[sf.Info],
-    ) -> Tuple[np.ndarray, int, Optional[AudioHealth]]:
+        info: sf.Info | None,
+    ) -> tuple[np.ndarray, int, AudioHealth | None]:
         # Create chunks
         chunks_info = _create_audio_chunks(
             path,
@@ -749,9 +734,7 @@ class AudioPreprocessor:
 
         if not chunks_info:
             logger.warning("No chunks created, falling back to normal processing")
-            y, sr = _safe_load_audio(
-                path, target_sr=self.config.target_sr, mono=self.config.mono
-            )
+            y, sr = _safe_load_audio(path, target_sr=self.config.target_sr, mono=self.config.mono)
             return self.process_array(y, sr)
 
         processed_chunks = []
@@ -760,9 +743,7 @@ class AudioPreprocessor:
         try:
             # Process each chunk
             for chunk_info in chunks_info:
-                logger.info(
-                    f"Processing chunk {chunk_info.chunk_id}/{len(chunks_info) - 1}"
-                )
+                logger.info(f"Processing chunk {chunk_info.chunk_id}/{len(chunks_info) - 1}")
 
                 # Load and process chunk
                 y_chunk, sr = _safe_load_audio(
@@ -781,16 +762,12 @@ class AudioPreprocessor:
             merged_audio = _merge_chunked_audio(processed_chunks, self.config.target_sr)
 
             # Calculate combined health metrics
-            combined_health = self._combine_chunk_health(
-                chunk_healths, len(chunks_info)
-            )
+            combined_health = self._combine_chunk_health(chunk_healths, len(chunks_info))
             combined_health.is_chunked = True
             combined_health.chunk_info = {
                 "num_chunks": len(chunks_info),
                 "chunk_duration_minutes": self.config.chunk_size_minutes,
-                "total_duration_minutes": len(merged_audio)
-                / self.config.target_sr
-                / 60.0,
+                "total_duration_minutes": len(merged_audio) / self.config.target_sr / 60.0,
                 "overlap_seconds": self.config.chunk_overlap_seconds,
             }
 
@@ -805,7 +782,7 @@ class AudioPreprocessor:
             _cleanup_chunks(chunks_info)
 
     def _combine_chunk_health(
-        self, chunk_healths: List[AudioHealth], num_chunks: int
+        self, chunk_healths: list[AudioHealth], num_chunks: int
     ) -> AudioHealth:
         if not chunk_healths:
             return AudioHealth(
@@ -826,9 +803,7 @@ class AudioPreprocessor:
         avg_rms = float(np.mean([h.rms_db for h in chunk_healths]))
         avg_lufs = float(np.mean([h.est_lufs for h in chunk_healths]))
         avg_dynamic_range = float(np.mean([h.dynamic_range_db for h in chunk_healths]))
-        max_floor_clipping = float(
-            np.max([h.floor_clipping_ratio for h in chunk_healths])
-        )
+        max_floor_clipping = float(np.max([h.floor_clipping_ratio for h in chunk_healths]))
 
         return AudioHealth(
             snr_db=avg_snr,
@@ -841,9 +816,7 @@ class AudioPreprocessor:
             is_chunked=True,
         )
 
-    def process_array(
-        self, y: np.ndarray, sr: int
-    ) -> Tuple[np.ndarray, int, Optional[AudioHealth]]:
+    def process_array(self, y: np.ndarray, sr: int) -> tuple[np.ndarray, int, AudioHealth | None]:
         if y is None or len(y) == 0:
             return np.zeros(1, dtype=np.float32), sr, None
         y = y.astype(np.float32, copy=False)
@@ -954,9 +927,7 @@ class AudioPreprocessor:
         if peak > 0.95:
             safety_gain = 0.95 / peak
             y_norm = y_norm * safety_gain
-            logger.warning(
-                f"Applied safety limiting: {20 * np.log10(safety_gain):.1f} dB"
-            )
+            logger.warning(f"Applied safety limiting: {20 * np.log10(safety_gain):.1f} dB")
 
         # 8) Quality metrics
         y_final = y_norm.astype(np.float32)
@@ -965,9 +936,7 @@ class AudioPreprocessor:
         signal_power = np.mean(y_final**2)
         noise_estimate = np.percentile(y_final**2, 10)  # Bottom 10% as noise estimate
         snr_db = (
-            10 * np.log10((signal_power / max(noise_estimate, 1e-12)))
-            if signal_power > 0
-            else 0.0
+            10 * np.log10(signal_power / max(noise_estimate, 1e-12)) if signal_power > 0 else 0.0
         )
 
         # Silence detection
@@ -976,9 +945,7 @@ class AudioPreprocessor:
         silence_ratio = silence_frames / len(y_final) if len(y_final) > 0 else 1.0
 
         # Clipping detection with oversampling
-        clipping_detected = _oversampled_clip_detect(
-            y_final, self.config.oversample_factor
-        )
+        clipping_detected = _oversampled_clip_detect(y_final, self.config.oversample_factor)
 
         # Dynamic range
         dynamic_range_db = _dynamic_range_db(y_final)
@@ -1004,14 +971,10 @@ class AudioPreprocessor:
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(
-        description="Audio preprocessing with auto-chunking"
-    )
+    parser = argparse.ArgumentParser(description="Audio preprocessing with auto-chunking")
     parser.add_argument("input", help="Input audio file")
     parser.add_argument("output", help="Output audio file")
-    parser.add_argument(
-        "--target-sr", type=int, default=16000, help="Target sample rate"
-    )
+    parser.add_argument("--target-sr", type=int, default=16000, help="Target sample rate")
     parser.add_argument(
         "--denoise", choices=["none", "spectral_sub_soft"], default="spectral_sub_soft"
     )
@@ -1022,12 +985,8 @@ if __name__ == "__main__":
         default=30.0,
         help="Auto-chunk threshold (minutes)",
     )
-    parser.add_argument(
-        "--chunk-size", type=float, default=20.0, help="Chunk size (minutes)"
-    )
-    parser.add_argument(
-        "--no-chunking", action="store_true", help="Disable auto-chunking"
-    )
+    parser.add_argument("--chunk-size", type=float, default=20.0, help="Chunk size (minutes)")
+    parser.add_argument("--no-chunking", action="store_true", help="Disable auto-chunking")
 
     args = parser.parse_args()
 

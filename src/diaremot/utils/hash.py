@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from hashlib import blake2s, new
 from pathlib import Path
-from typing import IO, Iterable, Union
+from typing import IO
 
 
 def _iter_chunks(handle, chunk_size: int) -> Iterable[bytes]:
@@ -17,7 +17,7 @@ def _iter_chunks(handle, chunk_size: int) -> Iterable[bytes]:
 
 
 def hash_file(
-    path: Union[str, Path],
+    path: str | Path,
     *,
     algo: str = "blake2s",
     chunk_size: int = 8192,

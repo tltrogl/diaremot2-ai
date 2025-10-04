@@ -38,9 +38,7 @@ def _jsonable_turns(turns: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 tcopy["embedding"] = emb.tolist()
             elif hasattr(emb, "tolist"):
                 tcopy["embedding"] = emb.tolist()
-            elif emb is not None and not isinstance(
-                emb, list | float | int | str | bool
-            ):
+            elif emb is not None and not isinstance(emb, list | float | int | str | bool):
                 tcopy["embedding"] = None
         except (
             ImportError,
@@ -53,7 +51,7 @@ def _jsonable_turns(turns: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return out
 
 
-def run(pipeline: "AudioAnalysisPipelineV2", state: PipelineState, guard: StageGuard) -> None:
+def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGuard) -> None:
     turns: list[dict[str, Any]] = []
     duration_s = state.duration_s
 
@@ -89,9 +87,7 @@ def run(pipeline: "AudioAnalysisPipelineV2", state: PipelineState, guard: StageG
     elif state.resume_diar and state.diar_cache:
         turns = state.diar_cache.get("turns", []) or []
         if not turns:
-            pipeline.corelog.warn(
-                "Cached diar.json has 0 turns; proceeding with fallback"
-            )
+            pipeline.corelog.warn("Cached diar.json has 0 turns; proceeding with fallback")
             turns = [_fallback_turn(duration_s)]
         vad_toggles = 0
         try:

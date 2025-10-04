@@ -4,15 +4,16 @@ degrades gracefully and returns no tags."""
 from __future__ import annotations
 
 import csv
-from dataclasses import dataclass
 import logging
-from pathlib import Path
 import os
-from typing import Any, Dict, Optional, Tuple, List
-from contextlib import contextmanager
 import sys
+from contextlib import contextmanager
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
 
 import numpy as np
+
 from ..io.onnx_utils import create_onnx_session
 
 if os.name == "nt":
@@ -80,9 +81,9 @@ class SEDConfig:
     run_on_suspect_only: bool = True
     min_duration_sec: float = 0.25
     # Prefer a local model directory by default for offline reliability
-    model_dir: Optional[Path] = DEFAULT_PANNS_MODEL_DIR
+    model_dir: Path | None = DEFAULT_PANNS_MODEL_DIR
     # By default, analyze the full audio instead of truncating to a head slice.
-    max_eval_sec: Optional[float] = None
+    max_eval_sec: float | None = None
     eval_strategy: str = "head"  # "head" | "uniform"
 
 
@@ -96,7 +97,7 @@ class PANNSEventTagger:
     - Returns top-K labels with scores and a coarse noise score.
     """
 
-    def __init__(self, cfg: Optional[SEDConfig] = None, backend: str = "auto"):
+    def __init__(self, cfg: SEDConfig | None = None, backend: str = "auto"):
         self.cfg = cfg or SEDConfig()
         if self.cfg.model_dir is not None:
             self.cfg.model_dir = Path(self.cfg.model_dir)
@@ -111,9 +112,9 @@ class PANNSEventTagger:
             else:
                 backend = "none"
         self.backend = backend
-        self._tagger: Optional[AudioTagging] = None  # type: ignore
-        self._session: Optional["ort.InferenceSession"] = None
-        self._labels: Optional[List[str]] = None
+        self._tagger: AudioTagging | None = None  # type: ignore
+        self._session: ort.InferenceSession | None = None
+        self._labels: list[str] | None = None
         self.available = True
         self._ensure_model()
         if not self.available:
@@ -139,9 +140,7 @@ class PANNSEventTagger:
                             self._session = create_onnx_session(mp)
                             with lp.open() as f:
                                 reader = csv.DictReader(f)
-                                self._labels = [
-                                    row.get("display_name", "") for row in reader
-                                ]
+                                self._labels = [row.get("display_name", "") for row in reader]
                             return
                         except Exception as exc:
                             logger.info("Failed loading local ONNX model: %s", exc)
@@ -180,14 +179,10 @@ class PANNSEventTagger:
                                 self._session = create_onnx_session(mp)
                                 with lp.open() as f:
                                     reader = csv.DictReader(f)
-                                    self._labels = [
-                                        row.get("display_name", "") for row in reader
-                                    ]
+                                    self._labels = [row.get("display_name", "") for row in reader]
                                 return
                         except Exception as exc:
-                            logger.info(
-                                "Failed loading ONNX from env root %s: %s", root, exc
-                            )
+                            logger.info("Failed loading ONNX from env root %s: %s", root, exc)
                 if self._session is None or not self._labels:
                     logger.info(
                         "PANNs ONNX assets not found locally; skipping remote download fallback"
@@ -221,18 +216,13 @@ class PANNSEventTagger:
                     cand = self.cfg.model_dir / "class_labels_indices.csv"
                     if cand.exists():
                         src_labels = cand
-                if (
-                    src_labels
-                    and not (home_panns / "class_labels_indices.csv").exists()
-                ):
-                    (home_panns / "class_labels_indices.csv").write_bytes(
-                        src_labels.read_bytes()
-                    )
+                if src_labels and not (home_panns / "class_labels_indices.csv").exists():
+                    (home_panns / "class_labels_indices.csv").write_bytes(src_labels.read_bytes())
             except Exception:
                 pass
 
             # Resolve checkpoint file path if available
-            ckpt_path: Optional[Path] = None
+            ckpt_path: Path | None = None
             if self.cfg.model_dir and Path(self.cfg.model_dir).exists():
                 for name in [
                     "Cnn14_mAP=0.431.pth",
@@ -283,14 +273,12 @@ class PANNSEventTagger:
         else:
             self.available = False
 
-    def _resample_to_32k(self, audio: np.ndarray, sr: int) -> Tuple[np.ndarray, int]:
+    def _resample_to_32k(self, audio: np.ndarray, sr: int) -> tuple[np.ndarray, int]:
         if sr == 32000:
             return audio.astype(np.float32, copy=False), sr
         if _HAVE_LIBROSA:
             try:
-                y = librosa.resample(
-                    audio.astype(np.float32), orig_sr=sr, target_sr=32000
-                )
+                y = librosa.resample(audio.astype(np.float32), orig_sr=sr, target_sr=32000)
                 return y.astype(np.float32), 32000
             except Exception:
                 pass
@@ -306,7 +294,7 @@ class PANNSEventTagger:
         y = np.interp(x_new, x_old, audio).astype(np.float32)
         return y, 32000
 
-    def tag(self, audio_16k_mono: np.ndarray, sr: int) -> Optional[Dict[str, Any]]:
+    def tag(self, audio_16k_mono: np.ndarray, sr: int) -> dict[str, Any] | None:
         if not self.available:
             return None
         if audio_16k_mono is None or audio_16k_mono.size == 0:

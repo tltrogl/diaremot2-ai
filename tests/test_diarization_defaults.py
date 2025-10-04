@@ -6,9 +6,7 @@ try:
     import numpy as np
     from scipy.io import wavfile
 except ModuleNotFoundError:  # pragma: no cover - exercised only when deps missing
-    pytest.skip(
-        "numpy and scipy.io are required for diarization tests", allow_module_level=True
-    )
+    pytest.skip("numpy and scipy.io are required for diarization tests", allow_module_level=True)
 
 from diaremot.pipeline import speaker_diarization as sd
 
@@ -72,9 +70,3 @@ def test_default_threshold_merges_single_speaker(monkeypatch):
 
     assert len(segments) == 1
     assert {seg["speaker"] for seg in segments} == {"Speaker_1"}
-
-
-
-
-
-

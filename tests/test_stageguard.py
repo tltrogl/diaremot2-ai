@@ -1,10 +1,9 @@
-from pathlib import Path
-
 import importlib
 import logging
 import sys
 import types
 import uuid
+from pathlib import Path
 
 import pytest
 
@@ -50,15 +49,11 @@ def _install_audio_pipeline_stubs() -> None:
 
     _register_stub("librosa", _librosa_builder)
     if "librosa" in sys.modules and not hasattr(sys.modules["librosa"], "util"):
-        sys.modules["librosa"].util = types.SimpleNamespace(
-            frame=lambda *args, **kwargs: []
-        )
+        sys.modules["librosa"].util = types.SimpleNamespace(frame=lambda *args, **kwargs: [])
 
     def _scipy_builder():
         scipy_stub = types.ModuleType("scipy")
-        scipy_stub.signal = types.SimpleNamespace(
-            resample_poly=lambda audio, up, down: audio
-        )
+        scipy_stub.signal = types.SimpleNamespace(resample_poly=lambda audio, up, down: audio)
         return scipy_stub
 
     _register_stub("scipy", _scipy_builder)
@@ -521,4 +516,3 @@ def test_cpu_diarizer_uses_optimized_wrapper(tmp_path, monkeypatch):
     assert isinstance(pipeline.diar, cpu_module.CPUOptimizedSpeakerDiarizer)
     assert isinstance(pipeline.diar.base, _TrackingSpeakerDiarizer)
     assert pipeline.diar.config.max_speakers == 3
-

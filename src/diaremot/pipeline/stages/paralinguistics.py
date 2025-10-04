@@ -8,7 +8,7 @@ from .base import PipelineState
 __all__ = ["run"]
 
 
-def run(pipeline: "AudioAnalysisPipelineV2", state: PipelineState, guard: StageGuard) -> None:
+def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGuard) -> None:
     metrics: dict[int, dict[str, object]] = {}
     if not pipeline.stats.config_snapshot.get("transcribe_failed"):
         tmp_metrics = pipeline._extract_paraling(state.y, state.sr, state.norm_tx)

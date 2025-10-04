@@ -5,7 +5,6 @@ from __future__ import annotations
 from . import audio_pipeline_core as _core
 from .cache_env import configure_local_cache_env
 
-
 if "_DIAREMOT_CACHE_ENV_CONFIGURED" not in globals():
     configure_local_cache_env()
     _DIAREMOT_CACHE_ENV_CONFIGURED = True

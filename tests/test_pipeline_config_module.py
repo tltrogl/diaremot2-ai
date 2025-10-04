@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Iterator, Tuple
 
 import pytest
 
@@ -25,9 +25,9 @@ def test_build_pipeline_config_merges_and_validates() -> None:
 def test_dependency_summary_handles_import_errors(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def fake_iter() -> Iterator[
-        Tuple[str, str, object | None, str | None, Exception | None, Exception | None]
-    ]:
+    def fake_iter() -> (
+        Iterator[tuple[str, str, object | None, str | None, Exception | None, Exception | None]]
+    ):
         yield ("missing", "1.0", None, None, ImportError("boom"), None)
         yield ("ok", "1.0", object(), "1.2", None, None)
 

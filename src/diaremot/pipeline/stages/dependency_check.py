@@ -9,7 +9,7 @@ from .base import PipelineState
 __all__ = ["run"]
 
 
-def run(pipeline: "AudioAnalysisPipelineV2", state: PipelineState, guard: StageGuard) -> None:
+def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGuard) -> None:
     dep_summary = dependency_health_summary()
     unhealthy = [k for k, v in dep_summary.items() if v.get("status") != "ok"]
     pipeline.corelog.event("dependency_check", "summary", unhealthy=unhealthy)
