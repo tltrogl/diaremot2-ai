@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 from typing import Any
 
 import numpy as np
@@ -12,6 +13,37 @@ from ..outputs import ensure_segment_keys
 from .base import PipelineState
 
 __all__ = ["run"]
+
+
+def _estimate_snr_db_from_noise(noise_score: Any) -> float | None:
+    """Convert a PANNs noise score into an approximate SNR in dB.
+
+    The raw ``noise_score`` returned by :class:`PANNSEventTagger` is a sum of
+    clip-wise probabilities for labels that are considered "noise-like". In
+    practice the value tends to fall within ``[0, ~2]`` for speech recordings.
+
+    We map that scalar onto a coarse signal-to-noise ratio estimate using a
+    logarithmic curve so that small increases in noise probability have a
+    noticeable impact while still saturating gracefully for very noisy clips.
+    The heuristic below assumes ~35 dB SNR for pristine audio and rolls off
+    toward 0 dB as ``noise_score`` grows. Results are clamped to ``[-5, 35]``
+    so downstream consumers always receive a finite float.
+    """
+
+    try:
+        score = float(noise_score)
+    except (TypeError, ValueError):
+        return None
+
+    if score <= 0.0:
+        return 35.0
+
+    snr = 35.0 - 20.0 * math.log10(1.0 + 10.0 * score)
+    if snr < -5.0:
+        return -5.0
+    if snr > 35.0:
+        return 35.0
+    return snr
 
 
 def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGuard) -> None:
@@ -32,6 +64,20 @@ def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGua
 
         aff = pipeline._affect_unified(clip, state.sr, text)
         pm = state.para_metrics.get(idx, {})
+
+        duration_s = _coerce_positive_float(pm.get("duration_s"))
+        if duration_s is None:
+            duration_s = max(0.0, end - start)
+
+        words = _coerce_int(pm.get("words"))
+        if words is None:
+            words = len(text.split())
+
+        pause_ratio = _coerce_positive_float(pm.get("pause_ratio"))
+        if pause_ratio is None:
+            pause_time = _coerce_positive_float(pm.get("pause_time_s")) or 0.0
+            pause_ratio = (pause_time / duration_s) if duration_s > 0 else 0.0
+        pause_ratio = max(0.0, min(1.0, pause_ratio))
 
         vad = aff.get("vad", {})
         speech_emotion = aff.get("speech_emotion", {})
@@ -69,6 +115,9 @@ def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGua
             "asr_logprob_avg": seg.get("asr_logprob_avg"),
             "snr_db": seg.get("snr_db"),
             "wpm": pm.get("wpm", 0.0),
+            "duration_s": duration_s,
+            "words": words,
+            "pause_ratio": pause_ratio,
             "pause_count": pm.get("pause_count", 0),
             "pause_time_s": pm.get("pause_time_s", 0.0),
             "f0_mean_hz": pm.get("f0_mean_hz", 0.0),
@@ -82,7 +131,42 @@ def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGua
             "voice_quality_hint": pm.get("vq_note"),
             "error_flags": seg.get("error_flags", ""),
         }
+
+        sed_payload = state.sed_info or {}
+        if isinstance(sed_payload, dict) and sed_payload:
+            top_events = sed_payload.get("top") or []
+            try:
+                row["events_top3_json"] = json.dumps(top_events, ensure_ascii=False)
+            except (TypeError, ValueError):
+                row["events_top3_json"] = "[]"
+            row["noise_tag"] = sed_payload.get("dominant_label")
+            snr_db_sed = _estimate_snr_db_from_noise(sed_payload.get("noise_score"))
+            if snr_db_sed is not None:
+                row["snr_db_sed"] = snr_db_sed
+
         segments_final.append(ensure_segment_keys(row))
 
     state.segments_final = segments_final
     guard.done(segments=len(segments_final))
+
+
+def _coerce_positive_float(value: Any) -> float | None:
+    try:
+        result = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(result) or result < 0:
+        return None
+    return result
+
+
+def _coerce_int(value: Any) -> int | None:
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        try:
+            return int(float(value))
+        except (TypeError, ValueError):
+            return None

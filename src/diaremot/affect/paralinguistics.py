@@ -2517,10 +2517,14 @@ def extract(wav: np.ndarray, sr: int, segs: list[dict[str, Any]]) -> list[dict[s
             start = max(0.0, min(start, total))
             end = max(start, min(end, total))
             text = s.get("text") or ""
+            duration_s = max(0.0, end - start)
+            words = len(text.split())
             feats = compute_segment_features_v2(wav, sr, start, end, text, cfg)
             out.append(
                 {
                     "wpm": feats.get("wpm"),
+                    "duration_s": duration_s,
+                    "words": words,
                     "pause_count": feats.get("pause_count"),
                     "pause_time_s": feats.get("pause_total_sec"),
                     "pause_ratio": feats.get("pause_ratio"),

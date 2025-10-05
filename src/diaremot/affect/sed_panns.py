@@ -10,11 +10,16 @@ import sys
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
 import numpy as np
 
 from ..io.onnx_utils import create_onnx_session
+from ..io.onnx_runtime_guard import (
+    OnnxRuntimeUnavailable,
+    format_unavailable_message,
+    onnxruntime_available,
+)
 from ..pipeline.runtime_env import DEFAULT_MODELS_ROOT, iter_model_roots
 
 MODEL_ROOTS = tuple(iter_model_roots())
@@ -39,13 +44,12 @@ try:  # pragma: no cover - optional dependency
 except Exception:  # pragma: no cover - env dependent
     _HAVE_LIBROSA = False
 
-try:
-    import onnxruntime as ort  # type: ignore
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    import onnxruntime as ort
 
-    _HAVE_ORT = True
-except Exception:  # pragma: no cover - env dependent
-    _HAVE_ORT = False
-    ort = None  # type: ignore
+_HAVE_ORT = onnxruntime_available()
+if not _HAVE_ORT:
+    logger.info("ONNXRuntime unavailable (%s)", format_unavailable_message())
 
 try:
     # Cheap check without importing (avoids triggering wget in panns_inference)
@@ -113,7 +117,7 @@ class PANNSEventTagger:
                 backend = "none"
         self.backend = backend
         self._tagger: AudioTagging | None = None  # type: ignore
-        self._session: ort.InferenceSession | None = None
+        self._session: "onnxruntime.InferenceSession" | None = None
         self._labels: list[str] | None = None
         self.available = True
         self._ensure_model()
@@ -142,6 +146,13 @@ class PANNSEventTagger:
                                 reader = csv.DictReader(f)
                                 self._labels = [row.get("display_name", "") for row in reader]
                             return
+                        except OnnxRuntimeUnavailable as exc:
+                            logger.info(
+                                "Failed loading local ONNX model; switching to fallback: %s",
+                                exc,
+                            )
+                            self._session = None
+                            self._labels = None
                         except Exception as exc:
                             logger.info("Failed loading local ONNX model: %s", exc)
                             self._session = None
@@ -181,6 +192,14 @@ class PANNSEventTagger:
                                     reader = csv.DictReader(f)
                                     self._labels = [row.get("display_name", "") for row in reader]
                                 return
+                        except OnnxRuntimeUnavailable as exc:
+                            logger.info(
+                                "Failed loading ONNX from env root %s; switching to fallback: %s",
+                                root,
+                                exc,
+                            )
+                            self._session = None
+                            self._labels = None
                         except Exception as exc:
                             logger.info("Failed loading ONNX from env root %s: %s", root, exc)
                 if self._session is None or not self._labels:
