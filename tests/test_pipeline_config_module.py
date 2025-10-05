@@ -78,3 +78,6 @@ def test_pipeline_config_rejects_invalid_formats() -> None:
 
     with pytest.raises(ValueError):
         PipelineConfig(cpu_threads=0)
+
+    with pytest.raises(ValueError):
+        PipelineConfig(affect_analyzer_threads=0)
