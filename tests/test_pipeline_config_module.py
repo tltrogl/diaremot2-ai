@@ -48,6 +48,7 @@ def test_pipeline_config_normalises_path_and_choice_fields(tmp_path: Path) -> No
         affect_text_model_dir=str(tmp_path / "text"),
         affect_intent_model_dir=tmp_path / "intent",
         affect_backend="TORCH",
+        affect_analyzer_threads=4,
         asr_backend="Faster",
         vad_backend="AUTO",
         loudness_mode="BROADCAST",
@@ -62,6 +63,7 @@ def test_pipeline_config_normalises_path_and_choice_fields(tmp_path: Path) -> No
     assert cfg.affect_text_model_dir == tmp_path / "text"
     assert cfg.affect_intent_model_dir == tmp_path / "intent"
     assert cfg.affect_backend == "torch"
+    assert cfg.affect_analyzer_threads == 4
     assert cfg.asr_backend == "faster"
     assert cfg.vad_backend == "auto"
     assert cfg.loudness_mode == "broadcast"
@@ -78,3 +80,6 @@ def test_pipeline_config_rejects_invalid_formats() -> None:
 
     with pytest.raises(ValueError):
         PipelineConfig(cpu_threads=0)
+
+    with pytest.raises(ValueError):
+        PipelineConfig(affect_analyzer_threads=0)

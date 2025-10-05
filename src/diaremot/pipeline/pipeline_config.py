@@ -24,6 +24,7 @@ DEFAULT_PIPELINE_CONFIG: dict[str, Any] = {
     "affect_backend": "onnx",
     "affect_text_model_dir": None,
     "affect_intent_model_dir": None,
+    "affect_analyzer_threads": None,
     "beam_size": 1,
     "temperature": 0.0,
     "no_speech_threshold": 0.50,

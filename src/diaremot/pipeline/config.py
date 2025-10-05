@@ -61,6 +61,7 @@ class PipelineConfig:
     affect_backend: str = "onnx"
     affect_text_model_dir: Path | None = None
     affect_intent_model_dir: Path | None = None
+    affect_analyzer_threads: int | None = None
     beam_size: int = 1
     temperature: float = 0.0
     no_speech_threshold: float = 0.50
@@ -117,6 +118,14 @@ class PipelineConfig:
             ):
                 raise ValueError("intent_labels must be an iterable of strings")
             self.intent_labels = [str(label) for label in self.intent_labels]
+
+        if self.affect_analyzer_threads is not None:
+            try:
+                threads = int(self.affect_analyzer_threads)
+            except (TypeError, ValueError) as exc:
+                raise ValueError("affect_analyzer_threads must be an integer > 0") from exc
+            self._validate_positive_int("affect_analyzer_threads", threads)
+            self.affect_analyzer_threads = threads
 
         self.affect_backend = self._lower_choice(
             "affect_backend", self.affect_backend, {"auto", "onnx", "torch"}
