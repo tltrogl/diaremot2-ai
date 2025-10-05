@@ -119,11 +119,11 @@ class PipelineConfig:
             self.intent_labels = [str(label) for label in self.intent_labels]
 
         self.affect_backend = self._lower_choice(
-            "affect_backend", self.affect_backend, {"auto", "onnx", "torch"}
+            "affect_backend", self.affect_backend, {"auto", "onnx"}
         )
         self.asr_backend = self._lower_choice("asr_backend", self.asr_backend, None)
         self.vad_backend = self._lower_choice(
-            "vad_backend", self.vad_backend, {"auto", "onnx", "torch"}
+            "vad_backend", self.vad_backend, {"auto", "onnx"}
         )
         self.loudness_mode = self._lower_choice(
             "loudness_mode", self.loudness_mode, {"asr", "broadcast"}
@@ -217,7 +217,6 @@ CORE_DEPENDENCY_REQUIREMENTS: dict[str, str] = {
     "scipy": "1.10",
     "librosa": "0.10",
     "soundfile": "0.12",
-    "torch": "2.0",
     "ctranslate2": "3.10",
     "faster_whisper": "1.0",
     "pandas": "2.0",

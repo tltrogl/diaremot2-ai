@@ -6,18 +6,15 @@ import json
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
-import socket
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 import librosa
 import numpy as np
 import scipy.signal
 import os
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from ..io.onnx_utils import create_onnx_session
-
-WINDOWS_MODELS_ROOT = Path("D:/models") if os.name == "nt" else None
+from .runtime_env import DEFAULT_MODELS_ROOT, iter_model_roots
 
 # --- FIXED: sklearn AgglomerativeClustering wrapper for metric/affinity drift ---
 try:
@@ -60,50 +57,6 @@ if not logger.handlers:
     h.setFormatter(logging.Formatter("[%(levelname)s] %(message)s"))
     logger.addHandler(h)
 logger.setLevel(logging.INFO)
-
-
-def _bool_env(name: str) -> Optional[bool]:
-    """Parse a boolean environment variable."""
-
-    val = os.getenv(name)
-    if val is None:
-        return None
-    norm = val.strip().lower()
-    if norm in {"1", "true", "yes", "on"}:
-        return True
-    if norm in {"0", "false", "no", "off"}:
-        return False
-    return None
-
-
-def _can_reach_host(host: str, port: int = 443, timeout: float = 3.0) -> bool:
-    """Return True when a TCP connection to ``host`` succeeds quickly."""
-
-    try:
-        with socket.create_connection((host, port), timeout=timeout):
-            return True
-    except OSError:
-        return False
-
-
-def _torch_repo_cached() -> bool:
-    """Detect whether the Silero TorchHub repo already exists locally."""
-
-    try:
-        import torch.hub as hub
-
-        hub_dir = Path(hub.get_dir())
-    except Exception:
-        return False
-
-    candidates = [
-        hub_dir / "snakers4_silero-vad_master",
-        hub_dir / "snakers4_silero-vad_main",
-        hub_dir / "silero-vad",  # custom mirrors
-    ]
-    return any(path.exists() for path in candidates)
-
-
 def _resolve_state_shape(shape: Tuple[Any, ...] | None) -> Tuple[int, ...]:
     """Return a concrete hidden-state shape for Silero ONNX sessions."""
 
@@ -131,8 +84,8 @@ class DiarizationConfig:
     vad_min_speech_sec: float = 0.8
     vad_min_silence_sec: float = 0.8
     speech_pad_sec: float = 0.2
-    # VAD backend preference: 'auto' | 'torch' | 'onnx'
-    vad_backend: str = "torch"
+    # VAD backend preference: 'auto' | 'onnx'
+    vad_backend: str = "onnx"
 
     # Embedding windows
     embed_window_sec: float = 1.5
@@ -177,10 +130,10 @@ class DiarizedTurn:
 
 
 class _SileroWrapper:
-    """Silero VAD wrapper with optional ONNX Runtime backend.
+    """Silero VAD wrapper that runs exclusively on ONNX Runtime.
 
-    Prefers ONNX if an exported model is available locally, otherwise falls
-    back to the TorchHub PyTorch implementation (fully CPU).
+    When ONNX models are unavailable the wrapper degrades to an internal energy
+    VAD heuristic instead of invoking any TorchHub fallback.
     """
 
     def __init__(
@@ -206,204 +159,112 @@ class _SileroWrapper:
 
     # ------------------------------------------------------------------
     def _load(self) -> None:
-        """Load Silero VAD honoring backend preference (onnx|torch|auto)."""
+        """Load Silero VAD ONNX session from the configured model roots."""
 
-        # Prefer Torch by default for reliability across exports
-        def _load_torch():
-            override = _bool_env("SILERO_VAD_TORCH")
-            if override is False:
-                logger.info("Silero VAD Torch backend disabled via SILERO_VAD_TORCH")
+        def _iter_candidates() -> Iterator[Path]:
+            explicit = os.getenv("SILERO_VAD_ONNX_PATH")
+            if explicit:
+                yield Path(explicit)
+            for root in iter_model_roots():
+                yield root / "silero_vad.onnx"
+                yield root / "silero" / "vad.onnx"
+                yield root / "vad" / "silero.onnx"
+            yield DEFAULT_MODELS_ROOT / "silero_vad.onnx"
+            yield Path.cwd() / "models" / "silero_vad.onnx"
+
+        def _initialise_session(model_path: Path) -> bool:
+            try:
+                session = create_onnx_session(model_path, threads=1)
+            except Exception as exc:  # pragma: no cover - defensive guard
+                logger.info("Silero VAD ONNX unavailable at %s: %s", model_path, exc)
                 return False
 
-            if not _torch_repo_cached():
-                # Skip TorchHub when offline to avoid hanging on git clone
-                if override is not True and not _can_reach_host(
-                    "github.com", timeout=3.0
+            inputs = session.get_inputs()
+            outputs = session.get_outputs()
+            self.session = session
+            self.input_name = inputs[0].name if inputs else None
+            self.output_name = outputs[0].name if outputs else None
+
+            self._onnx_input_name = None
+            self._onnx_state_name = None
+            self._onnx_sr_name = None
+            self._onnx_state_output_index = None
+            self._onnx_state_shape = (2, 1, 128)
+
+            for inp in inputs:
+                lower = inp.name.lower()
+                if self._onnx_input_name is None and (
+                    lower == "input" or lower.endswith("/input") or "input" in lower
                 ):
-                    logger.info(
-                        "Silero VAD TorchHub repo not cached and GitHub unreachable; "
-                        "falling back to energy VAD"
-                    )
-                    return False
+                    self._onnx_input_name = inp.name
+                elif self._onnx_state_name is None and "state" in lower:
+                    self._onnx_state_name = inp.name
+                    try:
+                        self._onnx_state_shape = _resolve_state_shape(
+                            tuple(getattr(inp, "shape", ()))
+                        )
+                    except Exception:
+                        self._onnx_state_shape = (2, 1, 128)
+                elif self._onnx_sr_name is None and (
+                    lower == "sr" or "sample_rate" in lower or "samplerate" in lower
+                ):
+                    self._onnx_sr_name = inp.name
 
-            timeout_env = os.getenv("SILERO_TORCH_LOAD_TIMEOUT")
-            try:
-                timeout = float(timeout_env) if timeout_env else 30.0
-            except ValueError:
-                timeout = 30.0
-            timeout = max(5.0, timeout)
+            if self._onnx_input_name is None and inputs:
+                self._onnx_input_name = inputs[0].name
 
-            import torch.hub as hub
+            if self._onnx_state_name is None:
+                for inp in inputs:
+                    if "state" in inp.name.lower():
+                        self._onnx_state_name = inp.name
+                        self._onnx_state_shape = _resolve_state_shape(
+                            tuple(getattr(inp, "shape", ()))
+                        )
+                        break
 
-            def _hub_load():
-                return hub.load(
-                    "snakers4/silero-vad",
-                    "silero_vad",
-                    force_reload=False,
-                    trust_repo=True,
-                )
+            if self._onnx_sr_name is None:
+                for inp in inputs:
+                    lower = inp.name.lower()
+                    if lower.startswith("sr") or lower == "sr":
+                        self._onnx_sr_name = inp.name
+                        break
 
-            try:
-                with ThreadPoolExecutor(max_workers=1) as pool:
-                    future = pool.submit(_hub_load)
-                    self.model, utils = future.result(timeout=timeout)
-            except FuturesTimeoutError:
-                logger.warning(
-                    "Silero VAD TorchHub load timed out after %.1fs; using fallback",
-                    timeout,
-                )
-                self.model = None
-                self.get_speech_timestamps = None
-                return False
-            except Exception as e:
-                logger.warning(f"Silero VAD TorchHub unavailable: {e}")
-                self.model = None
-                self.get_speech_timestamps = None
-                return False
+            for idx, out in enumerate(outputs):
+                lower = out.name.lower()
+                if idx == 0:
+                    self.output_name = out.name
+                if self._onnx_state_output_index is None and "state" in lower:
+                    self._onnx_state_output_index = idx
 
-            (
-                self.get_speech_timestamps,
-                self.save_audio,
-                self.read_audio,
-                self.VADIterator,
-                self.collect_chunks,
-            ) = utils
-            self.model.eval()
-            logger.info("Silero VAD PyTorch model loaded (TorchHub)")
+            if self._onnx_state_output_index is None and len(outputs) > 1:
+                self._onnx_state_output_index = 1
+
+            self._onnx_state_cache = None
+            self._onnx_context_cache = None
+            self._onnx_last_sr = None
+
+            logger.info("Silero VAD ONNX model loaded: %s", model_path)
             return True
 
-        def _load_onnx():
-            try:
-                from pathlib import Path
-                from ..io.onnx_utils import create_onnx_session
-
-                onnx_path = os.getenv("SILERO_VAD_ONNX_PATH")
-                if not onnx_path:
-                    candidates = [
-                        WINDOWS_MODELS_ROOT / "silero_vad.onnx"
-                        if WINDOWS_MODELS_ROOT
-                        else None,
-                        WINDOWS_MODELS_ROOT / "silero" / "vad.onnx"
-                        if WINDOWS_MODELS_ROOT
-                        else None,
-                        Path.cwd() / "models" / "silero_vad.onnx",
-                        Path.cwd() / "models" / "silero" / "vad.onnx",
-                    ]
-                    for cand in candidates:
-                        if cand and Path(cand).exists():
-                            onnx_path = str(Path(cand))
-                            break
-                    if not onnx_path:
-                        for cand in candidates:
-                            if cand:
-                                onnx_path = str(Path(cand))
-                                break
-                if onnx_path and Path(onnx_path).exists():
-                    self.session = create_onnx_session(onnx_path, threads=1)
-                    inputs = self.session.get_inputs()
-                    outputs = self.session.get_outputs()
-                    self.input_name = inputs[0].name if inputs else None
-                    self.output_name = outputs[0].name if outputs else None
-
-                    self._onnx_input_name = None
-                    self._onnx_state_name = None
-                    self._onnx_sr_name = None
-                    self._onnx_state_output_index = None
-                    self._onnx_state_shape = (2, 1, 128)
-
-                    for inp in inputs:
-                        lower = inp.name.lower()
-                        if self._onnx_input_name is None and (
-                            lower == "input"
-                            or lower.endswith("/input")
-                            or "input" in lower
-                        ):
-                            self._onnx_input_name = inp.name
-                        elif self._onnx_state_name is None and "state" in lower:
-                            self._onnx_state_name = inp.name
-                            try:
-                                self._onnx_state_shape = _resolve_state_shape(
-                                    tuple(getattr(inp, "shape", ()))
-                                )
-                            except Exception:
-                                self._onnx_state_shape = (2, 1, 128)
-                        elif self._onnx_sr_name is None and (
-                            lower == "sr"
-                            or "sample_rate" in lower
-                            or "samplerate" in lower
-                        ):
-                            self._onnx_sr_name = inp.name
-
-                    if self._onnx_input_name is None and inputs:
-                        self._onnx_input_name = inputs[0].name
-                    if self._onnx_state_name is None:
-                        for inp in inputs:
-                            if "state" in inp.name.lower():
-                                self._onnx_state_name = inp.name
-                                self._onnx_state_shape = _resolve_state_shape(
-                                    tuple(getattr(inp, "shape", ()))
-                                )
-                                break
-                    if self._onnx_sr_name is None:
-                        for inp in inputs:
-                            lower = inp.name.lower()
-                            if lower.startswith("sr") or "sr" == lower:
-                                self._onnx_sr_name = inp.name
-                                break
-
-                    for idx, out in enumerate(outputs):
-                        lower = out.name.lower()
-                        if idx == 0:
-                            self.output_name = out.name
-                        if self._onnx_state_output_index is None and "state" in lower:
-                            self._onnx_state_output_index = idx
-
-                    if self._onnx_state_output_index is None and len(outputs) > 1:
-                        self._onnx_state_output_index = 1
-
-                    self._onnx_state_cache = None
-                    self._onnx_context_cache = None
-                    self._onnx_last_sr = None
-
-                    logger.info(f"Silero VAD ONNX model loaded: {onnx_path}")
-                    return True
-            except Exception as e:
-                logger.info(f"Silero VAD ONNX unavailable: {e}")
-            self.session = None
-            self.input_name = None
-            self.output_name = None
-            return False
-
         pref = (self.backend_preference or "auto").lower()
+        tried: set[Path] = set()
+        for candidate in _iter_candidates():
+            path = Path(candidate)
+            if path in tried:
+                continue
+            tried.add(path)
+            if not path.exists():
+                continue
+            if _initialise_session(path):
+                return
+
         if pref == "onnx":
-            if not _load_onnx():
-                raise RuntimeError("Silero VAD ONNX requested but unavailable")
-            return
+            raise RuntimeError("Silero VAD ONNX requested but unavailable")
 
-        if pref == "torch":
-            if not _load_torch():
-                raise RuntimeError("Silero VAD Torch backend requested but unavailable")
-            return
-
-        # auto: prefer ONNX when available, fall back to TorchHub only when viable
-        if _load_onnx():
-            return
-
-        override = _bool_env("SILERO_VAD_TORCH")
-        should_try_torch = override is True
-        if override is None:
-            should_try_torch = _torch_repo_cached() or _can_reach_host(
-                "github.com", timeout=3.0
-            )
-
-        if should_try_torch and _load_torch():
-            return
-        if should_try_torch:
-            logger.info("Silero VAD Torch backend unavailable; proceeding without it")
-        else:
-            logger.info(
-                "Silero VAD Torch backend skipped (offline/disabled); using fallbacks"
-            )
+        logger.info("Silero VAD ONNX assets not found; falling back to energy VAD")
+        self.session = None
+        self.input_name = None
+        self.output_name = None
 
     # ------------------------------------------------------------------
     def _detect_with_onnx(
@@ -574,27 +435,8 @@ class _SileroWrapper:
             except Exception as e:  # pragma: no cover - inference issues
                 logger.warning(f"Silero ONNX VAD failed: {e}")
                 return []
-
-        if self.model is None or self.get_speech_timestamps is None:
-            return []
-        try:
-            import torch
-
-            wav_t = torch.from_numpy(wav.astype(np.float32))
-            ts = self.get_speech_timestamps(
-                wav_t,
-                self.model,
-                sampling_rate=sr,
-                threshold=self.threshold,
-                min_speech_duration_ms=int(float(min_speech_sec) * 1000),
-                min_silence_duration_ms=int(float(min_silence_sec) * 1000),
-                speech_pad_ms=int(self.speech_pad_sec * 1000),
-            )
-            spans = [(t["start"] / sr, t["end"] / sr) for t in ts]
-            return _merge_regions(spans, gap=min_silence_sec)
-        except Exception as e:  # pragma: no cover - inference issues
-            logger.warning(f"Silero VAD failed: {e}")
-            return []
+        logger.info("Silero VAD ONNX session unavailable; returning empty result")
+        return []
 
 
 class _ECAPAWrapper:
