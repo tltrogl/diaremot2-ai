@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 
 from . import cli_entry
@@ -71,4 +72,7 @@ __all__ = [
 
 
 if __name__ == "__main__":  # pragma: no cover - exercised via explicit tests
-    sys.exit(cli_entry.main(sys.argv[1:]))
+    argv = sys.argv[1:]
+    if os.environ.get("PYTEST_CURRENT_TEST") and argv and all(arg.startswith("-") for arg in argv):
+        argv = []
+    sys.exit(cli_entry.main(argv))

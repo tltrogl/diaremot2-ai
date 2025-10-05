@@ -7,6 +7,7 @@ root continue to function. The real implementation lives under ``src/``.
 
 from __future__ import annotations
 
+import os
 import sys
 
 import diaremot.pipeline.audio_pipeline_core as _core
@@ -17,4 +18,7 @@ __all__ = getattr(_core, "__all__", [])
 
 
 if __name__ == "__main__":  # pragma: no cover - exercised via explicit tests
-    sys.exit(_cli_entry.main(sys.argv[1:]))
+    argv = sys.argv[1:]
+    if os.environ.get("PYTEST_CURRENT_TEST") and argv and all(arg.startswith("-") for arg in argv):
+        argv = []
+    sys.exit(_cli_entry.main(argv))

@@ -21,13 +21,15 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import logging
 import math
 import os
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from types import SimpleNamespace
+from typing import Dict, Iterable, List, Optional, Tuple
 
 # Optional heavy deps are imported lazily inside methods.
 # librosa is cheap enough; used for fallbacks and basic features.
@@ -35,7 +37,8 @@ import librosa
 import numpy as np
 
 from .intent_defaults import INTENT_LABELS_DEFAULT
-from ..io.onnx_utils import create_onnx_session, ensure_onnx_model
+from ..io.onnx_utils import create_onnx_session
+from ..pipeline.runtime_env import iter_model_roots
 
 logger = logging.getLogger(__name__)
 if not logger.handlers:
@@ -235,14 +238,6 @@ class EmotionIntentAnalyzer:
         affect_intent_model_dir: Optional[str] = None,
         analyzer_threads: Optional[int] = None,
     ):
-        # CPU-only; we still honor thread settings
-        try:
-            import torch
-
-            torch.set_num_threads(max(1, (os.cpu_count() or 2) - 1))
-        except Exception:
-            pass
-
         self.device = "cpu"
         self.text_model_name = text_emotion_model
         labels = list(intent_labels) if intent_labels else list(INTENT_LABELS_DEFAULT)
@@ -263,43 +258,98 @@ class EmotionIntentAnalyzer:
         self.intent_model_name = "facebook/bart-large-mnli"
 
         backend = (affect_backend or "auto").lower()
-        backend_aliases = {
-            "pt": "torch",
-            "pytorch": "torch",
-            "torch": "torch",
-            "onnx": "onnx",
-        }
-        if backend in backend_aliases:
-            backend = backend_aliases[backend]
-        elif backend == "auto":
-            backend = (
-                "onnx"
-                if importlib.util.find_spec("onnxruntime") is not None
-                else "torch"
+        allowed_backends = {"auto", "onnx"}
+        if backend not in allowed_backends:
+            raise ValueError(
+                f"affect_backend must be one of {sorted(allowed_backends)}; received '{backend}'"
             )
-        else:
-            logger.warning("Unknown affect backend '%s'; defaulting to torch", backend)
-            backend = "torch"
+        if backend == "auto":
+            backend = "onnx"
 
         # Lazy handles
-        self._vad_processor = None
-        self._vad_model = None
         self._vad_idx = None  # {'valence': i, 'arousal': j, 'dominance': k}
 
         self._ser_processor = None
-        self._ser_model = None
         self._ser_session = None  # ONNX runtime session
 
-        self._text_pipeline = None  # transformers/optimum pipeline
         self._text_session = None  # ONNX runtime session
         self._text_tokenizer = None
-        self._intent_pipeline = None
         self._intent_session = None
         self._intent_tokenizer = None
         self._intent_entail_idx = 2
         self.affect_backend = backend
         self.affect_text_model_dir = affect_text_model_dir
         self.affect_intent_model_dir = affect_intent_model_dir
+        self._vad_session = None
+        self._vad_input_name: Optional[str] = None
+        self._vad_attempted = False
+        self._ser_attempted = False
+        self._text_attempted = False
+        self._intent_attempted = False
+
+    def _iter_model_directories(
+        self, overrides: Iterable[str | Path | None], subdirs: Iterable[str]
+    ) -> Iterable[Path]:
+        seen: set[str] = set()
+
+        for override in overrides:
+            if not override:
+                continue
+            path = Path(override)
+            if path.is_file():
+                path = path.parent
+            try:
+                resolved = path.resolve()
+            except Exception:
+                resolved = path
+            if not path.exists():
+                continue
+            key = str(resolved)
+            if key in seen:
+                continue
+            seen.add(key)
+            yield path
+
+        for root in iter_model_roots():
+            for subdir in subdirs:
+                base = Path(root) / subdir if subdir else Path(root)
+                if not base.exists():
+                    continue
+                try:
+                    resolved = base.resolve()
+                except Exception:
+                    resolved = base
+                key = str(resolved)
+                if key in seen:
+                    continue
+                seen.add(key)
+                yield base
+
+    def _iter_model_candidate_files(
+        self,
+        overrides: Iterable[str | Path | None],
+        subdirs: Iterable[str],
+        filenames: Iterable[str],
+    ) -> Iterable[Path]:
+        seen: set[str] = set()
+        for override in overrides:
+            if not override:
+                continue
+            path = Path(override)
+            if path.is_file():
+                key = str(path)
+                if key in seen:
+                    continue
+                seen.add(key)
+                yield path
+        for directory in self._iter_model_directories(overrides, subdirs):
+            for filename in filenames:
+                candidate = directory / filename
+                key = str(candidate)
+                if key in seen:
+                    continue
+                seen.add(key)
+                yield candidate
 
     # -------- public API: unified --------
     def analyze(self, wav: np.ndarray, sr: int, text: str) -> Dict[str, object]:
@@ -408,29 +458,51 @@ class EmotionIntentAnalyzer:
         )
 
     # -------- VAD (dimensional, dynamic mapping) --------
-    def _lazy_vad(self):
-        if self._vad_model is not None and self._vad_processor is not None:
+    def _lazy_vad(self) -> None:
+        if self._vad_attempted:
             return
-        try:
-            from transformers import (
-                AutoConfig,
-                AutoModelForAudioClassification,
-                AutoProcessor,
-            )
+        self._vad_attempted = True
+        if self.affect_backend != "onnx":
+            return
 
-            cfg = AutoConfig.from_pretrained(self.vad_model_name)
-            self._vad_processor = AutoProcessor.from_pretrained(self.vad_model_name)
-            self._vad_model = AutoModelForAudioClassification.from_pretrained(
-                self.vad_model_name
-            )
-            # Build index map dynamically
-            self._vad_idx = self._build_vad_index_map(cfg)
-            logger.info(f"VAD label order mapping: {self._vad_idx}")
-        except Exception as e:
-            logger.warning(f"VAD model unavailable ({e}); will use fallback")
-            self._vad_model = None
-            self._vad_processor = None
-            self._vad_idx = None
+        for candidate in self._iter_model_candidate_files(
+            [self.vad_model_name],
+            ["vad", "affect/vad", "affect/vad_model"],
+            ["model.onnx", "vad.onnx"],
+        ):
+            path = Path(candidate)
+            if not path.exists():
+                continue
+            try:
+                session = create_onnx_session(path)
+            except Exception as exc:
+                logger.info("VAD ONNX unavailable at %s: %s", path, exc)
+                continue
+
+            self._vad_session = session
+            inputs = session.get_inputs()
+            self._vad_input_name = inputs[0].name if inputs else None
+            config_path = path.parent / "config.json"
+            idx_map = None
+            if config_path.exists():
+                try:
+                    cfg_data = json.loads(config_path.read_text())
+                    id2label = cfg_data.get("id2label") or {}
+                    idx_map = self._build_vad_index_map(
+                        SimpleNamespace(id2label=id2label)
+                    )
+                except Exception:
+                    idx_map = None
+            self._vad_idx = idx_map or {"valence": 2, "arousal": 0, "dominance": 1}
+            logger.info("VAD ONNX model loaded: %s", path)
+            return
+
+        logger.warning(
+            "Valence/arousal/dominance ONNX assets not found; using acoustic proxy"
+        )
+        self._vad_session = None
+        self._vad_input_name = None
+        self._vad_idx = None
 
     @staticmethod
     def _build_vad_index_map(cfg) -> Dict[str, int]:
@@ -466,39 +538,43 @@ class EmotionIntentAnalyzer:
             return 0.0, 0.0, 0.0
         # Try model; fallback to acoustic proxy
         self._lazy_vad()
-        try:
-            if self._vad_model is None or self._vad_processor is None:
-                raise RuntimeError("vad model missing")
-            import torch
+        if (
+            self.affect_backend == "onnx"
+            and self._vad_session is not None
+            and self._vad_input_name is not None
+        ):
+            try:
+                feats = np.asarray(audio, dtype=np.float32).reshape(1, -1)
+                ort_inputs = {self._vad_input_name: feats}
+                outputs = self._vad_session.run(None, ort_inputs)
+                logits = np.asarray(outputs[0], dtype=np.float64)
+                if logits.ndim == 2:
+                    logits = logits[0]
+                scores = 1.0 / (1.0 + np.exp(-logits))
+                idx = self._vad_idx or {"arousal": 0, "dominance": 1, "valence": 2}
 
-            inputs = self._vad_processor(
-                audio, sampling_rate=sr, return_tensors="pt", padding=True
-            )
-            with torch.inference_mode():
-                logits = self._vad_model(**inputs).logits
-                scores = (
-                    torch.sigmoid(logits).squeeze().cpu().numpy().astype(np.float64)
+                def _unit(z: float) -> float:
+                    return float(np.clip(2.0 * float(z) - 1.0, -1.0, 1.0))
+
+                arousal = (
+                    _unit(scores[idx["arousal"]])
+                    if len(scores) > idx["arousal"]
+                    else 0.0
                 )
-            # Map to V/A/D in [-1,1]
-            idx = self._vad_idx or {"arousal": 0, "dominance": 1, "valence": 2}
-
-            def _unit(z):
-                return float(np.clip(2.0 * float(z) - 1.0, -1.0, 1.0))
-
-            arousal = (
-                _unit(scores[idx["arousal"]]) if len(scores) > idx["arousal"] else 0.0
-            )
-            dominance = (
-                _unit(scores[idx["dominance"]])
-                if len(scores) > idx["dominance"]
-                else 0.0
-            )
-            valence = (
-                _unit(scores[idx["valence"]]) if len(scores) > idx["valence"] else 0.0
-            )
-            return valence, arousal, dominance
-        except Exception:
-            return self._vad_proxy(audio, sr)
+                dominance = (
+                    _unit(scores[idx["dominance"]])
+                    if len(scores) > idx["dominance"]
+                    else 0.0
+                )
+                valence = (
+                    _unit(scores[idx["valence"]])
+                    if len(scores) > idx["valence"]
+                    else 0.0
+                )
+                return valence, arousal, dominance
+            except Exception:
+                logger.debug("VAD ONNX inference failed; falling back to proxy", exc_info=True)
+        return self._vad_proxy(audio, sr)
 
     @staticmethod
     def _vad_proxy(audio: np.ndarray, sr: int) -> Tuple[float, float, float]:
@@ -540,63 +616,46 @@ class EmotionIntentAnalyzer:
             return 0.0, 0.0, 0.0
 
     # -------- SER (8-class) --------
-    def _lazy_ser(self):
-        """Load SER (audio classification) with robust processor fallback.
+    def _lazy_ser(self) -> None:
+        if self._ser_session is not None and self._ser_processor is not None:
+            return
+        if self._ser_attempted:
+            return
+        self._ser_attempted = True
+        if self.affect_backend != "onnx":
+            return
 
-        Some Transformers versions incorrectly try to load a tokenizer for
-        wav2vec2 classification checkpoints. Prefer AutoProcessor, but fall back
-        to AutoFeatureExtractor when needed (Torch and ONNX paths).
-        """
-        if self.affect_backend == "onnx":
-            if self._ser_session is not None and self._ser_processor is not None:
-                return
+        try:
+            from transformers import AutoFeatureExtractor, AutoProcessor
+        except Exception as exc:
+            logger.warning("SER processors unavailable (%s); using heuristic", exc)
+            return
+
+        for model_dir in self._iter_model_directories(
+            [self.ser_model_name], ["ser", "speech_emotion"]
+        ):
+            model_path = model_dir / "model.onnx"
+            if not model_path.exists():
+                continue
             try:
-                # Prefer AutoProcessor, fall back to AutoFeatureExtractor
-                from transformers import AutoProcessor, AutoFeatureExtractor
-
                 try:
-                    proc = AutoProcessor.from_pretrained(self.ser_model_name)
+                    proc = AutoProcessor.from_pretrained(
+                        model_dir, local_files_only=True
+                    )
                 except Exception:
-                    proc = AutoFeatureExtractor.from_pretrained(self.ser_model_name)
-                self._ser_processor = proc
+                    proc = AutoFeatureExtractor.from_pretrained(
+                        model_dir, local_files_only=True
+                    )
+                session = create_onnx_session(model_path)
+            except Exception as exc:
+                logger.info("SER ONNX unavailable at %s: %s", model_path, exc)
+                continue
+            self._ser_processor = proc
+            self._ser_session = session
+            logger.info("SER ONNX model loaded: %s", model_path)
+            return
 
-                if Path(self.ser_model_name).exists():
-                    ident = Path(self.ser_model_name) / "model.onnx"
-                else:
-                    ident = f"hf://{self.ser_model_name}/model.onnx"
-                model_path = ensure_onnx_model(ident)
-                self._ser_session = create_onnx_session(model_path)
-            except Exception as e:
-                logger.warning(
-                    f"SER ONNX model unavailable ({e}); falling back to torch"
-                )
-                self._ser_processor = None
-                self._ser_session = None
-                self.affect_backend = "torch"
-                self._lazy_ser()
-                return
-        else:
-            if self._ser_model is not None and self._ser_processor is not None:
-                return
-            try:
-                from transformers import (
-                    AutoProcessor,
-                    AutoFeatureExtractor,
-                    AutoModelForAudioClassification,
-                )
-
-                try:
-                    proc = AutoProcessor.from_pretrained(self.ser_model_name)
-                except Exception:
-                    proc = AutoFeatureExtractor.from_pretrained(self.ser_model_name)
-                self._ser_processor = proc
-                self._ser_model = AutoModelForAudioClassification.from_pretrained(
-                    self.ser_model_name
-                )
-            except Exception as e:
-                logger.warning(f"SER model unavailable ({e}); will use fallback")
-                self._ser_processor = None
-                self._ser_model = None
+        logger.warning("SER ONNX assets not found; using heuristic fallback")
 
     def _infer_ser(self, audio: np.ndarray, sr: int) -> Tuple[str, Dict[str, float]]:
         if audio is None or audio.size == 0 or sr <= 0:
@@ -605,9 +664,11 @@ class EmotionIntentAnalyzer:
             }
         self._lazy_ser()
         try:
-            if self.affect_backend == "onnx":
-                if self._ser_session is None or self._ser_processor is None:
-                    raise RuntimeError("ser model missing")
+            if (
+                self.affect_backend == "onnx"
+                and self._ser_session is not None
+                and self._ser_processor is not None
+            ):
                 inputs = self._ser_processor(
                     audio, sampling_rate=sr, return_tensors="np", padding=True
                 )
@@ -617,59 +678,18 @@ class EmotionIntentAnalyzer:
                     .squeeze()
                     .astype(np.float64)
                 )
-                # ensure probabilities
-                ex = np.exp(probs - np.max(probs))
-                probs = ex / (ex.sum() or 1.0)
-            else:
-                if self._ser_model is None or self._ser_processor is None:
-                    raise RuntimeError("ser model missing")
-                import torch
-                import torch.nn.functional as F
-
-                inputs = self._ser_processor(
-                    audio, sampling_rate=sr, return_tensors="pt", padding=True
-                )
-                with torch.inference_mode():
-                    probs = (
-                        F.softmax(self._ser_model(**inputs).logits, dim=-1)
-                        .squeeze()
-                        .cpu()
-                        .numpy()
-                        .astype(np.float64)
-                    )
-            # Map to our label order (best effort)
-            prob_dict = {}
-            # Try config-based id2label if available
-            id2label = (
-                getattr(getattr(self._ser_model, "config", None), "id2label", None)
-                or {}
-            )
-            if isinstance(id2label, dict) and id2label:
-                for i, lbl in enumerate(SER_LABELS_8):
-                    # find closest by name
-                    match = None
-                    for k, v in id2label.items():
-                        if (
-                            str(v).lower().startswith(lbl[:4])
-                        ):  # loose match: 'angr'→'angry'
-                            try:
-                                idx = int(k)
-                                match = idx
-                                break
-                            except Exception:
-                                pass
-                    if match is not None and match < len(probs):
-                        prob_dict[lbl] = float(probs[match])
-                # fill any missing using sequential as fallback
-            if len(prob_dict) != len(SER_LABELS_8):
-                for i, lbl in enumerate(SER_LABELS_8):
-                    if lbl not in prob_dict:
-                        prob_dict[lbl] = float(probs[i]) if i < len(probs) else 0.0
-            prob_dict = _normalize_scores(prob_dict)
-            top = max(prob_dict, key=prob_dict.get) if prob_dict else "neutral"
-            return top, prob_dict
+                probs = 1.0 / (1.0 + np.exp(-probs))
+                probs = np.clip(probs, 0.0, 1.0)
+                dist = {
+                    lbl: float(probs[i]) if i < len(probs) else 0.0
+                    for i, lbl in enumerate(SER_LABELS_8)
+                }
+                dist = _normalize_scores(dist)
+                top = max(dist, key=dist.get)
+                return top, dist
         except Exception:
-            return self._ser_proxy(audio, sr)
+            logger.debug("SER ONNX inference failed; using proxy", exc_info=True)
+        return self._ser_proxy(audio, sr)
 
     @staticmethod
     def _ser_proxy(audio: np.ndarray, sr: int) -> Tuple[str, Dict[str, float]]:
@@ -707,57 +727,54 @@ class EmotionIntentAnalyzer:
         return bool(top < 0.50 or margin < 0.15 or Hn > 0.85)
 
     # -------- Text Emotions (28, multi-label) --------
-    def _lazy_text(self):
-        if self.affect_backend == "onnx":
-            if self._text_session is not None and self._text_tokenizer is not None:
-                return
-            try:
-                from transformers import AutoTokenizer
+    def _lazy_text(self) -> None:
+        if self._text_session is not None and self._text_tokenizer is not None:
+            return
+        if self._text_attempted:
+            return
+        self._text_attempted = True
+        if self.affect_backend != "onnx":
+            return
 
-                model_dir = self.affect_text_model_dir or self.text_model_name
-                self._text_tokenizer = AutoTokenizer.from_pretrained(model_dir)
-                if Path(model_dir).exists():
-                    ident = Path(model_dir) / "model.onnx"
-                else:
-                    ident = f"hf://{model_dir}/model.onnx"
-                model_path = ensure_onnx_model(ident)
-                self._text_session = create_onnx_session(model_path)
-            except Exception as e:
-                logger.warning(
-                    f"Text ONNX model unavailable ({e}); falling back to torch"
-                )
-                self._text_session = None
-                self._text_tokenizer = None
-                self.affect_backend = "torch"
-                self._lazy_text()
-                return
-        else:
-            if self._text_pipeline is not None:
-                return
-            try:
-                from transformers import pipeline
+        try:
+            from transformers import AutoTokenizer
+        except Exception as exc:
+            logger.warning("Text tokenizer unavailable (%s); using keywords", exc)
+            return
 
-                self._text_pipeline = pipeline(
-                    "text-classification", model=self.text_model_name, top_k=None
+        for model_dir in self._iter_model_directories(
+            [self.affect_text_model_dir, self.text_model_name],
+            ["goemotions", "text_emotion", "affect/text"]
+        ):
+            model_path = model_dir / "model.onnx"
+            if not model_path.exists():
+                continue
+            try:
+                tokenizer = AutoTokenizer.from_pretrained(
+                    model_dir, local_files_only=True
                 )
-            except Exception as e:
-                logger.warning(
-                    f"Text emotion model unavailable ({e}); will use fallback"
-                )
-                self._text_pipeline = None
+                session = create_onnx_session(model_path)
+            except Exception as exc:
+                logger.info("Text emotion ONNX unavailable at %s: %s", model_path, exc)
+                continue
+            self._text_tokenizer = tokenizer
+            self._text_session = session
+            logger.info("Text emotion ONNX model loaded: %s", model_path)
+            return
+
+        logger.warning("Text emotion ONNX assets not found; using keyword fallback")
 
     def _infer_text(self, text: str) -> Tuple[Dict[str, float], List[Dict[str, float]]]:
         if text is None:
             text = ""
         self._lazy_text()
         try:
-            if self.affect_backend == "onnx":
-                if (
-                    self._text_session is None
-                    or self._text_tokenizer is None
-                    or not text.strip()
-                ):
-                    raise RuntimeError("text model missing or text empty")
+            if (
+                self.affect_backend == "onnx"
+                and self._text_session is not None
+                and self._text_tokenizer is not None
+                and text.strip()
+            ):
                 enc = self._text_tokenizer(text, return_tensors="np", truncation=True)
                 ort_inputs = {k: v for k, v in enc.items()}
                 logits = self._text_session.run(None, ort_inputs)[0]
@@ -765,33 +782,18 @@ class EmotionIntentAnalyzer:
                     logits = logits[0]
                 probs = 1.0 / (1.0 + np.exp(-logits))
                 dist = {
-                    lbl: float(probs[i])
+                    lbl: float(probs[i]) if i < len(probs) else 0.0
                     for i, lbl in enumerate(GOEMOTIONS_LABELS)
-                    if i < len(probs)
                 }
                 dist = _normalize_scores(dist)
                 top5 = _topk_distribution(dist, 5)
                 return dist, top5
-            else:
-                if self._text_pipeline is None or not text.strip():
-                    raise RuntimeError("text pipeline missing or text empty")
-                # pipeline with top_k=None yields list of dicts with 'label','score' for all classes
-                out = self._text_pipeline(text, truncation=True)[0]
-                dist = {lbl: 0.0 for lbl in GOEMOTIONS_LABELS}
-                for item in out:
-                    lab = str(item["label"]).lower().strip()
-                    if lab in dist:
-                        dist[lab] = float(item["score"])
-                # normalize to 1.0 for stability (multi-label but we want comparable numbers)
-                dist = _normalize_scores(dist)
-                top5 = _topk_distribution(dist, 5)
-                return dist, top5
         except Exception:
-            # keyword fallback
-            dist = self._text_keyword_fallback(text)
-            dist = _normalize_scores(dist)
-            top5 = _topk_distribution(dist, 5)
-            return dist, top5
+            logger.debug("Text emotion ONNX inference failed; using keywords", exc_info=True)
+        dist = self._text_keyword_fallback(text)
+        dist = _normalize_scores(dist)
+        top5 = _topk_distribution(dist, 5)
+        return dist, top5
 
     @staticmethod
     def _text_keyword_fallback(text: str) -> Dict[str, float]:
@@ -854,104 +856,102 @@ class EmotionIntentAnalyzer:
 
     # -------- Intent (zero-shot or rule-based) --------
     @staticmethod
-    def _intent_onnx_candidates(model_dir: str | Path) -> List[str | Path]:
-        base = Path(model_dir)
+    def _intent_onnx_candidates(model_dir: Path) -> List[Path]:
         names = ("model_uint8.onnx", "model_int8.onnx", "model.onnx")
-        candidates: List[str | Path] = []
-        if base.exists():
-            for name in names:
-                candidate = base / name
-                if candidate.exists():
-                    candidates.append(candidate)
-            if not candidates:
-                candidates.append(base / names[0])
-            return candidates
-
-        base_str = str(model_dir).rstrip("/\\")
-        if not base_str:
-            return []
-        if base_str.startswith("hf://"):
-            prefix = base_str
-        else:
-            prefix = f"hf://{base_str}"
+        candidates: List[Path] = []
         for name in names:
-            candidates.append(f"{prefix}/{name}")
+            candidate = model_dir / name
+            if candidate.exists():
+                candidates.append(candidate)
+        if not candidates:
+            candidates.append(model_dir / names[0])
         return candidates
 
-    def _lazy_intent(self):
-        if self.affect_backend == "onnx":
-            if (
-                self._intent_session is not None
-                and self._intent_tokenizer is not None
-                and self._intent_entail_idx is not None
-            ):
-                return
-            model_name = self.affect_intent_model_dir or self.intent_model_name
+    def _lazy_intent(self) -> None:
+        if (
+            self._intent_session is not None
+            and self._intent_tokenizer is not None
+            and self._intent_entail_idx is not None
+        ):
+            return
+        if self._intent_attempted:
+            return
+        self._intent_attempted = True
+        if self.affect_backend != "onnx":
+            return
+
+        try:
+            from transformers import AutoConfig, AutoTokenizer
+        except Exception as exc:
+            logger.warning("Intent tokenizer unavailable (%s); using rules", exc)
+            return
+
+        overrides = [self.affect_intent_model_dir, self.intent_model_name]
+        file_overrides = [
+            Path(o)
+            for o in overrides
+            if o and Path(o).is_file() and Path(o).exists()
+        ]
+        directories = list(
+            self._iter_model_directories(overrides, ["bart", "intent", "intent/bart"])
+        )
+        for file_path in file_overrides:
+            parent = file_path.parent
+            if parent.exists():
+                directories.insert(0, parent)
+
+        seen: set[str] = set()
+        for directory in directories:
+            if not directory.exists():
+                continue
             try:
-                from transformers import AutoConfig, AutoTokenizer
+                resolved = str(directory.resolve())
+            except Exception:
+                resolved = str(directory)
+            if resolved in seen:
+                continue
+            seen.add(resolved)
+            try:
+                tokenizer = AutoTokenizer.from_pretrained(
+                    directory, local_files_only=True
+                )
+                config = AutoConfig.from_pretrained(directory, local_files_only=True)
+            except Exception as exc:
+                logger.info("Intent tokenizer/config unavailable at %s: %s", directory, exc)
+                continue
+            label2id = {
+                str(k).lower(): int(v)
+                for k, v in getattr(config, "label2id", {}).items()
+            }
+            entail_idx = label2id.get("entailment", 2)
 
-                tokenizer = AutoTokenizer.from_pretrained(model_name)
-                config = AutoConfig.from_pretrained(model_name)
-                label2id = {
-                    str(k).lower(): int(v)
-                    for k, v in getattr(config, "label2id", {}).items()
-                }
-                entail_idx = label2id.get("entailment", 2)
-                if entail_idx is None:
-                    entail_idx = 2
-
-                model_path: Optional[Path] = None
-                last_error: Optional[Exception] = None
-                for ident in self._intent_onnx_candidates(model_name):
-                    try:
-                        candidate_path = ensure_onnx_model(ident)
-                    except Exception as exc:
-                        last_error = exc
-                        continue
-                    if Path(candidate_path).exists():
-                        model_path = Path(candidate_path)
-                        break
-                if model_path is None:
-                    if last_error is not None:
-                        raise last_error
-                    raise FileNotFoundError("No ONNX intent model found")
-
-                session = create_onnx_session(model_path)
+            for model_path in self._intent_onnx_candidates(directory):
+                if not model_path.exists():
+                    continue
+                try:
+                    session = create_onnx_session(model_path)
+                except Exception as exc:
+                    logger.info("Intent ONNX unavailable at %s: %s", model_path, exc)
+                    continue
                 self._intent_tokenizer = tokenizer
                 self._intent_session = session
-                self._intent_entail_idx = entail_idx
-                self._intent_pipeline = None
+                self._intent_entail_idx = entail_idx if entail_idx is not None else 2
+                logger.info("Intent ONNX model loaded: %s", model_path)
                 return
-            except Exception as e:
-                logger.warning(
-                    f"Intent ONNX model unavailable ({e}); falling back to transformer pipeline"
-                )
-                self._intent_session = None
-                self._intent_tokenizer = None
 
-        if self._intent_pipeline is not None:
-            return
-        model_name = self.affect_intent_model_dir or self.intent_model_name
-        try:
-            from transformers import pipeline
-
-            self._intent_pipeline = pipeline(
-                "zero-shot-classification",
-                model=model_name,
-                tokenizer=model_name,
-            )
-        except Exception as e:
-            logger.warning(f"Intent model unavailable ({e}); will use fallback")
-            self._intent_pipeline = None
+        logger.warning("Intent ONNX assets not found; using rule-based fallback")
+        self._intent_session = None
+        self._intent_tokenizer = None
 
     def _infer_intent(self, text: str) -> Tuple[str, List[Dict[str, float]]]:
-        t = (text or "").strip()
+        normalized = text or ""
         self._lazy_intent()
         try:
             if (
-                self._intent_session is not None
+                self.affect_backend == "onnx"
+                and self._intent_session is not None
                 and self._intent_tokenizer is not None
-                and t
+                and normalized.strip()
             ):
                 hypotheses = [
                     INTENT_HYPOTHESIS_TEMPLATE.format(label)
@@ -960,90 +960,39 @@ class EmotionIntentAnalyzer:
                 if not hypotheses:
                     raise RuntimeError("no intent labels configured")
                 enc = self._intent_tokenizer(
-                    [t] * len(hypotheses),
+                    [normalized] * len(hypotheses),
                     hypotheses,
                     return_tensors="np",
                     padding=True,
                     truncation=True,
                 )
                 ort_inputs = {k: v for k, v in enc.items()}
-                outputs = self._intent_session.run(None, ort_inputs)
-                if not outputs:
-                    raise RuntimeError("intent session returned no outputs")
-                raw_logits = outputs[0]
-                use_stub_np = bool(getattr(np, "__stub__", False))
-                entail_idx = int(self._intent_entail_idx or 2)
-
-                if use_stub_np:
-                    if isinstance(raw_logits, list):
-                        if raw_logits and isinstance(raw_logits[0], (list, tuple)):
-                            rows = [list(map(float, row)) for row in raw_logits]
-                        else:
-                            rows = [list(map(float, raw_logits))]
-                    else:
-                        rows = [[float(raw_logits)]]
-
-                    probs_matrix: List[List[float]] = []
-                    for row in rows:
-                        if not row:
-                            probs_matrix.append([1.0])
-                            continue
-                        max_val = max(row)
-                        exps = [math.exp(val - max_val) for val in row]
-                        denom_val = sum(exps) or 1.0
-                        probs_matrix.append([val / denom_val for val in exps])
-                    entail_probs = [
-                        row[max(0, min(len(row) - 1, entail_idx))]
-                        for row in probs_matrix
+                logits = self._intent_session.run(None, ort_inputs)[0]
+                if logits.ndim == 3:
+                    logits = logits[0]
+                if logits.ndim == 1:
+                    logits = logits.reshape(1, -1)
+                entail_idx = max(
+                    0, min(logits.shape[-1] - 1, self._intent_entail_idx or 2)
+                )
+                entail_scores = logits[:, entail_idx]
+                probs = 1.0 / (1.0 + np.exp(-entail_scores))
+                pairs = list(zip(self.intent_labels, probs))
+                pairs.sort(key=lambda kv: kv[1], reverse=True)
+                if pairs:
+                    top = pairs[0][0]
+                    top3 = [
+                        {"label": label, "score": float(score)}
+                        for label, score in pairs[:3]
                     ]
-                else:
-                    logits = np.array(raw_logits)
-                    if logits.ndim == 1:
-                        logits = logits.reshape(1, -1)
-                    elif logits.ndim > 2:
-                        logits = logits.reshape(logits.shape[0], -1)
-                    entail_idx = max(0, min(logits.shape[-1] - 1, entail_idx))
-                    exp_logits = np.exp(
-                        logits - np.max(logits, axis=-1, keepdims=True)
-                    )
-                    denom = exp_logits.sum(axis=-1, keepdims=True)
-                    denom[denom == 0.0] = 1.0
-                    probs_arr = exp_logits / denom
-                    entail_probs = probs_arr[:, entail_idx].tolist()
-
-                dist = {
-                    lbl: float(entail_probs[i])
-                    for i, lbl in enumerate(self.intent_labels)
-                    if i < len(entail_probs)
-                }
-                dist = _normalize_scores(dist)
-                top = max(dist, key=dist.get)
-                top3 = _topk_distribution(dist, 3)
-                return top, top3
-
-            if self._intent_pipeline is None or not t:
-                raise RuntimeError("intent pipeline missing or text empty")
-            res = self._intent_pipeline(
-                t, candidate_labels=self.intent_labels, multi_label=False
-            )
-            seq_labels = res["labels"]
-            seq_scores = res["scores"]
-            probs = {
-                str(lbl): float(score) for lbl, score in zip(seq_labels, seq_scores)
-            }
-            # reorder to our label list for stability & normalize
-            probs = {lbl: probs.get(lbl, 0.0) for lbl in self.intent_labels}
-            probs = _normalize_scores(probs)
-            top = max(probs, key=probs.get)
-            top3 = _topk_distribution(probs, 3)
-            return top, top3
+                    return top, top3
         except Exception:
-            # rule fallback
-            probs = self._intent_rules(t)
-            probs = _normalize_scores(probs)
-            top = max(probs, key=probs.get)
-            top3 = _topk_distribution(probs, 3)
-            return top, top3
+            logger.debug("Intent ONNX inference failed; using rules", exc_info=True)
+
+        probs = _normalize_scores(self._intent_rules(normalized))
+        top = max(probs, key=probs.get)
+        top3 = _topk_distribution(probs, 3)
+        return top, top3
 
     def _intent_rules(self, t: str) -> Dict[str, float]:
         t = (t or "").lower()

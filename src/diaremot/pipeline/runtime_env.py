@@ -8,9 +8,12 @@ from typing import Iterable
 
 __all__ = [
     "WINDOWS_MODELS_ROOT",
+    "DEFAULT_MODELS_ROOT",
+    "MODEL_ROOTS",
     "DEFAULT_WHISPER_MODEL",
     "configure_local_cache_env",
     "resolve_default_whisper_model",
+    "iter_model_roots",
 ]
 
 
@@ -120,7 +123,60 @@ def configure_local_cache_env() -> None:
 
 configure_local_cache_env()
 
-WINDOWS_MODELS_ROOT = Path("D:/models") if os.name == "nt" else None
+
+def _discover_model_roots() -> list[Path]:
+    roots: list[Path] = []
+    env_root = os.environ.get("DIAREMOT_MODEL_DIR")
+    if env_root:
+        roots.append(Path(env_root).expanduser())
+
+    if os.name == "nt":
+        roots.append(Path("D:/models"))
+    else:
+        roots.append(Path("/models"))
+
+    project_root = _find_project_root(Path(__file__).resolve())
+    if project_root:
+        roots.append(project_root / "models")
+
+    roots.append(Path.cwd() / "models")
+    roots.append(Path.home() / "models")
+
+    seen: set[str] = set()
+    deduped: list[Path] = []
+    for candidate in roots:
+        key = str(candidate)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(candidate)
+    return deduped
+
+
+MODEL_ROOTS: tuple[Path, ...] = tuple(_discover_model_roots()) or (Path("/models"),)
+DEFAULT_MODELS_ROOT: Path = MODEL_ROOTS[0]
+WINDOWS_MODELS_ROOT = DEFAULT_MODELS_ROOT if os.name == "nt" else None
+
+
+def iter_model_roots() -> tuple[Path, ...]:
+    """Return an ordered tuple of candidate model roots."""
+
+    return MODEL_ROOTS
+
+
+def _iter_whisper_candidates() -> list[Path]:
+    candidates: list[Path] = []
+    for root in MODEL_ROOTS:
+        candidates.extend(
+            [
+                root / "tiny.en",
+                root / "faster-whisper" / "tiny.en",
+                root / "faster-whisper-tiny.en",
+                root / "ct2" / "tiny.en",
+            ]
+        )
+    candidates.append(Path.home() / "whisper_models" / "tiny.en")
+    return candidates
 
 
 def resolve_default_whisper_model() -> Path:
@@ -128,16 +184,11 @@ def resolve_default_whisper_model() -> Path:
     if env_override:
         return Path(env_override)
 
-    candidates = []
-    if WINDOWS_MODELS_ROOT:
-        candidates.append(WINDOWS_MODELS_ROOT / "faster-whisper-large-v3-turbo-ct2")
-    candidates.append(Path.home() / "whisper_models" / "faster-whisper-large-v3-turbo-ct2")
+    for candidate in _iter_whisper_candidates():
+        if candidate.exists():
+            return candidate
 
-    for candidate in candidates:
-        if Path(candidate).exists():
-            return Path(candidate)
-
-    return Path(candidates[0])
+    return _iter_whisper_candidates()[0]
 
 
 DEFAULT_WHISPER_MODEL = resolve_default_whisper_model()

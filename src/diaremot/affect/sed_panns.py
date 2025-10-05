@@ -3,32 +3,19 @@
 from __future__ import annotations
 
 import csv
-from collections.abc import Iterable, Iterator
-from contextlib import contextmanager
+from collections.abc import Iterable
 from dataclasses import dataclass
 import logging
 import os
 from pathlib import Path
-import sys
-from typing import TYPE_CHECKING, Any, Literal, Optional
+from typing import TYPE_CHECKING, Any, Iterator, Literal, Optional
 
 import numpy as np
 
 from ..io.onnx_utils import create_onnx_session
+from ..pipeline.runtime_env import DEFAULT_MODELS_ROOT, iter_model_roots
 
-if os.name == "nt":
-    _WINDOWS_PANNS_DIRS = [
-        Path("D:/diaremot/diaremot2-1/models/panns"),
-        Path("D:/models/panns"),
-    ]
-    for _cand in _WINDOWS_PANNS_DIRS:
-        if _cand.exists():
-            DEFAULT_PANNS_MODEL_DIR = _cand
-            break
-    else:
-        DEFAULT_PANNS_MODEL_DIR = _WINDOWS_PANNS_DIRS[0]
-else:
-    DEFAULT_PANNS_MODEL_DIR = Path("models/panns")
+DEFAULT_PANNS_MODEL_DIR = DEFAULT_MODELS_ROOT / "panns"
 
 logger = logging.getLogger(__name__)
 
@@ -46,20 +33,10 @@ try:  # pragma: no cover - dependency detection
 except Exception:  # pragma: no cover - env dependent
     _HAVE_ORT = False
 
-try:
-    # Cheap check without importing (avoids triggering wget in panns_inference)
-    import importlib.util as _ilu  # type: ignore[import-not-found]
-
-    _HAVE_PANNS = _ilu.find_spec("panns_inference") is not None
-except Exception:
-    _HAVE_PANNS = False
-
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from onnxruntime import InferenceSession as _OrtSession
-    from panns_inference import AudioTagging as _PannsAudioTagging
 else:  # pragma: no cover - runtime fallback
     _OrtSession = Any
-    _PannsAudioTagging = Any
 
 labels: list[str] = []
 
@@ -110,21 +87,6 @@ class SEDConfig:
             self.model_dir = Path(self.model_dir)
 
 
-@contextmanager
-def _suppress_stdout_stderr() -> Iterator[None]:
-    """Temporarily silence noisy stdout/stderr printers."""
-
-    old_out, old_err = sys.stdout, sys.stderr
-    try:
-        with open(os.devnull, "w") as devnull:
-            sys.stdout = devnull
-            sys.stderr = devnull
-            yield
-    finally:
-        sys.stdout = old_out
-        sys.stderr = old_err
-
-
 def _load_label_file(label_path: Path) -> list[str]:
     """Extract label names from a PANNs CSV manifest."""
 
@@ -148,68 +110,45 @@ def _iter_env_roots(env_vars: Iterable[str]) -> Iterator[Path]:
 
 
 class PANNSEventTagger:
-    """Lightweight wrapper for PANNs AudioSet tagging on CPU.
-
-    Prefers an ONNX Runtime model when available, falling back to the
-    original `panns_inference` PyTorch implementation. The ``backend``
-    parameter accepts ``auto``, ``onnx``, ``pytorch``, or ``none``.
-    - Accepts 16 kHz mono audio; resamples to 32 kHz if librosa available or
-      uses simple upsampling fallbacks.
-    - Returns top-K labels with scores and a coarse noise score.
-    """
+    """Lightweight wrapper for PANNs AudioSet tagging on CPU using ONNX."""
 
     def __init__(self, cfg: Optional[SEDConfig] = None, backend: str = "auto"):
         self.cfg = cfg or SEDConfig()
 
         backend = (backend or "auto").strip().lower()
-        allowed_backends = {"auto", "onnx", "pytorch", "none"}
+        allowed_backends = {"auto", "onnx", "none"}
         if backend not in allowed_backends:
             raise ValueError(
                 f"backend must be one of {sorted(allowed_backends)}; received '{backend}'"
             )
         if backend == "auto":
             # Prefer ONNX Runtime when both backends are available
-            if _HAVE_ORT:
-                backend = "onnx"
-            elif _HAVE_PANNS:
-                backend = "pytorch"
-            else:
-                backend = "none"
+            backend = "onnx" if _HAVE_ORT else "none"
         self.backend = backend
-        self._tagger: Optional[_PannsAudioTagging] = None
         self._session: Optional[_OrtSession] = None
         self._labels: Optional[list[str]] = None
         self.available = backend != "none"
         self._ensure_model()
         if not self.available:
             logger.warning(
-                "PANNs event tagging unavailable: neither ONNX nor PyTorch backend could be initialized"
+                "PANNs event tagging unavailable: ONNX Runtime models missing"
             )
 
     def _ensure_model(self) -> None:
         if not self.available:
             return
 
-        attempted: set[str] = set()
-        backend = self.backend
+        if not self.available:
+            return
 
-        while backend not in attempted:
-            attempted.add(backend)
+        if self.backend != "onnx":
+            self.available = False
+            self.backend = "none"
+            return
 
-            if backend == "onnx":
-                if self._init_onnx_backend():
-                    self.backend = "onnx"
-                    self.available = True
-                    return
-                backend = "pytorch" if _HAVE_PANNS else "none"
-            elif backend == "pytorch":
-                if self._init_pytorch_backend():
-                    self.backend = "pytorch"
-                    self.available = True
-                    return
-                backend = "onnx" if _HAVE_ORT else "none"
-            else:
-                break
+        if self._init_onnx_backend():
+            self.available = True
+            return
 
         self.available = False
         self.backend = "none"
@@ -221,6 +160,14 @@ class PANNSEventTagger:
             candidate = model_dir / "model.onnx"
             labels_path = model_dir / "class_labels_indices.csv"
             if candidate.exists() and labels_path.exists():
+                seen.add(candidate)
+                yield candidate, labels_path
+
+        for root in iter_model_roots():
+            base = root / "panns"
+            candidate = base / "model.onnx"
+            labels_path = base / "class_labels_indices.csv"
+            if candidate.exists() and labels_path.exists() and candidate not in seen:
                 seen.add(candidate)
                 yield candidate, labels_path
 
@@ -274,56 +221,6 @@ class PANNSEventTagger:
             "PANNs ONNX assets not found locally; skipping remote download fallback"
         )
         return False
-
-    def _init_pytorch_backend(self) -> bool:
-        if self._tagger is not None:
-            return True
-        if not _HAVE_PANNS:
-            return False
-
-        try:
-            home_panns = Path.home() / "panns_data"
-            home_panns.mkdir(parents=True, exist_ok=True)
-            if self.cfg.model_dir:
-                labels_src = self.cfg.model_dir / "class_labels_indices.csv"
-                labels_dst = home_panns / "class_labels_indices.csv"
-                if labels_src.exists() and not labels_dst.exists():
-                    labels_dst.write_bytes(labels_src.read_bytes())
-        except Exception:
-            pass
-
-        ckpt_path = self._resolve_checkpoint()
-
-        try:
-            from panns_inference import AudioTagging as _AT  # type: ignore[import-not-found]
-
-            with _suppress_stdout_stderr():
-                self._tagger = _AT(
-                    checkpoint_path=str(ckpt_path) if ckpt_path else None,
-                    device="cpu",
-                )
-        except Exception as exc:
-            logger.info("Failed initializing PyTorch backend: %s", exc)
-            self._tagger = None
-            return False
-
-        return True
-
-    def _resolve_checkpoint(self) -> Optional[Path]:
-        model_dir = self.cfg.model_dir
-        if not model_dir or not model_dir.exists():
-            return None
-
-        for name in (
-            "Cnn14_mAP=0.431.pth",
-            "Cnn14_mAP%3D0.431.pth",
-            "Cnn14_DecisionLevelMax.pth",
-        ):
-            candidate = model_dir / name
-            if candidate.exists():
-                return candidate
-
-        return next(iter(model_dir.glob("*.pth")), None)
 
     def _resample_to_32k(self, audio: np.ndarray, sr: int) -> tuple[np.ndarray, int]:
         if sr == 32000:
@@ -380,27 +277,14 @@ class PANNSEventTagger:
 
         y, sr32 = self._resample_to_32k(y_in, sr)
 
-        if self.backend == "onnx":
-            if self._session is None or not self._labels:
-                return None
-            try:
-                inp = self._session.get_inputs()[0].name
-                clip = self._session.run(None, {inp: y[np.newaxis, :]})[0][0]
-            except Exception:
-                return None
-            map_labels = self._labels
-        else:
-            if self._tagger is None:
-                return None
-            try:
-                # panns_inference expects shape [B, T] at 32 kHz and returns
-                # (clipwise_output[B,527], embedding[B,2048]) as numpy arrays
-                cw, _emb = self._tagger.inference(y[np.newaxis, :])  # type: ignore
-                clip = np.asarray(cw[0], dtype=np.float32)
-            except Exception:
-                return None
-            # Prefer labels from the tagger; fallback to imported default
-            map_labels = list(getattr(self._tagger, "labels", labels)) or []  # type: ignore[arg-type]
+        if self.backend != "onnx" or self._session is None or not self._labels:
+            return None
+        try:
+            inp = self._session.get_inputs()[0].name
+            clip = self._session.run(None, {inp: y[np.newaxis, :]})[0][0]
+        except Exception:
+            return None
+        map_labels = self._labels
 
         if clip.size == 0:
             return None
