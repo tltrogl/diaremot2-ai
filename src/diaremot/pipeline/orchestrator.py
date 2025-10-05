@@ -363,6 +363,25 @@ class AudioAnalysisPipelineV2:
             self.tx = AudioTranscriber(**transcriber_config)
 
             # Affect analyzer (optional)
+            def _normalize_model_dir(value: Any) -> str | None:
+                if value in (None, ""):
+                    return None
+                try:
+                    return os.fspath(value)
+                except TypeError:
+                    return str(value)
+
+            affect_backend = cfg.get("affect_backend", "onnx")
+            if affect_backend is not None:
+                affect_backend = str(affect_backend)
+            affect_text_model_dir = _normalize_model_dir(
+                cfg.get("affect_text_model_dir")
+            )
+            affect_intent_model_dir = _normalize_model_dir(
+                cfg.get("affect_intent_model_dir")
+            )
+            affect_analyzer_threads = cfg.get("affect_analyzer_threads")
+
             if cfg.get("disable_affect"):
                 self.affect = None
             else:
@@ -371,6 +390,10 @@ class AudioAnalysisPipelineV2:
                         "text_emotion_model", "SamLowe/roberta-base-go_emotions"
                     ),
                     intent_labels=cfg.get("intent_labels", INTENT_LABELS_DEFAULT),
+                    affect_backend=affect_backend,
+                    affect_text_model_dir=affect_text_model_dir,
+                    affect_intent_model_dir=affect_intent_model_dir,
+                    analyzer_threads=affect_analyzer_threads,
                 )
 
             # Background SED / noise tagger (required in the default pipeline)
@@ -410,6 +433,14 @@ class AudioAnalysisPipelineV2:
                 "temperature": cfg.get("temperature", 0.0),
                 "no_speech_threshold": cfg.get("no_speech_threshold", 0.50),
                 "intent_labels": cfg.get("intent_labels", INTENT_LABELS_DEFAULT),
+                "affect_backend": affect_backend,
+                "affect_text_model_dir": affect_text_model_dir,
+                "affect_intent_model_dir": affect_intent_model_dir,
+                "affect_analyzer_threads": affect_analyzer_threads,
+                "text_emotion_model": cfg.get(
+                    "text_emotion_model", "SamLowe/roberta-base-go_emotions"
+                ),
+                "disable_affect": bool(cfg.get("disable_affect", False)),
             }
 
         except Exception as e:

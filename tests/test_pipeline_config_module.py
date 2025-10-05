@@ -47,7 +47,7 @@ def test_pipeline_config_normalises_path_and_choice_fields(tmp_path: Path) -> No
         cache_roots=str(tmp_path / "alt_cache"),
         affect_text_model_dir=str(tmp_path / "text"),
         affect_intent_model_dir=tmp_path / "intent",
-        affect_backend="TORCH",
+        affect_backend="AUTO",
         asr_backend="Faster",
         vad_backend="AUTO",
         loudness_mode="BROADCAST",
@@ -61,7 +61,7 @@ def test_pipeline_config_normalises_path_and_choice_fields(tmp_path: Path) -> No
     assert cfg.cache_roots == [tmp_path / "alt_cache"]
     assert cfg.affect_text_model_dir == tmp_path / "text"
     assert cfg.affect_intent_model_dir == tmp_path / "intent"
-    assert cfg.affect_backend == "torch"
+    assert cfg.affect_backend == "auto"
     assert cfg.asr_backend == "faster"
     assert cfg.vad_backend == "auto"
     assert cfg.loudness_mode == "broadcast"

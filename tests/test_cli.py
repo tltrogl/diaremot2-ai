@@ -62,7 +62,7 @@ def test_cli_run_invokes_pipeline(
             "--beam-size",
             "2",
             "--affect-backend",
-            "torch",
+            "onnx",
             "--clear-cache",
         ],
     )

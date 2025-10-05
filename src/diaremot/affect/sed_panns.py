@@ -15,9 +15,12 @@ from typing import Any
 import numpy as np
 
 from ..io.onnx_utils import create_onnx_session
-from ..utils.model_paths import collect_model_roots
+from ..pipeline.runtime_env import DEFAULT_MODELS_ROOT, iter_model_roots
 
-MODEL_ROOTS = collect_model_roots()
+MODEL_ROOTS = tuple(iter_model_roots())
+if not MODEL_ROOTS:
+    MODEL_ROOTS = (DEFAULT_MODELS_ROOT,)
+
 DEFAULT_PANNS_MODEL_DIR = None
 for _root in MODEL_ROOTS:
     candidate = Path(_root) / "panns"
@@ -25,11 +28,7 @@ for _root in MODEL_ROOTS:
         DEFAULT_PANNS_MODEL_DIR = candidate
         break
 if DEFAULT_PANNS_MODEL_DIR is None:
-    if MODEL_ROOTS:
-        DEFAULT_PANNS_MODEL_DIR = Path(MODEL_ROOTS[0]) / "panns"
-    else:
-        DEFAULT_PANNS_MODEL_DIR = Path("models/panns")
-
+    DEFAULT_PANNS_MODEL_DIR = Path(MODEL_ROOTS[0]) / "panns"
 
 logger = logging.getLogger(__name__)
 

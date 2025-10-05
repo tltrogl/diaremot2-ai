@@ -6,12 +6,13 @@ from pathlib import Path
 from typing import Any
 
 from .speaker_diarization import DiarizationConfig
+from .runtime_env import DEFAULT_WHISPER_MODEL
 
 DEFAULT_PIPELINE_CONFIG: dict[str, Any] = {
     "registry_path": "speaker_registry.json",
     "ahc_distance_threshold": DiarizationConfig.ahc_distance_threshold,
     "speaker_limit": None,
-    "whisper_model": "faster-whisper-tiny.en",
+    "whisper_model": str(DEFAULT_WHISPER_MODEL),
     "asr_backend": "faster",
     "compute_type": "int8",
     "cpu_threads": 1,
@@ -23,6 +24,7 @@ DEFAULT_PIPELINE_CONFIG: dict[str, Any] = {
     "affect_backend": "onnx",
     "affect_text_model_dir": None,
     "affect_intent_model_dir": None,
+    "affect_analyzer_threads": None,
     "beam_size": 1,
     "temperature": 0.0,
     "no_speech_threshold": 0.50,
@@ -60,7 +62,6 @@ CORE_DEPENDENCY_REQUIREMENTS: dict[str, str] = {
     "scipy": "1.10",
     "librosa": "0.10",
     "soundfile": "0.12",
-    "torch": "2.0",
     "ctranslate2": "3.10",
     "faster_whisper": "1.0",
     "pandas": "2.0",
