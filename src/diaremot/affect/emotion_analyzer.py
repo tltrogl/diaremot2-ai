@@ -33,6 +33,7 @@ import librosa
 import numpy as np
 
 from ..io.onnx_utils import create_onnx_session, ensure_onnx_model
+from ..utils.model_paths import iter_model_roots, iter_model_subpaths
 from .intent_defaults import INTENT_LABELS_DEFAULT
 
 logger = logging.getLogger(__name__)
@@ -48,15 +49,19 @@ logger.setLevel(logging.INFO)
 # to fetch from Hugging Face hub. This prevents unintended network lookups and
 # guarantees model resolution uses the local model root.
 try:
-    _model_root = os.environ.get("DIAREMOT_MODEL_DIR") or r"D:\\diaremot\\diaremot2-1\\models"
-    if Path(_model_root).expanduser().exists():
+    _model_root = os.environ.get("DIAREMOT_MODEL_DIR")
+    if not _model_root:
+        for candidate in iter_model_roots():
+            if candidate.exists():
+                _model_root = str(candidate)
+                break
+    if _model_root and Path(_model_root).expanduser().exists():
         os.environ.setdefault("HF_HUB_OFFLINE", "1")
         os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
         logger.info("HF hub forced offline; using local model root: %s", _model_root)
 except Exception:
     # Never raise during import; best-effort only
     pass
-
 
 INTENT_HYPOTHESIS_TEMPLATE = "This example is about {}."
 
@@ -343,18 +348,13 @@ def _resolve_intent_model_dir(
         located = _locate_hf_model_dir(env_path)
         if located:
             return str(located)
+        # Respect explicit override even if incomplete
+        return None
 
-    model_root = os.environ.get("DIAREMOT_MODEL_DIR")
-    if model_root:
-        candidate = Path(model_root).expanduser() / "bart"
-        located = _locate_hf_model_dir(candidate)
-        if located:
-            return str(located)
-
-    default_windows = Path(r"D:\diaremot\diaremot2-1\models\bart")
-    located = _locate_hf_model_dir(default_windows)
-    if located:
-        return str(located)
+    for root in iter_model_roots():
+        candidate = _locate_hf_model_dir(root / "bart")
+        if candidate:
+            return str(candidate)
 
     return None
 
@@ -371,9 +371,9 @@ def _resolve_vad_model_dir(explicit_dir: str | None) -> str | None:
         if env_path.exists():
             return str(env_path)
 
-    default_windows = Path(r"D:\diaremot\diaremot2-1\models\vad-onnx")
-    if default_windows.exists():
-        return str(default_windows)
+    for candidate in iter_model_subpaths("vad-onnx"):
+        if candidate.exists():
+            return str(candidate)
     return None
 
 
@@ -383,9 +383,8 @@ def _resolve_text_model_dir(explicit_dir: str | None) -> str | None:
     Preference order:
       1) Explicit directory if it exists
       2) DIAREMOT_TEXT_MODEL_DIR env var (if directory exists)
-      3) DIAREMOT_MODEL_DIR/goemotions-onnx (if exists)
-      4) Known Windows default path (if exists)
-      5) Return the original explicit value (could be an HF repo id)
+      3) Known model roots (e.g., DIAREMOT_MODEL_DIR, ./models, OS defaults)
+      4) Return the original explicit value (could be an HF repo id)
     """
 
     if explicit_dir:
@@ -401,15 +400,9 @@ def _resolve_text_model_dir(explicit_dir: str | None) -> str | None:
         if env_path.exists():
             return str(env_path)
 
-    model_root = os.environ.get("DIAREMOT_MODEL_DIR")
-    if model_root:
-        candidate = Path(model_root).expanduser() / "goemotions-onnx"
+    for candidate in iter_model_subpaths("goemotions-onnx"):
         if candidate.exists():
             return str(candidate)
-
-    default_windows = Path(r"D:\\diaremot\\diaremot2-1\\models\\goemotions-onnx")
-    if default_windows.exists():
-        return str(default_windows)
 
     return None
 

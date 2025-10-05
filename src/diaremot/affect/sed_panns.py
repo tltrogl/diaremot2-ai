@@ -15,20 +15,21 @@ from typing import Any
 import numpy as np
 
 from ..io.onnx_utils import create_onnx_session
+from ..utils.model_paths import collect_model_roots
 
-if os.name == "nt":
-    _WINDOWS_PANNS_DIRS = [
-        Path("D:/diaremot/diaremot2-1/models/panns"),
-        Path("D:/models/panns"),
-    ]
-    for _cand in _WINDOWS_PANNS_DIRS:
-        if _cand.exists():
-            DEFAULT_PANNS_MODEL_DIR = _cand
-            break
+MODEL_ROOTS = collect_model_roots()
+DEFAULT_PANNS_MODEL_DIR = None
+for _root in MODEL_ROOTS:
+    candidate = Path(_root) / "panns"
+    if candidate.exists():
+        DEFAULT_PANNS_MODEL_DIR = candidate
+        break
+if DEFAULT_PANNS_MODEL_DIR is None:
+    if MODEL_ROOTS:
+        DEFAULT_PANNS_MODEL_DIR = Path(MODEL_ROOTS[0]) / "panns"
     else:
-        DEFAULT_PANNS_MODEL_DIR = _WINDOWS_PANNS_DIRS[0]
-else:
-    DEFAULT_PANNS_MODEL_DIR = Path("models/panns")
+        DEFAULT_PANNS_MODEL_DIR = Path("models/panns")
+
 
 logger = logging.getLogger(__name__)
 

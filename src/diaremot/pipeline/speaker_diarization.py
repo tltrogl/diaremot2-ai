@@ -18,8 +18,8 @@ import numpy as np
 import scipy.signal
 
 from ..io.onnx_utils import create_onnx_session
+from ..utils.model_paths import iter_model_subpaths
 
-WINDOWS_MODELS_ROOT = Path("D:/models") if os.name == "nt" else None
 
 # --- FIXED: sklearn AgglomerativeClustering wrapper for metric/affinity drift ---
 try:
@@ -279,25 +279,23 @@ class _SileroWrapper:
 
                 onnx_path = os.getenv("SILERO_VAD_ONNX_PATH")
                 if not onnx_path:
-                    candidates = [
-                        (WINDOWS_MODELS_ROOT / "silero_vad.onnx" if WINDOWS_MODELS_ROOT else None),
-                        (
-                            WINDOWS_MODELS_ROOT / "silero" / "vad.onnx"
-                            if WINDOWS_MODELS_ROOT
-                            else None
-                        ),
-                        Path.cwd() / "models" / "silero_vad.onnx",
-                        Path.cwd() / "models" / "silero" / "vad.onnx",
-                    ]
-                    for cand in candidates:
-                        if cand and Path(cand).exists():
-                            onnx_path = str(Path(cand))
+                    candidate_paths = list(iter_model_subpaths("silero_vad.onnx"))
+                    candidate_paths.extend(list(iter_model_subpaths(Path("silero") / "vad.onnx")))
+                    unique_candidates: list[Path] = []
+                    seen: set[str] = set()
+                    for cand in candidate_paths:
+                        resolved = Path(cand)
+                        key = str(resolved)
+                        if key in seen:
+                            continue
+                        seen.add(key)
+                        unique_candidates.append(resolved)
+                    for cand in unique_candidates:
+                        if cand.exists():
+                            onnx_path = str(cand)
                             break
-                    if not onnx_path:
-                        for cand in candidates:
-                            if cand:
-                                onnx_path = str(Path(cand))
-                                break
+                    if not onnx_path and unique_candidates:
+                        onnx_path = str(unique_candidates[0])
                 if onnx_path and Path(onnx_path).exists():
                     self.session = create_onnx_session(onnx_path, threads=1)
                     inputs = self.session.get_inputs()
@@ -604,19 +602,20 @@ class _ECAPAWrapper:
                 if env_path:
                     model_path = Path(env_path)
                 else:
-                    candidates = [
-                        (WINDOWS_MODELS_ROOT / "ecapa_tdnn.onnx" if WINDOWS_MODELS_ROOT else None),
-                        Path.cwd() / "models" / "ecapa_tdnn.onnx",
-                    ]
-                    model_path = next(
-                        (cand for cand in candidates if cand and Path(cand).exists()),
-                        None,
-                    )
-                    if model_path is None:
-                        for cand in candidates:
-                            if cand:
-                                model_path = Path(cand)
-                                break
+                    candidate_paths = list(iter_model_subpaths(Path("ecapa_onnx") / "ecapa_tdnn.onnx"))
+                    candidate_paths.extend(list(iter_model_subpaths("ecapa_tdnn.onnx")))
+                    unique_candidates: list[Path] = []
+                    seen: set[str] = set()
+                    for cand in candidate_paths:
+                        resolved = Path(cand)
+                        key = str(resolved)
+                        if key in seen:
+                            continue
+                        seen.add(key)
+                        unique_candidates.append(resolved)
+                    model_path = next((cand for cand in unique_candidates if cand.exists()), None)
+                    if model_path is None and unique_candidates:
+                        model_path = unique_candidates[0]
                     if model_path is None:
                         model_path = Path.cwd() / "models" / "ecapa_tdnn.onnx"
             self.session = create_onnx_session(model_path)
