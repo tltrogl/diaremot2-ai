@@ -36,7 +36,7 @@ BUILTIN_PROFILES: Dict[str, Dict[str, Any]] = {
         "whisper_model": "faster-whisper-tiny.en",
         "beam_size": 1,
         "temperature": 0.0,
-        "affect_backend": "torch",
+        "affect_backend": "onnx",
         "enable_sed": False,
     },
     "accurate": {
@@ -305,7 +305,7 @@ def asr_run(
         is_flag=True,
     ),
     affect_backend: str = typer.Option(
-        "onnx", help="Affect backend (auto/torch/onnx)."
+        "onnx", help="Affect backend (auto/onnx)."
     ),
     affect_text_model_dir: Optional[Path] = typer.Option(
         None, help="Path to GoEmotions model directory."
@@ -353,7 +353,7 @@ def asr_run(
         0.2, help="Padding added around VAD speech regions."
     ),
     vad_backend: str = typer.Option(
-        "auto", help="Silero VAD backend (auto/torch/onnx)."
+        "auto", help="Silero VAD backend (auto/onnx)."
     ),
     disable_energy_vad_fallback: bool = typer.Option(
         False,
@@ -495,7 +495,7 @@ def asr_resume(
         is_flag=True,
     ),
     affect_backend: str = typer.Option(
-        "onnx", help="Affect backend (auto/torch/onnx)."
+        "onnx", help="Affect backend (auto/onnx)."
     ),
     affect_text_model_dir: Optional[Path] = typer.Option(
         None, help="Path to GoEmotions model directory."
@@ -543,7 +543,7 @@ def asr_resume(
         0.2, help="Padding added around VAD speech regions."
     ),
     vad_backend: str = typer.Option(
-        "auto", help="Silero VAD backend (auto/torch/onnx)."
+        "auto", help="Silero VAD backend (auto/onnx)."
     ),
     disable_energy_vad_fallback: bool = typer.Option(
         False,
@@ -802,7 +802,7 @@ def vad_debug(
         0.2, "--pad", help="Padding added around VAD speech regions."
     ),
     backend: str = typer.Option(
-        "auto", "--backend", help="Backend to use: auto/torch/onnx."
+        "auto", "--backend", help="Backend to use: auto/onnx."
     ),
     json_output: bool = typer.Option(
         False, "--json", help="Emit machine-readable JSON."

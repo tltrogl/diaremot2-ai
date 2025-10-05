@@ -20,12 +20,12 @@ Outputs:
 
 ## Model set (CPU‑friendly)
 
-- **Diarization**: Diart (Silero VAD + ECAPA‑TDNN embeddings + AHC). Prefers ONNX, Torch fallback for Silero VAD.
+- **Diarization**: Diart (Silero VAD + ECAPA‑TDNN embeddings + AHC) using Silero's ONNX export; falls back to an internal energy VAD heuristic if the model is missing.
 - **ASR**: Faster‑Whisper `tiny‑en` via CTranslate2 (`compute_type=int8`).
 - **Tone (V/A/D)**: `audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim`.
 - **Speech emotion (8‑class)**: `Dpngtm/wav2vec2-emotion-recognition`.
 - **Text emotions (28)**: `SamLowe/roberta-base-go_emotions` (full distribution; keep top‑5).
-- **Intent**: Prefers local ONNX exports (e.g., `model_uint8.onnx` under `affect_intent_model_dir` such as `D:\\diaremot\\diaremot2-1\\models\\bart\\`) and falls back to the `facebook/bart-large-mnli` Hugging Face pipeline when no ONNX asset is available.
+- **Intent**: Loads local ONNX exports (e.g., `model_uint8.onnx` under `affect_intent_model_dir` such as `D:\\diaremot\\diaremot2-1\\models\\bart\\`) and uses rule-based heuristics if no ONNX asset is available.
 - **SED**: PANNs CNN14 (ONNX) on onnxruntime; 1.0s frames, 0.5s hop; median filter 3–5; hysteresis 0.50/0.35; `min_dur=0.30s`; `merge_gap≤0.20s`; collapse AudioSet→~20 labels.
 - **Paralinguistics (REQUIRED)**: **Praat‑Parselmouth** for jitter/shimmer/HNR/CPPS + prosody (WPM/pauses).
 
@@ -59,6 +59,8 @@ python -m diaremot.cli run --audio data/sample.wav --tag smoke --compute-type in
 - `HF_HOME`, `HUGGINGFACE_HUB_CACHE`, `TRANSFORMERS_CACHE`, `TORCH_HOME` — `./.cache/`.
 - Threads: `OMP_NUM_THREADS`, `MKL_NUM_THREADS`, `NUMEXPR_MAX_THREADS`.
 - `TOKENIZERS_PARALLELISM=false`.
+
+The runtime automatically searches for models under (in order): `DIAREMOT_MODEL_DIR`, `D:/models` on Windows, `/models` on Unix-like systems, the project-level `models/` directory, and `$HOME/models`. Place the ONNX and CTranslate2 assets (e.g., `faster-whisper/tiny.en`, `bart/model_uint8.onnx`, `panns/model.onnx`) in any of these roots.
 
 ## CSV schema (primary)
 
