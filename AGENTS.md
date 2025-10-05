@@ -37,24 +37,54 @@ TOKENIZERS_PARALLELISM = false
 
 ---
 
-## Pipeline Architecture: ONNX-Only Inference
+## Pipeline Architecture: ONNX-Preferred with PyTorch Fallback
 
-**CRITICAL:** DiaRemot is a **CPU-only, ONNX-first** pipeline. All inference must use:
-- **ONNXRuntime** for audio/text models (VAD, embeddings, emotion, intent)
-- **CTranslate2** for ASR (faster-whisper)
-- **NO PyTorch inference** (PyTorch used only for preprocessing/feature extraction)
-- **NO HuggingFace pipeline()** calls for inference
+**DiaRemot is CPU-only** with the following inference strategy:
 
-### Rationale
-- ONNX: 2-5x faster CPU inference vs PyTorch
-- CTranslate2: Optimized Transformer inference (int8 quantization)
-- Reduced memory footprint for long-form audio (1-3 hours)
-- Deployment-ready: no torch.jit, no model.eval() calls
+### Primary Stack (Preferred)
+- **ONNXRuntime** for all audio/text models (VAD, embeddings, emotion, intent)
+- **CTranslate2** for ASR (faster-whisper tiny.en)
+- **librosa/scipy/numpy** for audio preprocessing/feature extraction
+- **Praat-Parselmouth** for voice quality analysis
+
+### Fallback Stack (When ONNX Unavailable)
+- **PyTorch CPU** for model inference if ONNX models missing:
+  - Silero VAD (TorchHub)
+  - PANNs SED (`panns_inference` library)
+  - Emotion models (HuggingFace transformers)
+- **HuggingFace `pipeline()`** for text models if ONNX unavailable
+
+### Preprocessing (No PyTorch)
+All audio preprocessing uses:
+- **librosa** - mel-spectrograms, MFCC, resampling
+- **scipy** - filtering, signal processing
+- **numpy** - array operations, normalization
+- **soundfile** - audio I/O
+
+**PyTorch is NOT used for preprocessing.** If you see torch imports in preprocessing code, that's a bug.
+
+### Why ONNX-Preferred?
+- 2-5x faster CPU inference vs PyTorch
+- Lower memory footprint for 1-3 hour audio files
+- No torch.jit complexity
+- Smaller deployment size when ONNX-only
+
+### Why Keep PyTorch Fallback?
+- Graceful degradation when ONNX models unavailable
+- Development/testing without ONNX conversion
+- Backward compatibility with existing pipelines
+
+### Agent Guidelines
+**When adding new models:**
+1. **Primary path:** Implement ONNX inference first
+2. **Fallback path:** Add PyTorch option for robustness
+3. **Prefer ONNX** but don't break pipeline if unavailable
+4. **Never use PyTorch for preprocessing** - use librosa/scipy
 
 ---
 
 ## Pipeline Contract (must remain true)
-**Every run should include all 12 stages by default**, unless explicitly overridden.
+**Every run should include all 11 stages by default**, unless explicitly overridden.
 
 The canonical stage list is defined in `src/diaremot/pipeline/stages/__init__.py::PIPELINE_STAGES`:
 
@@ -68,12 +98,11 @@ Validate runtime dependencies:
 ### 2. **preprocess**
 Audio normalization, denoising, auto-chunking (for files >30 min)
 
-### 3. **auto_tune**
-Adaptive VAD parameter tuning based on audio characteristics
+**Note:** Adaptive VAD tuning happens inside orchestrator during diarization config, NOT as a separate stage.
 
-### 4. **background_sed** (Sound Event Detection)
-**Model:** PANNs CNN14 ONNX (`panns_cnn14.onnx`)  
-**Runtime:** ONNXRuntime  
+### 3. **background_sed** (Sound Event Detection)
+**Model:** PANNs CNN14  
+**Runtime:** ONNXRuntime (preferred), PyTorch fallback (`panns_inference` library)  
 **Parameters:**
 - Frame: 1.0 s
 - Hop: 0.5 s
@@ -83,16 +112,16 @@ Adaptive VAD parameter tuning based on audio characteristics
 - Label collapse: AudioSet 527 → ~20 semantic groups (speech, music, laughter, crying, door, phone, etc.)
 
 **Assets required:**
-- `panns_cnn14.onnx` (118 MB)
-- `audioset_labels.csv` (527 class labels)
+- ONNX: `panns_cnn14.onnx` (118 MB) + `audioset_labels.csv`
+- PyTorch fallback: `Cnn14_mAP=0.431.pth`
 
-### 5. **diarize** (Speaker Segmentation)
-**VAD:** Silero VAD ONNX (`silero_vad.onnx`)  
-**Embeddings:** ECAPA-TDNN ONNX (`ecapa_tdnn.onnx`)  
+### 4. **diarize** (Speaker Segmentation)
+**VAD:** Silero VAD  
+**Embeddings:** ECAPA-TDNN  
 **Clustering:** Agglomerative Hierarchical Clustering (AHC)  
-**Runtime:** ONNXRuntime for both VAD and embeddings
+**Runtime:** ONNXRuntime (preferred), PyTorch TorchHub (fallback)
 
-**Default parameters** (orchestrator overrides):
+**Adaptive VAD parameters** (orchestrator overrides CLI defaults):
 - `vad_threshold = 0.22` (relaxed from CLI default 0.30)
 - `vad_min_speech_sec = 0.40` (relaxed from 0.80)
 - `vad_min_silence_sec = 0.40` (relaxed from 0.80)
@@ -102,10 +131,10 @@ Adaptive VAD parameter tuning based on audio characteristics
 - `min_turn_sec = 1.50`
 
 **Assets required:**
-- `silero_vad.onnx` (1.8 MB)
-- `ecapa_tdnn.onnx` (6.1 MB)
+- ONNX: `silero_vad.onnx` (1.8 MB), `ecapa_tdnn.onnx` (6.1 MB)
+- PyTorch fallback: TorchHub downloads
 
-### 6. **transcribe** (ASR)
+### 5. **transcribe** (ASR)
 **Model:** faster-whisper `tiny.en` (39 MB)  
 **Runtime:** CTranslate2 (int8 quantization by default)  
 **Parameters:**
@@ -117,10 +146,8 @@ Adaptive VAD parameter tuning based on audio characteristics
 
 **Runs on:** Diarized speech turns only (not full audio)
 
-**CRITICAL:** ASR uses CTranslate2, NOT ONNX. This is the only stage exempt from ONNX requirement.
-
-### 7. **paralinguistics** (Voice Quality + Prosody)
-**Runtime:** Praat-Parselmouth (native C++ library, not ONNX)  
+### 6. **paralinguistics** (Voice Quality + Prosody)
+**Runtime:** Praat-Parselmouth (native C++ library)  
 **Metrics extracted:**
 - Voice quality: jitter (%), shimmer (dB), HNR (dB), CPPS (dB)
 - Prosody: WPM, duration_s, words, pause_count, pause_time_s, pause_ratio
@@ -130,31 +157,31 @@ Adaptive VAD parameter tuning based on audio characteristics
 
 **Fallback:** If Praat fails, compute WPM from ASR text and set voice quality metrics to 0.0
 
-### 8. **affect_and_assemble** (Emotion + Intent)
-**Audio emotion:** 8-class Speech Emotion Recognition ONNX  
-**VAD emotion:** Valence/Arousal/Dominance ONNX  
-**Text emotion:** GoEmotions 28-class ONNX (`roberta-base-go_emotions.onnx`)  
-**Intent:** Zero-shot classification ONNX (`bart-large-mnli.onnx`)  
-**Runtime:** ONNXRuntime for all models
+### 7. **affect_and_assemble** (Emotion + Intent)
+**Audio emotion:** 8-class Speech Emotion Recognition  
+**VAD emotion:** Valence/Arousal/Dominance  
+**Text emotion:** GoEmotions 28-class  
+**Intent:** Zero-shot classification (BART-MNLI)  
+**Runtime:** ONNXRuntime (preferred), HuggingFace transformers (fallback)
 
-**CRITICAL:** Do NOT use HuggingFace `pipeline()` or PyTorch for inference. All text models must be ONNX.
-
-**Assets required:**
+**Assets required (ONNX):**
 - `ser_8class.onnx` (audio emotion)
 - `vad_model.onnx` (valence/arousal/dominance)
 - `roberta-base-go_emotions.onnx` (text emotion)
 - `bart-large-mnli.onnx` (intent classification)
 
-### 9. **overlap_interruptions**
+**Fallback:** HuggingFace transformers `pipeline()` if ONNX unavailable
+
+### 8. **overlap_interruptions**
 Turn-taking analysis, interruption detection, overlap statistics
 
-### 10. **conversation_analysis**
+### 9. **conversation_analysis**
 Flow metrics (turn-taking balance, response latencies, dominance)
 
-### 11. **speaker_rollups**
+### 10. **speaker_rollups**
 Per-speaker summaries (total duration, V/A/D averages, emotion mix, WPM, voice quality)
 
-### 12. **outputs**
+### 11. **outputs**
 Write final files:
 - `diarized_transcript_with_emotion.csv` (39 columns)
 - `segments.jsonl`
@@ -211,10 +238,16 @@ $DIAREMOT_MODEL_DIR/
 **CTranslate2 models** (faster-whisper downloads automatically to HF cache):
 - `tiny.en` (39 MB) — default ASR model
 
+**PyTorch fallback models** (auto-downloaded when ONNX unavailable):
+- TorchHub: Silero VAD
+- `panns_inference`: PANNs CNN14
+- HuggingFace: emotion/intent models
+
 **Missing assets should:**
 1. Log warning (not silent failure)
-2. Fallback to disabling that stage (e.g., skip SED if `panns_cnn14.onnx` missing)
-3. Never crash the pipeline
+2. Fallback to PyTorch if available
+3. If PyTorch also unavailable, disable that stage gracefully
+4. Never crash the pipeline
 
 ---
 
@@ -269,7 +302,7 @@ python -m diaremot.cli run \
 - Minimal diff
 - Keep module boundaries
 - Consistent style (ruff-compliant)
-- **No PyTorch inference** (only ONNX/CTranslate2)
+- **Prefer ONNX, include PyTorch fallback**
 
 ### 3. Verify
 ```bash
@@ -309,8 +342,9 @@ python -m diaremot.cli run --input data/sample.wav --outdir /tmp/test
 1. Document source (HuggingFace repo, ONNX Model Zoo URL)
 2. Show conversion command (e.g., `optimum-cli export onnx ...`)
 3. Verify model works with ONNXRuntime
-4. Benchmark inference time (CPU-only)
-5. Add to `DIAREMOT_MODEL_DIR` manifest
+4. Add PyTorch fallback for robustness
+5. Benchmark inference time (CPU-only)
+6. Add to `DIAREMOT_MODEL_DIR` manifest
 
 ---
 
@@ -323,7 +357,7 @@ python -m diaremot.cli run --input data/sample.wav --outdir /tmp/test
 - **ASR must default to `compute_type = int8`** unless benchmarked improvement documented
 - **Do not rename or break output schemas** or filenames without coordinated migration steps
 - **All agent actions must be auditably reproducible** — logs and commands must align with outputs
-- **ONNX-first for all inference** except ASR (CTranslate2) and paralinguistics (Praat)
+- **ONNX-preferred, PyTorch fallback** for all models except ASR (CTranslate2) and paralinguistics (Praat)
 
 ---
 
@@ -331,12 +365,12 @@ python -m diaremot.cli run --input data/sample.wav --outdir /tmp/test
 
 - ✅ Only factual, reproducible changes; no hallucinated logs
 - ✅ Ruff / lint / tests passed (report summary)
-- ✅ Full pipeline run (all 12 stages) completed
+- ✅ Full pipeline run (all 11 stages) completed
 - ✅ No broken stage; no regression introduced
 - ✅ Schema maintained or extended forward-compatibly
 - ✅ SED label collapse preserved
-- ✅ All ONNX models validated with ONNXRuntime
-- ✅ No PyTorch inference introduced
+- ✅ ONNX models validated with ONNXRuntime
+- ✅ PyTorch fallback tested when ONNX unavailable
 - ✅ All assumptions, risks, version bumps, file paths documented
 - ✅ No private credentials or secrets in artifacts or logs
 
@@ -344,19 +378,22 @@ python -m diaremot.cli run --input data/sample.wav --outdir /tmp/test
 
 ## Example Directive & Expected Planning Style
 
-> **Directive:** "Add zero-shot emotion classification using ONNX model instead of HuggingFace pipeline."
+> **Directive:** "Add zero-shot emotion classification using ONNX model with HuggingFace fallback."
 
 Your plan response might look like:
 
 ```
 Plan:
 - Convert HuggingFace `roberta-base-go_emotions` to ONNX using optimum-cli
-- Modify `affect/text_analyzer.py` to load ONNX model via ONNXRuntime
-- Replace `pipeline("text-classification")` calls with ONNX inference
+- Modify `affect/text_analyzer.py` to:
+  - Primary: Load ONNX model via ONNXRuntime
+  - Fallback: Use HuggingFace transformers pipeline() if ONNX missing
 - Tokenize text using HuggingFace tokenizer (fast, no inference)
 - Update `pipeline/config.py` to reference ONNX model path
 - Benchmark inference time: HF pipeline vs ONNX (expect 2-3x speedup)
-- Write unit test: verify output schema matches old HF pipeline
+- Write unit tests:
+  - ONNX inference matches HF pipeline output
+  - Fallback triggers correctly when ONNX missing
 - Integration test: run full pipeline on sample audio, verify CSV schema unchanged
 - Document ONNX conversion steps in README
 - Lint / typecheck / build
@@ -368,13 +405,14 @@ Then implement, verify, report with logs/patches.
 
 ## Common Pitfalls to Avoid
 
-1. **Using HuggingFace `pipeline()` for inference** → Use ONNX instead
-2. **Loading PyTorch models with `model.eval()`** → Convert to ONNX
+1. **Using HuggingFace `pipeline()` as primary path** → Use ONNX first, pipeline() as fallback
+2. **Loading PyTorch models without ONNX alternative** → Always provide both paths
 3. **Not validating ONNX model outputs** → Always test against reference implementation
-4. **Silent failures when ONNX model missing** → Log warning and disable stage gracefully
+4. **Silent failures when both ONNX and PyTorch missing** → Log warning and disable stage gracefully
 5. **Hardcoding model paths** → Use `DIAREMOT_MODEL_DIR` environment variable
 6. **Not benchmarking ONNX conversion** → Always compare inference time vs PyTorch
 7. **Breaking schema when adding ONNX models** → Maintain 39-column CSV contract
+8. **Using PyTorch for preprocessing** → Use librosa/scipy/numpy instead
 
 ---
 
@@ -436,4 +474,4 @@ If you encounter:
 
 ---
 
-**Remember:** This is production code serving real users. Precision matters. ONNX-first is non-negotiable. When in doubt, verify before claiming.
+**Remember:** This is production code serving real users. Precision matters. ONNX-preferred with PyTorch fallback is the architecture. When in doubt, verify before claiming.
