@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 from .config import build_pipeline_config
 from .orchestrator import (
@@ -291,7 +291,7 @@ def _handle_cache_clear(requested: bool, *, cache_root: Path, ignore_tx_cache: b
         return True
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] |Optional[list[str]] =Optional[list[str]]) -> int:
     parser = _build_arg_parser()
     args = parser.parse_args(argv)
 
@@ -322,3 +322,5 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(main())
+
+
