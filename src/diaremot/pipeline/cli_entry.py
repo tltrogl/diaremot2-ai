@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from .config import build_pipeline_config
+from .runtime_env import DEFAULT_WHISPER_MODEL
 from .orchestrator import (
     AudioAnalysisPipelineV2,
     clear_pipeline_cache,
@@ -43,7 +44,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--whisper-model",
-        default="faster-whisper-tiny.en",
+        default=str(DEFAULT_WHISPER_MODEL),
         help="Whisper model identifier or path",
     )
     parser.add_argument(
@@ -291,7 +292,7 @@ def _handle_cache_clear(requested: bool, *, cache_root: Path, ignore_tx_cache: b
         return True
 
 
-def main(argv: list[str] |Optional[list[str]] =Optional[list[str]]) -> int:
+def main(argv: Optional[list[str]] = None) -> int:
     parser = _build_arg_parser()
     args = parser.parse_args(argv)
 

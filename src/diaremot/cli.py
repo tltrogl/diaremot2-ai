@@ -6,9 +6,12 @@ import json
 from functools import lru_cache
 from importlib import import_module
 from pathlib import Path
-from typing import Any, Optional, Optional
+from .pipeline.runtime_env import DEFAULT_WHISPER_MODEL
+from typing import Any, Optional
 
 import typer
+
+from .pipeline.logging_utils import _make_json_safe
 
 app = typer.Typer(help="High level CLI wrapper for the DiaRemot audio pipeline.")
 
@@ -40,14 +43,14 @@ def core_run_pipeline(*args: Any, **kwargs: Any) -> dict[str, Any]:
 BUILTIN_PROFILES: dict[str, dict[str, Any]] = {
     "default": {},
     "fast": {
-        "whisper_model": "faster-whisper-tiny.en",
+        "whisper_model": str(DEFAULT_WHISPER_MODEL),
         "beam_size": 1,
         "temperature": 0.0,
         "affect_backend": "torch",
         "enable_sed": False,
     },
     "accurate": {
-        "whisper_model": "faster-whisper-tiny.en",
+        "whisper_model": str(DEFAULT_WHISPER_MODEL),
         "beam_size": 4,
         "temperature": 0.0,
         "no_speech_threshold": 0.2,
@@ -215,8 +218,7 @@ def run(
         0.12, help="Agglomerative clustering distance threshold."
     ),
     speaker_limit: Optional[int] = typer.Option(None, help="Maximum number of speakers to keep."),
-    whisper_model: str = typer.Option(
-        "faster-whisper-tiny.en", help="Whisper/Faster-Whisper model identifier."
+    whisper_model: str = typer.Option(str(DEFAULT_WHISPER_MODEL), help="Whisper/Faster-Whisper model identifier."
     ),
     asr_backend: str = typer.Option("faster", help="ASR backend", show_default=True),
     asr_compute_type: str = typer.Option("float32", help="CT2 compute type for faster-whisper."),
@@ -361,7 +363,7 @@ def run(
         typer.secho(f"Pipeline execution failed: {exc}", fg=typer.colors.RED)
         raise typer.Exit(code=1) from exc
 
-    typer.echo(json.dumps(manifest, indent=2))
+    typer.echo(json.dumps(_make_json_safe(manifest), indent=2))
 
 
 @app.command()
@@ -382,8 +384,7 @@ def resume(
         0.12, help="Agglomerative clustering distance threshold."
     ),
     speaker_limit: Optional[int] = typer.Option(None, help="Maximum number of speakers to keep."),
-    whisper_model: str = typer.Option(
-        "faster-whisper-tiny.en", help="Whisper/Faster-Whisper model identifier."
+    whisper_model: str = typer.Option(str(DEFAULT_WHISPER_MODEL), help="Whisper/Faster-Whisper model identifier."
     ),
     asr_backend: str = typer.Option("faster", help="ASR backend", show_default=True),
     asr_compute_type: str = typer.Option("float32", help="CT2 compute type for faster-whisper."),
@@ -514,7 +515,7 @@ def resume(
         typer.secho(f"Pipeline resume failed: {exc}", fg=typer.colors.RED)
         raise typer.Exit(code=1) from exc
 
-    typer.echo(json.dumps(manifest, indent=2))
+    typer.echo(json.dumps(_make_json_safe(manifest), indent=2))
 
 
 @app.command()
@@ -535,5 +536,6 @@ def main_diagnostics() -> None:
 
 if __name__ == "__main__":  # pragma: no cover
     app()
+
 
 

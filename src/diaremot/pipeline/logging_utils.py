@@ -11,6 +11,23 @@ from pathlib import Path
 from typing import Any
 
 
+
+
+def _make_json_safe(obj: Any) -> Any:
+    """Recursively convert values into JSON-serialisable types."""
+    if isinstance(obj, Path):
+        return obj.as_posix()
+    if isinstance(obj, dict):
+        return {key: _make_json_safe(value) for key, value in obj.items()}
+    if isinstance(obj, (list, tuple, set)):
+        converted = [_make_json_safe(value) for value in obj]
+        if isinstance(obj, tuple):
+            return tuple(converted)
+        if isinstance(obj, set):
+            return converted
+        return converted
+    return obj
+
 class JSONLWriter:
     def __init__(self, path: Path):
         self.path = Path(path)
@@ -21,7 +38,7 @@ class JSONLWriter:
     def emit(self, record: dict[str, Any]) -> None:
         try:
             with self.path.open("a", encoding="utf-8") as f:
-                f.write(json.dumps(record, ensure_ascii=False) + "\n")
+                f.write(json.dumps(_make_json_safe(record), ensure_ascii=False) + "\n")
 
         except PermissionError as exc:
             print(f"Warning: Could not write to log file {self.path}: {exc}")
