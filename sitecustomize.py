@@ -13,6 +13,8 @@ repo root:
 
 from __future__ import annotations
 
+import importlib
+import importlib.util
 import os
 import sys
 from pathlib import Path
@@ -47,4 +49,8 @@ try:
             os.environ.setdefault("DIAREMOT_INTENT_MODEL_DIR", str(bart))
 except Exception:
     pass
+
+_numpy_spec = importlib.util.find_spec("numpy")
+if _numpy_spec is not None:
+    importlib.import_module("numpy")
 

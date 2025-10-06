@@ -129,7 +129,7 @@ class PipelineConfig:
             self.affect_analyzer_threads = threads
 
         self.affect_backend = self._lower_choice(
-            "affect_backend", self.affect_backend, {"auto", "onnx"}
+            "affect_backend", self.affect_backend, {"auto", "onnx", "torch"}
         )
         self.asr_backend = self._lower_choice("asr_backend", self.asr_backend, None)
         self.vad_backend = self._lower_choice(
@@ -215,7 +215,7 @@ CORE_DEPENDENCY_REQUIREMENTS: dict[str, str] = {
     "scipy": "1.10",
     "librosa": "0.10",
     "soundfile": "0.12",
-    "ctranslate2": "3.10",
+    "ctranslate2": "4.0",
     "faster_whisper": "1.0",
     "pandas": "2.0",
     "onnxruntime": "1.16",
