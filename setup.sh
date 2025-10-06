@@ -49,6 +49,11 @@ python -m pip install --upgrade pip setuptools wheel
 echo "==> Installing requirements.txt"
 python -m pip install -r requirements.txt
 
+if [[ -f pyproject.toml ]]; then
+  echo "==> Installing diaremot package in editable mode"
+  python -m pip install -e .
+fi
+
 # ---- Local caches + required env vars (defaults) ----
 echo "==> Preparing local caches and env vars"
 CACHE_ROOT="${CACHE_ROOT:-$REPO_ROOT/.cache}"
@@ -185,6 +190,33 @@ if bad:
   print("\nFAILED imports:")
   for m,e in bad:
     print(" -", m, ":", e)
+PY
+
+echo "==> Checking pinned dependency versions"
+python - <<'PY'
+from importlib import metadata
+from packaging.version import Version
+from diaremot.pipeline.config import CORE_DEPENDENCY_REQUIREMENTS
+
+issues: list[str] = []
+for name, minimum in CORE_DEPENDENCY_REQUIREMENTS.items():
+    try:
+        version = metadata.version(name)
+    except metadata.PackageNotFoundError:
+        issues.append(f"{name} not installed (required >= {minimum})")
+        continue
+    print(f"   - {name} {version} (required >= {minimum})")
+    try:
+        if Version(version) < Version(minimum):
+            issues.append(f"{name} {version} < required {minimum}")
+    except Exception as exc:  # pragma: no cover - defensive guard
+        issues.append(f"{name} version comparison failed: {exc}")
+
+if issues:
+    print("Dependency version issues detected:")
+    for item in issues:
+        print(f" * {item}")
+    raise SystemExit(2)
 PY
 
 echo "==> Pipeline dependency check (--verify_deps)"

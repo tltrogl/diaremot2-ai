@@ -215,7 +215,7 @@ CORE_DEPENDENCY_REQUIREMENTS: dict[str, str] = {
     "scipy": "1.10",
     "librosa": "0.10",
     "soundfile": "0.12",
-    "ctranslate2": "3.10",
+    "ctranslate2": "4.0",
     "faster_whisper": "1.0",
     "pandas": "2.0",
     "onnxruntime": "1.16",
