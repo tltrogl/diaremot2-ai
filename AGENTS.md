@@ -1,4 +1,8 @@
-# AGENTS.md — DiaRemot Agent Instructions (Codex / AI Agents)
+# AGENTS.md - DiaRemot Agent Instructions (Codex / AI Agents)
+
+IMPORTANT for Codex Cloud runs
+- Use AGENTS_CLOUD.md instead of this file when executing on Codex Cloud. It includes Codex‑specific allowances (apt for ffmpeg) and the exact pinned dependency versions to install from requirements.txt. This AGENTS.md is the general policy.
+
 
 _Last updated: 2025-10-05_
 

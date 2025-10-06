@@ -813,3 +813,5 @@ See LICENSE file.
 **Issues:** https://github.com/yourusername/diaremot/issues  
 **Docs:** See `AGENTS.md` for agent/AI instructions  
 **Changelog:** See `CHANGELOG.md` for version history
+> Codex Cloud Note
+> If you are running on Codex Cloud, use the Codex‑specific guide: README_CLOUD.md. It contains the exact pinned package versions and the allowed apt instructions for ffmpeg. This README targets general/local setups.
