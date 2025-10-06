@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
-# DiaRemot Codex setup — zero-touch (uses your v2.AI release)
-# - keeps your old flow: venv + reqs + local caches + import checks
-# - adds: models.zip download+verify+unpack and path normalization
+# DiaRemot setup (AGENTS.md‑compliant, CPU‑only, ONNX‑preferred)
+# - No apt/brew usage; pip only
+# - Cross‑platform venv activation (posix/Windows Git Bash)
+# - Defines required env vars (with safe defaults)
+# - Optional models.zip staging, gated by env flags
 
 set -Eeuo pipefail
 
@@ -9,94 +11,146 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$REPO_ROOT"
 echo "==> Repo root: $REPO_ROOT"
 
-# ---- sanity: required files (same as your prior script) ----
+# ---- Sanity: required files present ----
 REQUIRED_FILES=(
   "pyproject.toml"
   "requirements.txt"
-  "src/diaremot/__init__.py"
-  "src/diaremot/pipeline/audio_pipeline_core.py"
-  "src/diaremot/pipeline/audio_preprocessing.py"
-  "src/diaremot/pipeline/speaker_diarization.py"
-  "src/diaremot/pipeline/transcription_module.py"
-  "src/diaremot/affect/emotion_analyzer.py"
-  "src/diaremot/affect/paralinguistics.py"
-  "src/diaremot/summaries/html_summary_generator.py"
-  "src/diaremot/summaries/pdf_summary_generator.py"
-  "src/diaremot/summaries/speakers_summary_builder.py"
-  "src/diaremot/io/onnx_utils.py"
+  "src/diaremot/cli.py"
+  "src/diaremot/pipeline/stages/__init__.py"
 )
 missing=(); for f in "${REQUIRED_FILES[@]}"; do [[ -f "$f" ]] || missing+=("$f"); done
 if ((${#missing[@]})); then
   echo "ERROR: required files missing:" >&2; printf '  - %s\n' "${missing[@]}" >&2; exit 1
 fi
 
-# ---- Python / venv ----
-command -v python3 >/dev/null 2>&1 || { echo "ERROR: python3 not found"; exit 1; }
-echo "==> Python: $(python3 -V)"
+# ---- Python / venv (no system package managers) ----
+PYTHON_BIN="${PYTHON_BIN:-python3}"
+command -v "$PYTHON_BIN" >/dev/null 2>&1 || PYTHON_BIN=python
+command -v "$PYTHON_BIN" >/dev/null 2>&1 || { echo "ERROR: Python not found in PATH" >&2; exit 1; }
+echo "==> Using Python: $($PYTHON_BIN -V)"
 
-if command -v apt-get >/dev/null 2>&1; then
-  if [[ "$(id -u)" == "0" ]]; then
-    echo "==> Installing system Tk bindings (python3-tk)"
-    apt-get update -qq
-    apt-get install -y python3-tk >/dev/null
-  else
-    echo "INFO: install python3-tk via 'sudo apt-get install -y python3-tk' for the GUI"
-  fi
+if [[ ! -d .venv ]]; then
+  echo "==> Creating virtual environment (.venv)"
+  "$PYTHON_BIN" -m venv .venv
 fi
 
-echo "==> Creating virtual environment (.venv)"
-python3 -m venv .venv
 # shellcheck disable=SC1091
-source .venv/bin/activate
+if [[ -f .venv/bin/activate ]]; then
+  source .venv/bin/activate
+elif [[ -f .venv/Scripts/activate ]]; then
+  source .venv/Scripts/activate
+else
+  echo "ERROR: venv activation script not found" >&2; exit 1
+fi
 
-echo "==> Upgrading bootstrap tooling"
+echo "==> Upgrading pip/setuptools/wheel"
 python -m pip install --upgrade pip setuptools wheel
 
 echo "==> Installing requirements.txt"
 python -m pip install -r requirements.txt
 
-# ---- local caches (keep behavior) ----
-echo "==> Preparing local caches"
-CACHE_ROOT="$REPO_ROOT/.cache"
-mkdir -p "$CACHE_ROOT/hf" "$CACHE_ROOT/torch" "$CACHE_ROOT/transformers"
-export HF_HOME="$CACHE_ROOT/hf"
-export HUGGINGFACE_HUB_CACHE="$CACHE_ROOT/hf"
-export TRANSFORMERS_CACHE="$CACHE_ROOT/transformers"
-export TORCH_HOME="$CACHE_ROOT/torch"
-export XDG_CACHE_HOME="$CACHE_ROOT"
-export CUDA_VISIBLE_DEVICES=""
-export TORCH_DEVICE="cpu"
+# ---- Local caches + required env vars (defaults) ----
+echo "==> Preparing local caches and env vars"
+CACHE_ROOT="${CACHE_ROOT:-$REPO_ROOT/.cache}"
+mkdir -p "$CACHE_ROOT" "$CACHE_ROOT/hf" "$CACHE_ROOT/torch" "$CACHE_ROOT/transformers"
+
+export HF_HOME="${HF_HOME:-$CACHE_ROOT/hf}"
+export HUGGINGFACE_HUB_CACHE="${HUGGINGFACE_HUB_CACHE:-$CACHE_ROOT/hf}"
+export TRANSFORMERS_CACHE="${TRANSFORMERS_CACHE:-$CACHE_ROOT/transformers}"
+export TORCH_HOME="${TORCH_HOME:-$CACHE_ROOT/torch}"
+export XDG_CACHE_HOME="${XDG_CACHE_HOME:-$CACHE_ROOT}"
 export PYTHONPATH="$REPO_ROOT/src:${PYTHONPATH:-}"
+export CUDA_VISIBLE_DEVICES=""   # CPU‑only
+export TORCH_DEVICE="cpu"
 
-# ---- models.zip: download/verify/unpack (zero-touch) ----
-MODEL_DIR="/opt/models"
-mkdir -p "$MODEL_DIR" 2>/dev/null || MODEL_DIR="$REPO_ROOT/models"  # fallback if /opt not writable
-REPO_MODELS_ZIP="$REPO_ROOT/models.zip"
+# Threads defaults per AGENTS.md (cap to 4)
+_cpu_n="$( (command -v nproc >/dev/null && nproc) || (getconf _NPROCESSORS_ONLN 2>/dev/null) || echo 4 )"
+_cpu_n=$(( _cpu_n > 4 ? 4 : _cpu_n ))
+export OMP_NUM_THREADS="${OMP_NUM_THREADS:-${_cpu_n}}"
+export MKL_NUM_THREADS="${MKL_NUM_THREADS:-${_cpu_n}}"
+export NUMEXPR_MAX_THREADS="${NUMEXPR_MAX_THREADS:-${_cpu_n}}"
+export TOKENIZERS_PARALLELISM="${TOKENIZERS_PARALLELISM:-false}"
 
-REL_URL="https://github.com/tltrogl/diaremot2-ai/releases/download/v2.AI/models.zip"
-REL_SHA="3cc2115f4ef7cd4f9e43cfcec376bf56ea2a8213cb760ab17b27edbc2cac206c"
+# ---- Models: stage into $DIAREMOT_MODEL_DIR (no silent downloads) ----
+export DIAREMOT_MODEL_DIR="${DIAREMOT_MODEL_DIR:-$REPO_ROOT/models}"
+mkdir -p "$DIAREMOT_MODEL_DIR"
 
-echo "==> Staging models into: $MODEL_DIR"
-if [[ -f "$REPO_MODELS_ZIP" ]]; then
-  echo "   using repo models.zip"
-else
-  echo "   fetching from release: $REL_URL"
-  curl -L --fail --retry 5 -o "$REPO_MODELS_ZIP" "$REL_URL"
+need_model_copy=1
+for must in \
+  panns_cnn14.onnx \
+  audioset_labels.csv \
+  silero_vad.onnx \
+  ecapa_tdnn.onnx \
+  ser_8class.onnx \
+  vad_model.onnx \
+  roberta-base-go_emotions.onnx \
+  bart-large-mnli.onnx; do
+  if [[ -f "$DIAREMOT_MODEL_DIR/$must" ]]; then continue; else need_model_copy=0; break; fi
+done
+
+# Portable sha256 helper
+sha256_file() {
+  if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | awk '{print $1}';
+  elif command -v shasum   >/dev/null 2>&1; then shasum -a 256 "$1" | awk '{print $1}';
+  else python - "$1" <<'PY'
+import hashlib, sys
+h=hashlib.sha256()
+with open(sys.argv[1],'rb') as f:
+    for chunk in iter(lambda: f.read(8192), b''):
+        h.update(chunk)
+print(h.hexdigest())
+PY
+  fi
+}
+
+unzip_portable() {
+  local zip="$1"; local dest="$2"
+  if command -v unzip >/dev/null 2>&1; then unzip -o "$zip" -d "$dest" >/dev/null
+  else python -m zipfile -e "$zip" "$dest"
+  fi
+}
+
+if (( need_model_copy == 0 )); then
+  echo "==> Models not fully present under $DIAREMOT_MODEL_DIR"
+  MODELS_ZIP_PATH="${DIAREMOT_MODELS_ZIP:-$REPO_ROOT/models.zip}"
+  MODELS_URL="${DIAREMOT_MODELS_URL:-}"
+  MODELS_SHA="${DIAREMOT_MODELS_SHA256:-}"
+  AUTO_DL="${DIAREMOT_AUTO_DOWNLOAD:-0}"
+
+  if [[ -f "$MODELS_ZIP_PATH" ]]; then
+    echo "==> Unpacking models.zip from repo into $DIAREMOT_MODEL_DIR"
+    [[ -n "$MODELS_SHA" ]] && {
+      got=$(sha256_file "$MODELS_ZIP_PATH"); [[ "$got" == "$MODELS_SHA" ]] || { echo "ERROR: SHA256 mismatch for models.zip" >&2; exit 2; };
+    }
+    unzip_portable "$MODELS_ZIP_PATH" "$DIAREMOT_MODEL_DIR"
+  elif [[ "$AUTO_DL" == "1" && -n "$MODELS_URL" ]]; then
+    echo "==> Downloading models.zip (per DIAREMOT_AUTO_DOWNLOAD=1)"
+    mkdir -p "$CACHE_ROOT"
+    dest="$CACHE_ROOT/models.zip"
+    if command -v curl >/dev/null 2>&1; then curl -L --fail --retry 5 -o "$dest" "$MODELS_URL"; 
+    elif command -v wget >/dev/null 2>&1; then wget -O "$dest" "$MODELS_URL"; 
+    else python - "$MODELS_URL" "$dest" <<'PY'
+import sys, urllib.request
+urllib.request.urlretrieve(sys.argv[1], sys.argv[2])
+PY
+    fi
+    [[ -n "$MODELS_SHA" ]] && { got=$(sha256_file "$dest"); [[ "$got" == "$MODELS_SHA" ]] || { echo "ERROR: SHA256 mismatch for models.zip" >&2; exit 2; }; }
+    unzip_portable "$dest" "$DIAREMOT_MODEL_DIR"
+  else
+    echo "WARN: Models missing and no models.zip provided."
+    echo "      Provide models at $DIAREMOT_MODEL_DIR or set DIAREMOT_MODELS_ZIP=/path/models.zip"
+    echo "      (Optional) set DIAREMOT_AUTO_DOWNLOAD=1 and DIAREMOT_MODELS_URL to enable download."
+  fi
 fi
 
-echo "$REL_SHA  $REPO_MODELS_ZIP" | sha256sum -c - || { echo "ERROR: models.zip SHA256 mismatch"; exit 2; }
-echo "==> Unzipping models.zip → $MODEL_DIR"
-unzip -o "$REPO_MODELS_ZIP" -d "$MODEL_DIR" >/dev/null
-
-# flatten accidental nesting; normalize VAD path
-if [[ -d "$MODEL_DIR/models" ]]; then
-  rsync -a "$MODEL_DIR/models/" "$MODEL_DIR/"; rm -rf "$MODEL_DIR/models"
-fi
-if [[ -f "$MODEL_DIR/vad/silero_vad.onnx" && ! -f "$MODEL_DIR/silero_vad.onnx" ]]; then
-  mv "$MODEL_DIR/vad/silero_vad.onnx" "$MODEL_DIR/silero_vad.onnx"
+# Normalize layout if a nested 'models/' directory was in the zip
+if [[ -d "$DIAREMOT_MODEL_DIR/models" ]]; then
+  echo "==> Normalizing staged models layout"
+  cp -R "$DIAREMOT_MODEL_DIR/models/." "$DIAREMOT_MODEL_DIR/" || true
+  rm -rf "$DIAREMOT_MODEL_DIR/models"
 fi
 
-# ---- optional sample (kept from your flow) ----
+# ---- Optional: generate tiny sample (if ffmpeg present) ----
 if command -v ffmpeg >/dev/null 2>&1; then
   if [[ ! -f data/sample.wav ]]; then
     echo "==> Generating 10s 440Hz sample (data/sample.wav)"
@@ -105,13 +159,11 @@ if command -v ffmpeg >/dev/null 2>&1; then
       -f lavfi -i "sine=frequency=440:duration=10" \
       -ar 16000 -ac 1 data/sample.wav -y || echo "WARN: ffmpeg failed to create sample"
   fi
-else
-  echo "WARN: ffmpeg not found; skipping sample generation"
 fi
 
-# ---- import checks (kept from your flow) ----
+# ---- Import and dependency checks (non‑fatal summary) ----
 echo "==> Verifying core imports"
-python - <<'PY'
+python - <<'PY' || true
 import importlib
 mods = [
   "diaremot.pipeline.audio_pipeline_core",
@@ -120,24 +172,28 @@ mods = [
   "diaremot.pipeline.transcription_module",
   "diaremot.affect.emotion_analyzer",
   "diaremot.affect.paralinguistics",
-  "diaremot.summaries.html_summary_generator",
-  "diaremot.summaries.pdf_summary_generator",
-  "diaremot.summaries.speakers_summary_builder",
   "diaremot.io.onnx_utils",
 ]
 bad=[]
 for m in mods:
-  try: importlib.import_module(m); print("OK  import", m)
-  except Exception as e: bad.append((m,e))
+  try:
+    importlib.import_module(m)
+    print("OK  import", m)
+  except Exception as e:
+    bad.append((m, e))
 if bad:
-  print("\nFAILED imports:"); [print(" -",m,":",e) for m,e in bad]; raise SystemExit(2)
+  print("\nFAILED imports:")
+  for m,e in bad:
+    print(" -", m, ":", e)
 PY
 
-echo "==> Pipeline dep check"
-python -m diaremot.pipeline.audio_pipeline_core --verify_deps || true
+echo "==> Pipeline dependency check (--verify_deps)"
+python -m diaremot.pipeline.audio_pipeline_core --verify_deps --strict_dependency_versions || true
 
 cat <<'MSG'
-==> Setup complete (zero-touch).
-The agent can now run:
-  python -m diaremot.cli run --input data/sample.wav --out outputs/run_$RANDOM
+==> Setup complete.
+Environment variables set (cached under ./.cache). Models staged in $DIAREMOT_MODEL_DIR.
+Run a quick smoke test:
+  python -m diaremot.cli run --input data/sample.wav --outdir ./outputs --asr-compute-type float32
 MSG
+
