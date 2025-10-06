@@ -242,10 +242,11 @@ def test_stage_services_execute_full_cycle(tmp_path, monkeypatch, stub_pipeline)
     assert "auto_tune" in pipeline.stats.config_snapshot
     assert isinstance(state.tuning_summary, dict)
     assert isinstance(state.tuning_history, list)
+odex/update-affect.py-to-handle-sed-fields
 
 
 def test_affect_stage_uses_paralinguistics_metrics(tmp_path, stub_pipeline):
-    pipeline = stub_pipeline
+    pipeline = stub_pipelineC
 
     state = PipelineState(input_audio_path="dummy.wav", out_dir=tmp_path)
     state.sr = 16000
