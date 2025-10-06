@@ -4,6 +4,7 @@
 # - Cross‑platform venv activation (posix/Windows Git Bash)
 # - Defines required env vars (with safe defaults)
 # - Optional models.zip staging, gated by env flags
+# - Optional FFmpeg bootstrap via imageio-ffmpeg into ./.cache/bin (Codex Cloud)
 
 set -Eeuo pipefail
 
@@ -151,6 +152,34 @@ if [[ -d "$DIAREMOT_MODEL_DIR/models" ]]; then
 fi
 
 # ---- Optional: generate tiny sample (if ffmpeg present) ----
+# In Codex Cloud (no apt), bootstrap ffmpeg locally if missing and allowed.
+if ! command -v ffmpeg >/dev/null 2>&1; then
+  if [[ "${DIAREMOT_BOOTSTRAP_FFMPEG:-1}" == "1" ]]; then
+    echo "==> Bootstrapping FFmpeg via imageio-ffmpeg into $CACHE_ROOT/bin"
+    python - <<'PY'
+import os, sys, subprocess
+try:
+    import imageio_ffmpeg as iif
+except Exception:
+    subprocess.check_call([sys.executable, '-m', 'pip', 'install', '--no-cache-dir', 'imageio-ffmpeg==0.4.9'])
+    import imageio_ffmpeg as iif
+exe = iif.get_ffmpeg_exe()
+print(exe)
+PY
+    FFMPEG_EXE_PATH=$(python - <<'PY'
+import imageio_ffmpeg as iif
+print(iif.get_ffmpeg_exe())
+PY
+)
+    mkdir -p "$CACHE_ROOT/bin"
+    ln -sf "$FFMPEG_EXE_PATH" "$CACHE_ROOT/bin/ffmpeg"
+    export PATH="$CACHE_ROOT/bin:${PATH}"
+    echo "   -> ffmpeg is now at $CACHE_ROOT/bin/ffmpeg"
+  else
+    echo "WARN: ffmpeg not found and DIAREMOT_BOOTSTRAP_FFMPEG=0; skipping ffmpeg install"
+  fi
+fi
+
 if command -v ffmpeg >/dev/null 2>&1; then
   if [[ ! -f data/sample.wav ]]; then
     echo "==> Generating 10s 440Hz sample (data/sample.wav)"
@@ -196,4 +225,3 @@ Environment variables set (cached under ./.cache). Models staged in $DIAREMOT_MO
 Run a quick smoke test:
   python -m diaremot.cli run --input data/sample.wav --outdir ./outputs --asr-compute-type float32
 MSG
-

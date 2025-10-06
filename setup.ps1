@@ -1,6 +1,7 @@
 param(
   [switch]$PersistEnv = $false,
   [switch]$AutoDownloadModels = $false,
+  [switch]$BootstrapFFmpeg = $true,
   [string]$ModelsUrl,
   [string]$ModelsZip,
   [string]$ModelsSha256,
@@ -80,6 +81,25 @@ Set-Env TOKENIZERS_PARALLELISM  ($env:TOKENIZERS_PARALLELISM  ? $env:TOKENIZERS_
 
 Set-Env DIAREMOT_MODEL_DIR      ($env:DIAREMOT_MODEL_DIR      ? $env:DIAREMOT_MODEL_DIR      : (Join-Path $RepoRoot 'models'))
 New-Item -Force -ItemType Directory -Path $env:DIAREMOT_MODEL_DIR | Out-Null
+
+# ---- Optional FFmpeg bootstrap (pip-only, no system installs) ----
+if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue)) {
+  if ($BootstrapFFmpeg) {
+    Write-Host "==> Bootstrapping FFmpeg via imageio-ffmpeg into $cacheRoot\bin"
+    try { python -c "import imageio_ffmpeg, sys; print(imageio_ffmpeg.get_ffmpeg_exe())" | Out-Null }
+    catch {
+      python -m pip install --no-cache-dir imageio-ffmpeg==0.4.9 | Out-Null
+    }
+    $ff = python -c "import imageio_ffmpeg; print(imageio_ffmpeg.get_ffmpeg_exe())"
+    New-Item -Force -ItemType Directory -Path (Join-Path $cacheRoot 'bin') | Out-Null
+    Copy-Item -Force $ff (Join-Path $cacheRoot 'bin\ffmpeg.exe')
+    $env:PATH = (Join-Path $cacheRoot 'bin') + ';' + $env:PATH
+    if ($PersistEnv) { [Environment]::SetEnvironmentVariable('PATH', (Join-Path $cacheRoot 'bin') + ';' + [Environment]::GetEnvironmentVariable('PATH','User'), 'User') }
+    Write-Host "   -> ffmpeg is now at $((Join-Path $cacheRoot 'bin\ffmpeg.exe'))"
+  } else {
+    Write-Warning "ffmpeg not found and -BootstrapFFmpeg:$false; skipping ffmpeg install"
+  }
+}
 
 # ---- Models staging (gated) ----
 $required = @(
