@@ -1,10 +1,19 @@
+"""Emotion analysis utilities (ONNX-first, HF fallback).
+
+This module adheres to DiaRemot's ONNX-preferred architecture and CPU-only
+constraint. It provides text emotion (GoEmotions 28), audio SER (8-class), and
+V/A/D estimates, returning fields consumed by Stage 7.
+"""
+
 import json
 import logging
 import os
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
-from .ser_onnx import SEROnnx
+from typing import Callable, Dict, List, Optional, Tuple
+
 import numpy as np
+
+from .ser_dpngtm import SERDpngtm
 
 # Preprocessing: strictly librosa/scipy/numpy
 try:
@@ -36,13 +45,6 @@ def _sr_target() -> int:
     # Keep consistent with PreprocessConfig.target_sr in AGENTS.md
     return 16000
 
-
-"""Emotion analysis utilities (ONNX-first, HF fallback).
-
-This module adheres to DiaRemot's ONNX-preferred architecture and CPU-only
-constraint. It provides text emotion (GoEmotions 28), audio SER (8-class), and
-V/A/D estimates, returning fields consumed by Stage 7.
-"""
 
 # GoEmotions 28 labels (SamLowe/roberta-base-go_emotions)
 GOEMOTIONS_LABELS: List[str] = [
@@ -148,7 +150,6 @@ class OnnxTextEmotion:
     def __init__(self, model_path: str, labels: List[str] = GOEMOTIONS_LABELS):
         self.labels = labels
         self.sess = _ort_session(model_path)
-        self.ser_onnx = SEROnnx()  # uses DIAREMOT_SER_ONNX and auto-picks DML
 
         # Tokenizer only (no HF inference)
         from transformers import AutoTokenizer  # type: ignore
@@ -206,6 +207,54 @@ class HfTextEmotionFallback:
         return top5, {lab: float(arr[i]) for i, lab in enumerate(GOEMOTIONS_LABELS)}
 
 
+class TorchAudioEmotion:
+    """Torch/HF-backed SER implementation (primary backend)."""
+
+    def __init__(
+        self,
+        labels: List[str] = SER8_LABELS,
+        *,
+        model_dir: Optional[str] = None,
+        disable_downloads: bool = False,
+    ) -> None:
+        self.labels = labels
+        allow_downloads = not disable_downloads
+        self._backend = SERDpngtm(
+            model_dir=model_dir,
+            allow_downloads=allow_downloads,
+        )
+
+    @staticmethod
+    def _ensure_mono_16k(y: np.ndarray, sr: int) -> np.ndarray:
+        if y.ndim > 1:
+            y = np.mean(y, axis=-1)
+        target_sr = _sr_target()
+        if librosa is not None and sr != target_sr:
+            y = librosa.resample(y, orig_sr=sr, target_sr=target_sr)
+        return y.astype(np.float32)
+
+    def _normalise_scores(self, scores: Dict[str, float]) -> Dict[str, float]:
+        base: Dict[str, float] = {lab: 0.0 for lab in self.labels}
+        for key, value in scores.items():
+            label = key.lower()
+            if label in base:
+                base[label] = float(value)
+            else:
+                base[key] = float(value)
+        total = float(sum(base.values()))
+        if total > 0.0:
+            for lab in list(base):
+                base[lab] = base[lab] / total
+        return base
+
+    def __call__(self, y: np.ndarray, sr: int) -> Tuple[str, Dict[str, float]]:
+        y16k = self._ensure_mono_16k(y, sr)
+        _top, raw_scores = self._backend.predict_16k_f32(y16k)
+        scores = self._normalise_scores(raw_scores)
+        top_label = max(scores.items(), key=lambda item: item[1])[0]
+        return top_label, scores
+
+
 class OnnxAudioEmotion:
     def __init__(self, model_path: str, labels: List[str] = SER8_LABELS):
         self.labels = labels
@@ -214,7 +263,7 @@ class OnnxAudioEmotion:
     @staticmethod
     def _ensure_mono_16k(y: np.ndarray, sr: int) -> np.ndarray:
         if y.ndim > 1:
-            y = np.mean(y, axis=1)
+            y = np.mean(y, axis=-1)
         target_sr = _sr_target()
         if librosa is not None and sr != target_sr:
             y = librosa.resample(y, orig_sr=sr, target_sr=target_sr)
@@ -286,7 +335,7 @@ class OnnxVADEmotion:
 
 class EmotionAnalyzer:
     """
-    ONNX-first emotion analyzer with graceful fallbacks.
+    Emotion analyzer favouring ONNX for text/VAD with Torch SER primary fallback.
 
     Produces fields required by Stage 7 (affect_and_assemble):
     - valence, arousal, dominance
@@ -298,10 +347,12 @@ class EmotionAnalyzer:
         self.model_dir = model_dir or _resolve_model_dir()
         self.disable_downloads = bool(disable_downloads or False)
 
-        # Try ONNX for each component
+        # Try ONNX/Torch for each component (lazily initialised)
         self._text_model: Optional[OnnxTextEmotion] = None
         self._text_fallback: Optional[HfTextEmotionFallback] = None
-        self._audio_model: Optional[OnnxAudioEmotion] = None
+        self._audio_model: Optional[Callable[[np.ndarray, int], Tuple[str, Dict[str, float]]]] = (
+            None
+        )
         self._vad_model: Optional[OnnxVADEmotion] = None
 
         # Paths
@@ -309,10 +360,17 @@ class EmotionAnalyzer:
         self.path_ser8_onnx = os.path.join(self.model_dir, "ser_8class.onnx")
         self.path_vad_onnx = os.path.join(self.model_dir, "vad_model.onnx")
 
-        # Allow explicit override from env (your exported ONNX path)
-        _env_ser = os.getenv("DIAREMOT_SER_ONNX")
-        if _env_ser:
-            self.path_ser8_onnx = _env_ser
+        # Torch SER location (optional local snapshot)
+        self.path_ser_torch: Optional[str] = os.getenv("DIAREMOT_SER_MODEL_DIR")
+        if not self.path_ser_torch:
+            candidate = os.path.join(self.model_dir, "dpngtm_ser")
+            if os.path.isdir(candidate):
+                self.path_ser_torch = candidate
+
+        # Allow explicit override from env (exported ONNX path)
+        env_ser = os.getenv("DIAREMOT_SER_ONNX")
+        if env_ser:
+            self.path_ser8_onnx = env_ser
 
     # Initialize lazily upon first use to avoid import overhead when unused
 
@@ -337,6 +395,20 @@ class EmotionAnalyzer:
     def _ensure_audio_model(self):
         if self._audio_model is not None:
             return
+        # Primary: Torch/HF backend
+        try:
+            self._audio_model = TorchAudioEmotion(
+                labels=SER8_LABELS,
+                model_dir=self.path_ser_torch,
+                disable_downloads=self.disable_downloads,
+            )
+            return
+        except RuntimeError as exc:
+            logger.warning("Audio SER torch backend unavailable: %s", exc)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Audio SER torch backend failed to initialise: %s", exc)
+
+        # Fallback: ONNXRuntime
         try:
             self._audio_model = OnnxAudioEmotion(self.path_ser8_onnx)
         except (FileNotFoundError, RuntimeError) as exc:
@@ -373,7 +445,7 @@ class EmotionAnalyzer:
             return "neutral", {lab: 0.0 for lab in SER8_LABELS}
         try:
             return self._audio_model(y, sr)
-        except Exception:  # noqa: BLE001 - onnxruntime errors vary by build
+        except Exception:  # noqa: BLE001 - backend-specific runtime errors vary
             return "neutral", {lab: 0.0 for lab in SER8_LABELS}
 
     def analyze_vad_emotion(
@@ -415,8 +487,10 @@ __all__ = (
     "SER8_LABELS",
 )
 
+
 # Back-compat alias expected by orchestrator
 class EmotionIntentAnalyzer(EmotionAnalyzer):
     pass
+
 
 __all__ = __all__ + ("EmotionIntentAnalyzer",)
