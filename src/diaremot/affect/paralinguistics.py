@@ -23,7 +23,6 @@ import numpy as np
 try:
     import librosa
     import librosa.feature
-    from librosa import amplitude_to_db, stft
 
     LIBROSA_AVAILABLE = True
 except ImportError:
@@ -744,7 +743,7 @@ def _compute_voice_quality_fallback_v2(
 
                 if len(rms_frames) > 5:
                     # Convert to dB and calculate variation
-                    rms_db = amplitude_to_db(rms_frames + 1e-12)
+                    rms_db = librosa.amplitude_to_db(rms_frames + 1e-12)
                     # Robust shimmer: median absolute deviation of amplitude differences
                     db_diffs = np.diff(rms_db)
                     shimmer_db = float(np.median(np.abs(db_diffs - np.median(db_diffs))))
@@ -767,7 +766,7 @@ def _compute_voice_quality_fallback_v2(
 
                 # Alternative: spectral regularity measure
                 if hnr_db == 0.0:
-                    stft_mag = np.abs(stft(audio, hop_length=512, n_fft=1024))
+                    stft_mag = np.abs(librosa.stft(audio, hop_length=512, n_fft=1024))
                     if stft_mag.size > 0:
                         # Harmonic regularity approximation
                         spectral_peaks = np.max(stft_mag, axis=0)
@@ -784,7 +783,7 @@ def _compute_voice_quality_fallback_v2(
         if LIBROSA_AVAILABLE and hnr_db > 0:
             try:
                 # Cepstral analysis approximation
-                stft_mag = np.abs(stft(audio, hop_length=512, n_fft=2048))
+                stft_mag = np.abs(librosa.stft(audio, hop_length=512, n_fft=2048))
                 if stft_mag.shape[0] > 100:  # Sufficient frequency resolution
                     # Log spectrum for cepstral domain
                     log_spec = np.log(stft_mag + 1e-12)
@@ -817,7 +816,7 @@ def _compute_voice_quality_fallback_v2(
         if LIBROSA_AVAILABLE:
             try:
                 # Compute long-term average spectrum (LTAS)
-                stft_mag = np.abs(stft(audio, hop_length=512, n_fft=2048))
+                stft_mag = np.abs(librosa.stft(audio, hop_length=512, n_fft=2048))
                 ltas = np.mean(stft_mag, axis=1)
                 freqs = librosa.fft_frequencies(sr=sr, n_fft=2048)
 
@@ -1183,7 +1182,7 @@ def compute_segment_features_v2(
                 hop_length=hop_length,
                 center=True,
             )[0]
-            rms_db = amplitude_to_db(rms + 1e-12)
+            rms_db = librosa.amplitude_to_db(rms + 1e-12)
         else:
             rms_db = _compute_rms_fallback_v2(segment_audio, frame_length, hop_length)
 

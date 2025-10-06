@@ -57,35 +57,22 @@ class BackendAvailability:
         return cls._instance
 
     def _check_backends(self):
+        import importlib.util as _util
         # Librosa
         try:
             import librosa
-
             self.librosa = librosa
             self.has_librosa = True
-        except ImportError:
+        except Exception:
             self.has_librosa = False
             self.librosa = None
 
-        # Faster-whisper
-        try:
-            from faster_whisper import WhisperModel
+        # Avoid importing faster-whisper/ctranslate2/torch eagerly
+        self.has_faster_whisper = _util.find_spec("faster_whisper") is not None
 
-            self.WhisperModel = WhisperModel
-            self.has_faster_whisper = True
-        except ImportError:
-            self.has_faster_whisper = False
-            self.WhisperModel = None
-
-        # OpenAI whisper fallback
-        try:
-            import whisper as openai_whisper
-
-            self.openai_whisper = openai_whisper
-            self.has_openai_whisper = True
-        except ImportError:
-            self.has_openai_whisper = False
-            self.openai_whisper = None
+        # Avoid importing openai-whisper/torch eagerly
+        self.has_openai_whisper = _util.find_spec("whisper") is not None
+        self.openai_whisper = None
 
 
 backends = BackendAvailability()
@@ -318,7 +305,8 @@ class ModelManager:
         }
 
         try:
-            model = backends.WhisperModel(model_size, **model_kwargs)
+            from faster_whisper import WhisperModel  # lazy import to avoid torch/_C during module import
+            model = WhisperModel(model_size, **model_kwargs)
             self.logger.info(f"Loaded faster-whisper: {model_size}")
             return model
         except Exception as e:
@@ -337,7 +325,7 @@ class ModelManager:
             for fallback in fallback_models:
                 try:
                     self.logger.info(f"Trying fallback model: {fallback}")
-                    model = backends.WhisperModel(fallback, **model_kwargs)
+                    model = WhisperModel(fallback, **model_kwargs)
                     self.logger.info(f"Successfully loaded fallback faster-whisper: {fallback}")
                     return model
                 except Exception as fallback_e:
@@ -352,7 +340,8 @@ class ModelManager:
         """Load OpenAI whisper with CPU optimization"""
         model_name = self._map_to_openai_model(config["model_size"])
         try:
-            model = backends.openai_whisper.load_model(model_name, device="cpu")
+            import whisper as openai_whisper  # lazy import; may require torch
+            model = openai_whisper.load_model(model_name, device="cpu")
             self.logger.info(f"Loaded OpenAI whisper: {model_name}")
             return model
         except Exception as e:
@@ -362,7 +351,8 @@ class ModelManager:
                 f"OpenAI whisper load failed for '{model_name}': {e}; trying 'tiny'"
             )
             # Try explicit tiny as a last resort
-            tiny = backends.openai_whisper.load_model("tiny", device="cpu")
+            import whisper as openai_whisper
+            tiny = openai_whisper.load_model("tiny", device="cpu")
             self.logger.info("Loaded OpenAI whisper fallback: tiny")
             return tiny
 

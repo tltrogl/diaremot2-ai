@@ -1,5 +1,4 @@
 import json
-import json
 import logging
 import os
 from dataclasses import dataclass
@@ -115,15 +114,8 @@ def _ort_session(path: str):
     sess_options.intra_op_num_threads = min(4, os.cpu_count() or 1)
     sess_options.inter_op_num_threads = 1
     sess_options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
-    # Prefer DirectML if available (works on DX12 iGPU; avoids AVX requirement),
-    # otherwise fall back to CPUExecutionProvider.
-    available = set(ort.get_available_providers())
-    providers = (
-        ["DmlExecutionProvider"]
-        if "DmlExecutionProvider" in available
-        else ["CPUExecutionProvider"]
-    )
-
+    # DiaRemot is CPU-only per AGENTS.md. Do not use GPU providers.
+    providers = ["CPUExecutionProvider"]
     return ort.InferenceSession(path, sess_options=sess_options, providers=providers)
 
 
@@ -317,11 +309,10 @@ class EmotionAnalyzer:
         self.path_ser8_onnx = os.path.join(self.model_dir, "ser_8class.onnx")
         self.path_vad_onnx = os.path.join(self.model_dir, "vad_model.onnx")
 
-
-# Allow explicit override from env (your exported ONNX path)
-_env_ser = os.getenv("DIAREMOT_SER_ONNX")
-if _env_ser:
-    self.path_ser8_onnx = _env_ser
+        # Allow explicit override from env (your exported ONNX path)
+        _env_ser = os.getenv("DIAREMOT_SER_ONNX")
+        if _env_ser:
+            self.path_ser8_onnx = _env_ser
 
     # Initialize lazily upon first use to avoid import overhead when unused
 
@@ -423,3 +414,9 @@ __all__ = (
     "GOEMOTIONS_LABELS",
     "SER8_LABELS",
 )
+
+# Back-compat alias expected by orchestrator
+class EmotionIntentAnalyzer(EmotionAnalyzer):
+    pass
+
+__all__ = __all__ + ("EmotionIntentAnalyzer",)
