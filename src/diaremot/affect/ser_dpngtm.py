@@ -119,7 +119,7 @@ class SERDpngtm:
             raise RuntimeError("PyTorch is required for SER inference")
 
         if getattr(wav_16k_f32, "ndim", 1) > 1:
-            wav_16k_f32 = wav_16k_f32.mean(axis=1)
+            wav_16k_f32 = wav_16k_f32.mean(axis=-1)
 
         inputs = self.processor(
             wav_16k_f32,

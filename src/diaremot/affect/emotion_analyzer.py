@@ -1,11 +1,19 @@
-import json
+"""Emotion analysis utilities (ONNX-first, HF fallback).
+
+This module adheres to DiaRemot's ONNX-preferred architecture and CPU-only
+constraint. It provides text emotion (GoEmotions 28), audio SER (8-class), and
+V/A/D estimates, returning fields consumed by Stage 7.
+"""
+
 import json
 import logging
 import os
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional, Tuple
-from .ser_dpngtm import SERDpngtm
+
 import numpy as np
+
+from .ser_dpngtm import SERDpngtm
 
 # Preprocessing: strictly librosa/scipy/numpy
 try:
@@ -36,14 +44,6 @@ def _json(obj) -> str:
 def _sr_target() -> int:
     # Keep consistent with PreprocessConfig.target_sr in AGENTS.md
     return 16000
-
-
-"""Emotion analysis utilities (ONNX-first, HF fallback).
-
-This module adheres to DiaRemot's ONNX-preferred architecture and CPU-only
-constraint. It provides text emotion (GoEmotions 28), audio SER (8-class), and
-V/A/D estimates, returning fields consumed by Stage 7.
-"""
 
 # GoEmotions 28 labels (SamLowe/roberta-base-go_emotions)
 GOEMOTIONS_LABELS: List[str] = [
@@ -233,7 +233,7 @@ class TorchAudioEmotion:
     @staticmethod
     def _ensure_mono_16k(y: np.ndarray, sr: int) -> np.ndarray:
         if y.ndim > 1:
-            y = np.mean(y, axis=1)
+            y = np.mean(y, axis=-1)
         target_sr = _sr_target()
         if librosa is not None and sr != target_sr:
             y = librosa.resample(y, orig_sr=sr, target_sr=target_sr)
@@ -269,7 +269,7 @@ class OnnxAudioEmotion:
     @staticmethod
     def _ensure_mono_16k(y: np.ndarray, sr: int) -> np.ndarray:
         if y.ndim > 1:
-            y = np.mean(y, axis=1)
+            y = np.mean(y, axis=-1)
         target_sr = _sr_target()
         if librosa is not None and sr != target_sr:
             y = librosa.resample(y, orig_sr=sr, target_sr=target_sr)
