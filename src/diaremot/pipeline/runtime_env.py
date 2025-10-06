@@ -171,7 +171,7 @@ def _iter_whisper_candidates() -> list[Path]:
             [
                 root / "tiny.en",
                 root / "faster-whisper" / "tiny.en",
-                root / "faster-whisper-tiny.en",
+                root / "tiny.en",
                 root / "ct2" / "tiny.en",
             ]
         )

@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from .logging_utils import RunStats
+from .logging_utils import RunStats, _make_json_safe
 
 SEGMENT_COLUMNS = [
     "file_id",
@@ -181,7 +181,7 @@ def write_qc_report(
 
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    path.write_text(json.dumps(_make_json_safe(payload), indent=2, ensure_ascii=False), encoding="utf-8")
 
 
 def write_speakers_summary(path: Path, rows: list[dict[str, Any]]) -> None:

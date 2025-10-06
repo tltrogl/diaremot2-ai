@@ -1,6 +1,7 @@
 import json
 import types
 
+import math
 import numpy as np
 import pytest
 
@@ -8,6 +9,7 @@ from diaremot.pipeline.logging_utils import StageGuard
 from diaremot.pipeline.orchestrator import AudioAnalysisPipelineV2
 from diaremot.pipeline.outputs import default_affect
 from diaremot.pipeline.stages import PIPELINE_STAGES, PipelineState, dependency_check
+from diaremot.pipeline.stages.affect import run as run_affect_stage
 from diaremot.pipeline.stages.summaries import run_overlap
 
 
@@ -240,6 +242,129 @@ def test_stage_services_execute_full_cycle(tmp_path, monkeypatch, stub_pipeline)
     assert "auto_tune" in pipeline.stats.config_snapshot
     assert isinstance(state.tuning_summary, dict)
     assert isinstance(state.tuning_history, list)
+odex/update-affect.py-to-handle-sed-fields
+
+
+def test_affect_stage_uses_paralinguistics_metrics(tmp_path, stub_pipeline):
+    pipeline = stub_pipelineC
+
+    state = PipelineState(input_audio_path="dummy.wav", out_dir=tmp_path)
+    state.sr = 16000
+    state.y = np.zeros(int(3 * state.sr), dtype=np.float32)
+    state.norm_tx = [
+        {
+            "start": 1.0,
+            "end": 2.5,
+            "speaker_id": "S1",
+            "speaker_name": "Speaker_1",
+            "text": "alpha beta gamma delta epsilon",
+        }
+    ]
+    state.para_metrics = {
+        0: {
+            "wpm": 120.0,
+            "duration_s": 1.5,
+            "words": 5,
+            "pause_ratio": 0.25,
+            "pause_time_s": 0.375,
+        }
+    }
+
+    with StageGuard(pipeline.corelog, pipeline.stats, "affect_and_assemble") as guard:
+        run_affect_stage(pipeline, state, guard)
+
+    assert state.segments_final, "Affect stage must emit segments"
+    seg = state.segments_final[0]
+    assert math.isclose(seg["duration_s"], 1.5, rel_tol=1e-6)
+    assert seg["words"] == 5
+    assert math.isclose(seg["pause_ratio"], 0.25, rel_tol=1e-6)
+
+
+def test_affect_stage_computes_fallback_metrics(tmp_path, stub_pipeline):
+    pipeline = stub_pipeline
+
+    state = PipelineState(input_audio_path="dummy.wav", out_dir=tmp_path)
+    state.sr = 16000
+    state.y = np.zeros(int(5 * state.sr), dtype=np.float32)
+    state.norm_tx = [
+        {
+            "start": 0.5,
+            "end": 3.5,
+            "speaker_id": "S1",
+            "speaker_name": "Speaker_1",
+            "text": "fallback path validation",
+        }
+    ]
+    state.para_metrics = {}
+
+    with StageGuard(pipeline.corelog, pipeline.stats, "affect_and_assemble") as guard:
+        run_affect_stage(pipeline, state, guard)
+
+    seg = state.segments_final[0]
+    assert math.isclose(seg["duration_s"], 3.0, rel_tol=1e-6)
+    assert seg["words"] == 3
+    assert seg["pause_ratio"] == 0.0
+
+
+def test_affect_stage_uses_paralinguistics_metrics(tmp_path, stub_pipeline):
+    pipeline = stub_pipeline
+
+    state = PipelineState(input_audio_path="dummy.wav", out_dir=tmp_path)
+    state.sr = 16000
+    state.y = np.zeros(int(3 * state.sr), dtype=np.float32)
+    state.norm_tx = [
+        {
+            "start": 1.0,
+            "end": 2.5,
+            "speaker_id": "S1",
+            "speaker_name": "Speaker_1",
+            "text": "alpha beta gamma delta epsilon",
+        }
+    ]
+    state.para_metrics = {
+        0: {
+            "wpm": 120.0,
+            "duration_s": 1.5,
+            "words": 5,
+            "pause_ratio": 0.25,
+            "pause_time_s": 0.375,
+        }
+    }
+
+    with StageGuard(pipeline.corelog, pipeline.stats, "affect_and_assemble") as guard:
+        run_affect_stage(pipeline, state, guard)
+
+    assert state.segments_final, "Affect stage must emit segments"
+    seg = state.segments_final[0]
+    assert math.isclose(seg["duration_s"], 1.5, rel_tol=1e-6)
+    assert seg["words"] == 5
+    assert math.isclose(seg["pause_ratio"], 0.25, rel_tol=1e-6)
+
+
+def test_affect_stage_computes_fallback_metrics(tmp_path, stub_pipeline):
+    pipeline = stub_pipeline
+
+    state = PipelineState(input_audio_path="dummy.wav", out_dir=tmp_path)
+    state.sr = 16000
+    state.y = np.zeros(int(5 * state.sr), dtype=np.float32)
+    state.norm_tx = [
+        {
+            "start": 0.5,
+            "end": 3.5,
+            "speaker_id": "S1",
+            "speaker_name": "Speaker_1",
+            "text": "fallback path validation",
+        }
+    ]
+    state.para_metrics = {}
+
+    with StageGuard(pipeline.corelog, pipeline.stats, "affect_and_assemble") as guard:
+        run_affect_stage(pipeline, state, guard)
+
+    seg = state.segments_final[0]
+    assert math.isclose(seg["duration_s"], 3.0, rel_tol=1e-6)
+    assert seg["words"] == 3
+    assert seg["pause_ratio"] == 0.0
 
 
 def test_run_overlap_maps_interruptions(tmp_path, stub_pipeline):

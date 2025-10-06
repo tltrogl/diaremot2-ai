@@ -1,6 +1,6 @@
 # AGENTS.md — DiaRemot Agent Instructions (Codex / AI Agents)
 
-_Last updated: 2025-10-04_
+_Last updated: 2025-10-05_
 
 **Role:** System Architect / Maintainer for DiaRemot  
 As the agent, you must **plan → implement → verify → report** in each change cycle. You are building *real code*, not mocks.  
@@ -84,6 +84,7 @@ All audio preprocessing uses:
 ---
 
 ## Pipeline Contract (must remain true)
+
 **Every run should include all 11 stages by default**, unless explicitly overridden.
 
 The canonical stage list is defined in `src/diaremot/pipeline/stages/__init__.py::PIPELINE_STAGES`:
@@ -98,7 +99,12 @@ Validate runtime dependencies:
 ### 2. **preprocess**
 Audio normalization, denoising, auto-chunking (for files >30 min)
 
-**Note:** Adaptive VAD tuning happens inside orchestrator during diarization config, NOT as a separate stage.
+**Config:** `PreprocessConfig` in `audio_preprocessing.py`
+- `target_sr`: 16000
+- `denoise`: "spectral_sub_soft" | "none"
+- `loudness_mode`: "asr" (normalize to -20 LUFS)
+- `auto_chunk_enabled`: true
+- `chunk_threshold_minutes`: 30.0
 
 ### 3. **background_sed** (Sound Event Detection)
 **Model:** PANNs CNN14  
@@ -111,6 +117,8 @@ Audio normalization, denoising, auto-chunking (for files >30 min)
 - Merge gap: 0.20 s
 - Label collapse: AudioSet 527 → ~20 semantic groups (speech, music, laughter, crying, door, phone, etc.)
 
+**Enabled by default.** User must explicitly `--disable-sed` to skip.
+
 **Assets required:**
 - ONNX: `panns_cnn14.onnx` (118 MB) + `audioset_labels.csv`
 - PyTorch fallback: `Cnn14_mAP=0.431.pth`
@@ -121,14 +129,29 @@ Audio normalization, denoising, auto-chunking (for files >30 min)
 **Clustering:** Agglomerative Hierarchical Clustering (AHC)  
 **Runtime:** ONNXRuntime (preferred), PyTorch TorchHub (fallback)
 
-**Adaptive VAD parameters** (orchestrator overrides CLI defaults):
-- `vad_threshold = 0.22` (relaxed from CLI default 0.30)
-- `vad_min_speech_sec = 0.40` (relaxed from 0.80)
-- `vad_min_silence_sec = 0.40` (relaxed from 0.80)
-- `speech_pad_sec = 0.15` (relaxed from 0.20)
-- `ahc_distance_threshold = 0.02` (orchestrator override; DiarizationConfig default is 0.12)
+**CLI Default parameters** (`src/diaremot/cli.py`):
+- `vad_threshold = 0.30`
+- `vad_min_speech_sec = 0.80`
+- `vad_min_silence_sec = 0.80`
+- `speech_pad_sec = 0.20`
+- `ahc_distance_threshold = 0.12`
+
+**Orchestrator overrides** (`src/diaremot/pipeline/orchestrator.py::_init_components()`, lines 234-244):
+Applied when user doesn't set CLI flags:
+- `vad_threshold = 0.35` (stricter to reduce oversegmentation)
+- `vad_min_speech_sec = 0.80` (same)
+- `vad_min_silence_sec = 0.80` (same)
+- `speech_pad_sec = 0.10` (less padding to avoid overlap)
+- `ahc_distance_threshold = 0.15` (looser to prevent speaker fragmentation)
 - `collar_sec = 0.25`
 - `min_turn_sec = 1.50`
+
+**User can override orchestrator tuning:**
+```bash
+python -m diaremot.cli run -i audio.wav -o outputs/ \
+  --vad-threshold 0.30 \
+  --ahc-distance-threshold 0.12
+```
 
 **Assets required:**
 - ONNX: `silero_vad.onnx` (1.8 MB), `ecapa_tdnn.onnx` (6.1 MB)
@@ -136,13 +159,14 @@ Audio normalization, denoising, auto-chunking (for files >30 min)
 
 ### 5. **transcribe** (ASR)
 **Model:** faster-whisper `tiny.en` (39 MB)  
-**Runtime:** CTranslate2 (int8 quantization by default)  
+**Runtime:** CTranslate2 (float32 default for main CLI, int8 optional)  
 **Parameters:**
 - `beam_size = 1` (greedy decoding)
 - `temperature = 0.0` (deterministic)
 - `no_speech_threshold = 0.50`
-- `compute_type = int8` (default; fallback to float32 if int8 unavailable)
+- `compute_type = float32` (default for main CLI; override with `--asr-compute-type int8`)
 - `vad_filter = True` (uses built-in Silero VAD)
+- `max_asr_window_sec = 480` (8 minutes)
 
 **Runs on:** Diarized speech turns only (not full audio)
 
@@ -156,6 +180,8 @@ Audio normalization, denoising, auto-chunking (for files >30 min)
 - Disfluencies: disfluency_count
 
 **Fallback:** If Praat fails, compute WPM from ASR text and set voice quality metrics to 0.0
+
+**REQUIRED STAGE:** Cannot be skipped. Must populate all 14 paralinguistic fields in CSV.
 
 ### 7. **affect_and_assemble** (Emotion + Intent)
 **Audio emotion:** 8-class Speech Emotion Recognition  
@@ -172,14 +198,26 @@ Audio normalization, denoising, auto-chunking (for files >30 min)
 
 **Fallback:** HuggingFace transformers `pipeline()` if ONNX unavailable
 
+**Assembles:** Final segment dicts with all 39 CSV columns
+
 ### 8. **overlap_interruptions**
 Turn-taking analysis, interruption detection, overlap statistics
+
+**Outputs:**
+- `overlap_stats`: Dict with overlap_count, total_overlap_duration_s
+- `per_speaker_interrupts`: Dict mapping speaker_id → {made, received}
 
 ### 9. **conversation_analysis**
 Flow metrics (turn-taking balance, response latencies, dominance)
 
+**Outputs:**
+- `conv_metrics`: ConversationMetrics object
+
 ### 10. **speaker_rollups**
 Per-speaker summaries (total duration, V/A/D averages, emotion mix, WPM, voice quality)
+
+**Outputs:**
+- `speakers_summary`: List of dicts with speaker-level aggregates
 
 ### 11. **outputs**
 Write final files:
@@ -283,8 +321,8 @@ session = ort.InferenceSession(model_path, sess_options=session_options, provide
 python -m diaremot.cli run \
   --input audio.wav \
   --outdir ./results \
-  --vad-threshold 0.22 \
-  --compute-type int8
+  --vad-threshold 0.35 \
+  --asr-compute-type float32
 ```
 
 ---
@@ -297,12 +335,14 @@ python -m diaremot.cli run \
 - Data shapes / schemas affected
 - Test plan
 - ONNX model conversion steps (if adding new models)
+- VAD parameter impact (if modifying diarization)
 
 ### 2. Implement
 - Minimal diff
 - Keep module boundaries
 - Consistent style (ruff-compliant)
 - **Prefer ONNX, include PyTorch fallback**
+- **Respect orchestrator overrides** — don't accidentally remove them
 
 ### 3. Verify
 ```bash
@@ -317,6 +357,9 @@ pytest tests/ -v
 
 # Integration test (smoke run)
 python -m diaremot.cli run --input data/sample.wav --outdir /tmp/test
+
+# Verify CSV schema
+python -c "from diaremot.pipeline.outputs import SEGMENT_COLUMNS; print(len(SEGMENT_COLUMNS))"  # Should be 39
 ```
 
 ### 4. Report (single response)
@@ -354,10 +397,12 @@ python -m diaremot.cli run --input data/sample.wav --outdir /tmp/test
 - **No system-level installs** (apt, brew)
 - **No secrets/keys** in code or logs
 - **Must preserve behavior** of existing functions and modules (extend, not remove)
-- **ASR must default to `compute_type = int8`** unless benchmarked improvement documented
+- **ASR default:** `compute_type = float32` for main CLI (not int8)
+- **11 stages exactly** — do not add/remove stages without updating PIPELINE_STAGES
 - **Do not rename or break output schemas** or filenames without coordinated migration steps
 - **All agent actions must be auditably reproducible** — logs and commands must align with outputs
 - **ONNX-preferred, PyTorch fallback** for all models except ASR (CTranslate2) and paralinguistics (Praat)
+- **Orchestrator VAD overrides** — must remain when user doesn't set CLI flags
 
 ---
 
@@ -367,10 +412,11 @@ python -m diaremot.cli run --input data/sample.wav --outdir /tmp/test
 - ✅ Ruff / lint / tests passed (report summary)
 - ✅ Full pipeline run (all 11 stages) completed
 - ✅ No broken stage; no regression introduced
-- ✅ Schema maintained or extended forward-compatibly
+- ✅ Schema maintained or extended forward-compatibly (39 columns)
 - ✅ SED label collapse preserved
 - ✅ ONNX models validated with ONNXRuntime
 - ✅ PyTorch fallback tested when ONNX unavailable
+- ✅ Orchestrator VAD overrides preserved (if modifying diarization)
 - ✅ All assumptions, risks, version bumps, file paths documented
 - ✅ No private credentials or secrets in artifacts or logs
 
@@ -394,7 +440,7 @@ Plan:
 - Write unit tests:
   - ONNX inference matches HF pipeline output
   - Fallback triggers correctly when ONNX missing
-- Integration test: run full pipeline on sample audio, verify CSV schema unchanged
+- Integration test: run full pipeline on sample audio, verify CSV schema unchanged (39 columns)
 - Document ONNX conversion steps in README
 - Lint / typecheck / build
 
@@ -413,6 +459,10 @@ Then implement, verify, report with logs/patches.
 6. **Not benchmarking ONNX conversion** → Always compare inference time vs PyTorch
 7. **Breaking schema when adding ONNX models** → Maintain 39-column CSV contract
 8. **Using PyTorch for preprocessing** → Use librosa/scipy/numpy instead
+9. **Claiming auto_tune is a stage** → It's NOT in PIPELINE_STAGES; orchestrator applies tuning inline
+10. **Forgetting orchestrator overrides VAD params** → Check `orchestrator.py::_init_components()` for actual values
+11. **Removing orchestrator VAD overrides** → They exist for good reason (reduce oversegmentation)
+12. **Wrong compute_type default** → Main CLI uses float32, not int8
 
 ---
 
@@ -464,14 +514,16 @@ If you encounter:
 - ONNXRuntime errors (shape mismatches, unsupported ops)
 - Significant accuracy degradation vs PyTorch (>5% difference)
 - Performance regression (ONNX slower than PyTorch)
+- Orchestrator VAD overrides causing issues on specific audio types
 
 **Then:**
 1. Document the exact error + reproducible test case
 2. Check ONNX/optimum GitHub issues for known bugs
 3. Try different opset versions (11, 12, 14, 16)
 4. Consider quantization-aware training if int8 fails
-5. Flag for human review if unresolvable
+5. For VAD issues, document audio characteristics (SNR, speech style, etc.)
+6. Flag for human review if unresolvable
 
 ---
 
-**Remember:** This is production code serving real users. Precision matters. ONNX-preferred with PyTorch fallback is the architecture. When in doubt, verify before claiming.
+**Remember:** This is production code serving real users. Precision matters. ONNX-preferred with PyTorch fallback is the architecture. Orchestrator VAD overrides exist to reduce oversegmentation. When in doubt, verify before claiming.

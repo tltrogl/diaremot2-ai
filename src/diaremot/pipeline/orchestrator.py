@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import time
 import uuid
 from pathlib import Path
@@ -510,15 +511,59 @@ class AudioAnalysisPipelineV2:
         """Extract paralinguistic features with fallback"""
         results: dict[int, dict[str, Any]] = {}
 
+        def _safe_float(value: Any) -> float | None:
+            try:
+                num = float(value)
+            except (TypeError, ValueError):
+                return None
+            if not math.isfinite(num):
+                return None
+            return num
+
+        def _safe_int(value: Any) -> int | None:
+            if value is None:
+                return None
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                try:
+                    return int(float(value))
+                except (TypeError, ValueError):
+                    return None
+
         try:
             if para and hasattr(para, "extract"):
                 out = para.extract(wav, sr, segs) or []
                 for i, d in enumerate(out):
+                    seg = segs[i] if i < len(segs) else {}
+                    start = _safe_float(seg.get("start"))
+                    if start is None:
+                        start = _safe_float(seg.get("start_time")) or 0.0
+                    end = _safe_float(seg.get("end"))
+                    if end is None:
+                        end = _safe_float(seg.get("end_time")) or start
+                    duration_s = _safe_float(d.get("duration_s"))
+                    if duration_s is None:
+                        duration_s = max(0.0, (end or 0.0) - (start or 0.0))
+
+                    words = _safe_int(d.get("words"))
+                    if words is None:
+                        text = seg.get("text") or ""
+                        words = len(text.split())
+
+                    pause_ratio = _safe_float(d.get("pause_ratio"))
+                    if pause_ratio is None:
+                        pause_time = _safe_float(d.get("pause_time_s")) or 0.0
+                        pause_ratio = (pause_time / duration_s) if duration_s > 0 else 0.0
+                    pause_ratio = max(0.0, min(1.0, pause_ratio))
+
                     results[i] = {
                         "wpm": float(d.get("wpm", 0.0) or 0.0),
+                        "duration_s": float(duration_s),
+                        "words": int(words),
                         "pause_count": int(d.get("pause_count", 0) or 0),
                         "pause_time_s": float(d.get("pause_time_s", 0.0) or 0.0),
-                        "pause_ratio": float(d.get("pause_ratio", 0.0) or 0.0),
+                        "pause_ratio": float(pause_ratio),
                         "f0_mean_hz": float(d.get("f0_mean_hz", 0.0) or 0.0),
                         "f0_std_hz": float(d.get("f0_std_hz", 0.0) or 0.0),
                         "loudness_rms": float(d.get("loudness_rms", 0.0) or 0.0),

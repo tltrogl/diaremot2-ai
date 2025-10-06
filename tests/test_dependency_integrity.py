@@ -20,6 +20,7 @@ except ModuleNotFoundError:  # pragma: no cover - fallback for <3.11
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SRC_ROOT = REPO_ROOT / "src"
+PACKAGE_ROOT = SRC_ROOT / "diaremot"
 
 IMPORT_NAME_TO_DEP = {
     "av": "av",
@@ -55,6 +56,13 @@ INTERNAL_IMPORTS = {
     "summaries",
     "transcription_module",
 }
+
+_PROJECT_MODULE_NAMES: set[str] = set()
+for path in PACKAGE_ROOT.rglob("*.py"):
+    if path.name == "__init__.py":
+        _PROJECT_MODULE_NAMES.add(path.parent.name)
+    else:
+        _PROJECT_MODULE_NAMES.add(path.stem)
 
 OPTIONAL_IMPORTS = {
     "suppress_warnings",  # optional environment helper
@@ -118,7 +126,11 @@ def test_third_party_imports_are_declared() -> None:
     for name in _iter_import_roots():
         if name in PYTHON_STDLIB:
             continue
-        if name in INTERNAL_IMPORTS or name.startswith("diaremot"):
+        if (
+            name in INTERNAL_IMPORTS
+            or name.startswith("diaremot")
+            or name in _PROJECT_MODULE_NAMES
+        ):
             continue
         if name in OPTIONAL_IMPORTS:
             continue

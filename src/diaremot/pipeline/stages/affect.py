@@ -65,6 +65,20 @@ def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGua
         aff = pipeline._affect_unified(clip, state.sr, text)
         pm = state.para_metrics.get(idx, {})
 
+        duration_s = _coerce_positive_float(pm.get("duration_s"))
+        if duration_s is None:
+            duration_s = max(0.0, end - start)
+
+        words = _coerce_int(pm.get("words"))
+        if words is None:
+            words = len(text.split())
+
+        pause_ratio = _coerce_positive_float(pm.get("pause_ratio"))
+        if pause_ratio is None:
+            pause_time = _coerce_positive_float(pm.get("pause_time_s")) or 0.0
+            pause_ratio = (pause_time / duration_s) if duration_s > 0 else 0.0
+        pause_ratio = max(0.0, min(1.0, pause_ratio))
+
         vad = aff.get("vad", {})
         speech_emotion = aff.get("speech_emotion", {})
         text_emotions = aff.get("text_emotions", {})
@@ -101,6 +115,9 @@ def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGua
             "asr_logprob_avg": seg.get("asr_logprob_avg"),
             "snr_db": seg.get("snr_db"),
             "wpm": pm.get("wpm", 0.0),
+            "duration_s": duration_s,
+            "words": words,
+            "pause_ratio": pause_ratio,
             "pause_count": pm.get("pause_count", 0),
             "pause_time_s": pm.get("pause_time_s", 0.0),
             "f0_mean_hz": pm.get("f0_mean_hz", 0.0),
@@ -131,3 +148,25 @@ def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGua
 
     state.segments_final = segments_final
     guard.done(segments=len(segments_final))
+
+
+def _coerce_positive_float(value: Any) -> float | None:
+    try:
+        result = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(result) or result < 0:
+        return None
+    return result
+
+
+def _coerce_int(value: Any) -> int | None:
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        try:
+            return int(float(value))
+        except (TypeError, ValueError):
+            return None

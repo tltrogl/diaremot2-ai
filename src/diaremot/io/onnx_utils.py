@@ -7,6 +7,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ..utils.hash import hash_file
+from .onnx_runtime_guard import (
+    OnnxRuntimeUnavailable,
+    ensure_onnxruntime,
+)
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     import onnxruntime as ort
@@ -70,10 +74,9 @@ def ensure_onnx_model(
 
 def create_onnx_session(
     model_path: str | Path, *, cpu_only: bool = True, threads: int = 1
-) -> ort.InferenceSession:
+) -> "onnxruntime.InferenceSession":
     """Create an ONNX Runtime session with consistent CPU behaviour."""
-    import onnxruntime as ort
-
+    ort = ensure_onnxruntime()
     opts = ort.SessionOptions()
     if threads:
         opts.intra_op_num_threads = threads
@@ -85,7 +88,13 @@ def create_onnx_session(
         # Older ORT versions may not expose the enum; safe to ignore
         pass
     providers = ["CPUExecutionProvider"] if cpu_only else ort.get_available_providers()
-    return ort.InferenceSession(str(model_path), providers=providers, sess_options=opts)
+    try:
+        return ort.InferenceSession(str(model_path), providers=providers, sess_options=opts)
+    except Exception as exc:  # pragma: no cover - runtime dependent
+        raise OnnxRuntimeUnavailable(
+            f"Failed to initialize ONNX Runtime session for {model_path}: {exc}",
+            cause=exc,
+        ) from exc
 
 
 __all__ = ["ensure_onnx_model", "create_onnx_session"]

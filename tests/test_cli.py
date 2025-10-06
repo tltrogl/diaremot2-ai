@@ -17,7 +17,7 @@ for candidate in (SRC_DIR, TESTS_ROOT):
     if str(candidate) not in sys.path:
         sys.path.insert(0, str(candidate))
 
-from diaremot.cli import app, diagnostics  # noqa: E402
+from diaremot.cli import app, diagnostics  # noqa: E402\nfrom diaremot.pipeline.runtime_env import DEFAULT_WHISPER_MODEL  # noqa: E402
 
 
 @pytest.fixture()
@@ -73,7 +73,7 @@ def test_cli_run_invokes_pipeline(
     assert captured["input"] == str(audio)
     assert captured["outdir"] == str(outdir)
     # fast profile should override whisper model, CLI override adjusts beam size
-    assert captured["config"]["whisper_model"] == "faster-whisper-tiny.en"
+    assert captured["config"]["whisper_model"] == str(DEFAULT_WHISPER_MODEL)
     assert captured["config"]["beam_size"] == 2
     assert captured["clear_cache"] is True
 
