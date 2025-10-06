@@ -129,7 +129,7 @@ class PipelineConfig:
             self.affect_analyzer_threads = threads
 
         self.affect_backend = self._lower_choice(
-            "affect_backend", self.affect_backend, {"auto", "onnx"}
+            "affect_backend", self.affect_backend, {"auto", "onnx", "torch"}
         )
         self.asr_backend = self._lower_choice("asr_backend", self.asr_backend, None)
         self.vad_backend = self._lower_choice(
