@@ -5,6 +5,8 @@ constraint. It provides text emotion (GoEmotions 28), audio SER (8-class), and
 V/A/D estimates, returning fields consumed by Stage 7.
 """
 
+from __future__ import annotations
+
 import json
 import logging
 import os
