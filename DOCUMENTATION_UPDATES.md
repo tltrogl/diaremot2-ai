@@ -1,6 +1,6 @@
 # Documentation & Testing Updates - 2025-10-04
 
-## Changes Made
+## Completed Work
 
 ### 1. Fixed Paralinguistics Fallback Bug
 **File:** `src/diaremot/pipeline/orchestrator.py`
@@ -18,26 +18,31 @@
 
 **Impact:** Prevents schema violations when Praat-Parselmouth unavailable
 
+### 2. Standardized CLI Documentation & VAD Overrides
+**Files:** `README.md`, `README_NEW.md`, `CLAUDE.md`, `AI_INDEX.yaml`, `AGENTS.md`
+
+**Issue:** Documentation listed non-existent flags (`--asr-model`, `--speech-pad-sec`) and omitted orchestrator VAD auto-tuning values.
+
+**Fixes:**
+- Added README section detailing auto-tune defaults and explicit CLI overrides (`--vad-threshold`, `--vad-min-speech-sec`, `--vad-min-silence-sec`, `--vad-speech-pad-sec`).
+- Updated CLI references to use canonical flags (`--whisper-model`, `--vad-speech-pad-sec`).
+- Documented the 14 mandatory paralinguistics metrics in AGENTS instructions.
+
+**Impact:** Eliminates conflicting guidance and ensures operators can reliably revert to CLI defaults.
+
+## Outstanding Updates
+
+### Test Coverage Follow-up
+**Status:** Pending review
+
+- Confirm `tests/test_orchestrator_para_fallback.py` remains aligned with the latest schema changes and run it in CI.
+- Add integration coverage that forces the paralinguistics module to fail to validate CSV completeness end-to-end.
+
 ---
 
-### 2. Documented Adaptive VAD Tuning
-**File:** `README.md`
+## Historical Context
 
-**Added section:**
-```markdown
-- **Adaptive VAD tuning**: Pipeline automatically relaxes VAD thresholds for soft-speech scenarios:
-  - `vad_threshold`: 0.22 (relaxed from CLI default 0.30)
-  - `vad_min_speech_sec`: 0.40s (relaxed from 0.80s)
-  - `vad_min_silence_sec`: 0.40s (relaxed from 0.80s)
-  - `speech_pad_sec`: 0.15s (relaxed from 0.20s)
-- Override adaptive tuning via CLI: `--vad-threshold 0.3 --vad-min-speech-sec 0.8`
-```
-
-**Rationale:** Users were unaware orchestrator overrides VAD defaults to prevent energy-VAD fallback
-
----
-
-### 3. Added Unit Tests
+### Added Unit Tests (2025-10-04)
 **File:** `tests/test_orchestrator_para_fallback.py`
 
 **Test coverage:**
@@ -53,22 +58,10 @@ cd D:\diaremot\diaremot2-ai
 pytest tests/test_orchestrator_para_fallback.py -v
 ```
 
----
-
-### 4. Updated AGENTS.md
-**Added missing paralinguistics metrics:**
-- `duration_s`
-- `words`
-- `pause_ratio`
-
-**Updated timestamp:** 2025-10-04
-
----
-
 ## Verification Checklist
 
 - [x] Orchestrator fallback populates all SEGMENT_COLUMNS fields
-- [x] README documents adaptive VAD tuning
+- [x] README documents adaptive VAD overrides (0.35/0.8/0.8/0.10)
 - [x] Unit tests written for fallback path
 - [ ] **TODO:** Run pytest to verify tests pass
 - [ ] **TODO:** Test actual fallback with broken para module
@@ -96,7 +89,7 @@ pytest tests/test_orchestrator_para_fallback.py -v
 
 ---
 
-## Files Modified
+## Historical Files Modified (to be reconfirmed)
 
 1. `src/diaremot/pipeline/orchestrator.py` (+6 lines)
 2. `README.md` (+7 lines)
