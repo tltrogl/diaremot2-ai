@@ -1,10 +1,18 @@
 """Shared utilities for DiaRemot BART maintenance scripts."""
+<<<<<<< HEAD
 
 from __future__ import annotations
 
 import os
 from collections.abc import Iterable
 from pathlib import Path
+=======
+from __future__ import annotations
+
+import os
+from pathlib import Path
+from typing import Iterable, Optional
+>>>>>>> 7b611bc33ae14a4cd702cb5f9355008663373325
 
 _ENV_KEYS = (
     "BART_MODEL_DIR",
@@ -13,7 +21,11 @@ _ENV_KEYS = (
 )
 
 
+<<<<<<< HEAD
 def _candidate_dirs(explicit: Path | None) -> Iterable[Path]:
+=======
+def _candidate_dirs(explicit: Optional[Path]) -> Iterable[Path]:
+>>>>>>> 7b611bc33ae14a4cd702cb5f9355008663373325
     if explicit:
         yield explicit
 
@@ -31,7 +43,11 @@ def _candidate_dirs(explicit: Path | None) -> Iterable[Path]:
     yield repo_root / "runs" / "models" / "bart"
 
 
+<<<<<<< HEAD
 def resolve_bart_dir(path: Path | None, *, must_exist: bool = False) -> Path:
+=======
+def resolve_bart_dir(path: Optional[Path], *, must_exist: bool = False) -> Path:
+>>>>>>> 7b611bc33ae14a4cd702cb5f9355008663373325
     """Resolve the directory containing the BART checkpoint.
 
     Parameters
@@ -55,7 +71,11 @@ def resolve_bart_dir(path: Path | None, *, must_exist: bool = False) -> Path:
     return fallback
 
 
+<<<<<<< HEAD
 def describe_bart_candidates(path: Path | None) -> str:
+=======
+def describe_bart_candidates(path: Optional[Path]) -> str:
+>>>>>>> 7b611bc33ae14a4cd702cb5f9355008663373325
     """Return a human readable list of the directories we considered."""
     explicit = path.expanduser() if path else None
     parts = [f" - {candidate}" for candidate in _candidate_dirs(explicit)]

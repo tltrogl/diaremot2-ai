@@ -1,10 +1,17 @@
 """Utility script to inspect a BART tokenizer checkpoint."""
+<<<<<<< HEAD
 
+=======
+>>>>>>> 7b611bc33ae14a4cd702cb5f9355008663373325
 from __future__ import annotations
 
 import argparse
 import sys
 from pathlib import Path
+<<<<<<< HEAD
+=======
+from typing import Optional
+>>>>>>> 7b611bc33ae14a4cd702cb5f9355008663373325
 
 if __package__ in (None, ""):
     sys.path.append(str(Path(__file__).resolve().parents[1]))
@@ -22,7 +29,11 @@ def inspect_tokenizer(model_dir: Path) -> None:
 
     tokenizer = AutoTokenizer.from_pretrained(model_dir)
     class_name = tokenizer.__class__.__name__
+<<<<<<< HEAD
     vocab_size: int | None = getattr(tokenizer, "vocab_size", None)
+=======
+    vocab_size: Optional[int] = getattr(tokenizer, "vocab_size", None)
+>>>>>>> 7b611bc33ae14a4cd702cb5f9355008663373325
 
     print(f"Loaded tokenizer from: {model_dir}")
     print(f"Tokenizer class: {class_name}")
@@ -46,7 +57,11 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+<<<<<<< HEAD
 def main(argv: list[str] | None = None) -> int:
+=======
+def main(argv: Optional[list[str]] = None) -> int:
+>>>>>>> 7b611bc33ae14a4cd702cb5f9355008663373325
     parser = build_parser()
     args = parser.parse_args(argv)
 

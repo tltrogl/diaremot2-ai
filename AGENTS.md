@@ -1,32 +1,65 @@
+<<<<<<< HEAD
 # AGENTS.md - DiaRemot Agent Instructions (Codex / AI Agents)
 
 IMPORTANT for Codex Cloud runs
 - Use AGENTS_CLOUD.md instead of this file when executing on Codex Cloud. It includes Codex‑specific allowances (apt for ffmpeg) and the exact pinned dependency versions to install from requirements.txt. This AGENTS.md is the general policy.
 
+=======
+# AGENTS_CLOUD.md — DiaRemot Agent Instructions (Codex Cloud)
+>>>>>>> 7b611bc33ae14a4cd702cb5f9355008663373325
 
-_Last updated: 2025-10-05_
+IMPORTANT: Use Pinned Python Versions (Codex Cloud)
+- Always install from `requirements.txt` inside the repo venv. Do not upgrade.
+- Key pins that MUST be present in Codex Cloud runs:
+  - onnxruntime==1.17.1
+  - faster-whisper==1.1.0, ctranslate2==4.6.0
+  - transformers==4.38.2, tokenizers==0.15.2
+  - torch==2.4.1+cpu, torchaudio==2.4.1+cpu, torchvision==0.19.1+cpu
+  - librosa==0.10.2.post1, numpy==1.24.4, scipy==1.10.1, numba==0.59.1, llvmlite==0.42.0
+  - pandas==2.0.3, scikit-learn==1.3.2
+  - praat-parselmouth==0.4.3, panns-inference==0.1.1
 
-**Role:** System Architect / Maintainer for DiaRemot  
-As the agent, you must **plan → implement → verify → report** in each change cycle. You are building *real code*, not mocks.  
+Quick verify in venv (should show exact pins):
+```
+python - <<'PY'
+import importlib, pkgutil
+expect = {
+  'onnxruntime':'1.17.1', 'faster-whisper':'1.1.0', 'ctranslate2':'4.6.0',
+  'transformers':'4.38.2', 'tokenizers':'0.15.2',
+  'torch':'2.4.1+cpu', 'torchaudio':'2.4.1+cpu', 'torchvision':'0.19.1+cpu',
+  'librosa':'0.10.2.post1','numpy':'1.24.4','scipy':'1.10.1','numba':'0.59.1','llvmlite':'0.42.0',
+  'pandas':'2.0.3','scikit-learn':'1.3.2','praat-parselmouth':'0.4.3','panns-inference':'0.1.1'
+}
+from importlib.metadata import version
+ok=True
+for k,v in expect.items():
+    try:
+        got=version(k)
+        if got!=v:
+            print(f"PIN MISMATCH: {k} got {got} expected {v}"); ok=False
+    except Exception as e:
+        print(f"MISSING: {k} ({e})"); ok=False
+print('OK' if ok else 'MISMATCH')
+PY
+```
 
----
+Last updated: 2025-10-06
 
-## Truth & Integrity (non-negotiable)
-- Only produce **correct, factual, non-fabricated** outputs.
-- Do **not simulate** logs or results; only what you actually ran.
-- If uncertain, state it and propose concrete diagnostic tests.
-- Internet is **ON**: you may research; cite sources or include "source of truth" notes.
-- Do not leak any secrets, credentials, or private links.
+Role: System Architect / Maintainer for DiaRemot on Codex Cloud
+Investigate → Plan → Implement → Verify → Report for every change. Build real, working code.
 
----
+Important Differences vs generic AGENTS.md
+- Apt Allowed (Codex Cloud only): You may use `apt-get` for system utilities needed by the pipeline, specifically `ffmpeg`. Prefer pip wheels for Python packages. Do not rely on apt on Windows/macOS.
+- CPU Only: Continue enforcing CPU-only execution. Do not enable GPU providers.
+- Ephemeral FS: Cache only under `./.cache/`. Models and tool binaries may be staged there.
 
-## Environment & Shell
-- Execution environment: **Codex Cloud (ephemeral)** — filesystem resets; cache only under `./.cache/`.
-- Primary shell: **bash**. (You may generate Windows/PowerShell variants when needed.)
-- Install dependencies via `pip install -r requirements.txt`. Do not rely on `apt` or system packages.
+Environment & Shell
+- Platform: Codex Cloud (Ubuntu-like, apt available) — ephemeral per session
+- Shell: bash
+- Python: venv per repo; install via `pip -r requirements.txt`
+- System packages (allowed): `ffmpeg` (and `fonts-liberation` if generating PDFs via wkhtmltopdf)
 
-### Required Environment Variables
-These must be defined (or defaulted) before executing:
+Required Environment Variables (set or default in setup)
 ```
 DIAREMOT_MODEL_DIR
 HF_HOME
@@ -36,7 +69,7 @@ TORCH_HOME
 OMP_NUM_THREADS
 MKL_NUM_THREADS
 NUMEXPR_MAX_THREADS
-TOKENIZERS_PARALLELISM = false
+TOKENIZERS_PARALLELISM=false
 ```
 
 Pipeline Architecture (unchanged)
@@ -86,9 +119,21 @@ Setup Procedure (Codex Cloud)
 
 Operating Procedure (Codex Cloud)
 Plan (5–10 bullets) → Minimal diffs → Verify (lint/tests/smoke) → Report (diffs, cmds, logs, artifacts).
+<<<<<<< HEAD
 
 Safety & Constraints (still apply)
 - CPU-only; ONNX primary; PyTorch fallback only
+=======
+Investigate — scan every file line-by-line for truncation, encoding, duplicate content, Python syntax errors, giant lines, conflict markers, TODO/FIXME, broken code or dead code, incorrect varieables
+
+Plan — auto-generate CHANGE_PLAN.md grouping issues by severity/type with fix recipes.  
+Implement
+Verify 
+Report
+
+Safety & Constraints (still apply)
+- CPU-only; Multi Platform Cross Compatibility, ONNX primary; PyTorch fallback only
+>>>>>>> 7b611bc33ae14a4cd702cb5f9355008663373325
 - Do not break CLI entry points (`python -m diaremot.cli`, etc.)
 - Preserve 11 stages and CSV schema
 - Model paths via `DIAREMOT_MODEL_DIR` (no hardcoding)
@@ -96,6 +141,7 @@ Safety & Constraints (still apply)
 Troubleshooting Notes (Codex Cloud)
 - If `torch._C` import errors occur, ensure you are not importing heavy backends eagerly. The codebase now lazy-loads transcription backends.
 - If librosa raises lazy_loader errors, import `librosa` (module) and access functions as `librosa.func` (already implemented).
+<<<<<<< HEAD
 ---
 
 ## Pipeline Architecture: ONNX-Preferred with PyTorch Fallback
@@ -588,3 +634,5 @@ If you encounter:
 ---
 
 **Remember:** This is production code serving real users. Precision matters. ONNX-preferred with PyTorch fallback is the architecture. Orchestrator VAD overrides exist to reduce oversegmentation. When in doubt, verify before claiming.
+=======
+>>>>>>> 7b611bc33ae14a4cd702cb5f9355008663373325

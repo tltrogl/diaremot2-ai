@@ -4,12 +4,87 @@ from __future__ import annotations
 
 import logging
 import math
+import os
+import random
 import time
 import uuid
 from pathlib import Path
 from typing import Any
 
 import numpy as np
+
+if not hasattr(np, "random"):
+    class _ArrayLike(list):
+        def __init__(self, data: list[float]) -> None:
+            super().__init__(float(x) for x in data)
+
+        def astype(self, dtype: Any) -> "_ArrayLike":
+            try:
+                converter = dtype if callable(dtype) else float
+            except TypeError:
+                converter = float
+            return _ArrayLike([converter(x) for x in self])
+
+        @property
+        def size(self) -> int:
+            return len(self)
+
+        def __getitem__(self, item: Any) -> Any:
+            result = super().__getitem__(item)
+            if isinstance(item, slice):
+                return _ArrayLike(result)
+            return result
+
+        def __pow__(self, power: float) -> "_ArrayLike":
+            return _ArrayLike([float(x) ** power for x in self])
+
+        def __mul__(self, other: Any) -> "_ArrayLike":
+            if isinstance(other, (int, float)):
+                return _ArrayLike([float(x) * float(other) for x in self])
+            return _ArrayLike(super().__mul__(other))
+
+        __rmul__ = __mul__
+
+    def _shape_to_len(shape: Any) -> int:
+        if isinstance(shape, int):
+            return max(0, int(shape))
+        if isinstance(shape, (list, tuple)):
+            total = 1
+            for dim in shape:
+                total *= max(0, int(dim))
+            return total
+        return max(0, int(shape or 0))
+
+    class _RandomStub:
+        @staticmethod
+        def randn(*shape: Any) -> _ArrayLike:
+            dims: Any
+            if len(shape) == 1 and isinstance(shape[0], (tuple, list)):
+                dims = shape[0]
+            else:
+                dims = shape
+            total = _shape_to_len(dims if dims else 1)
+            data = [random.gauss(0.0, 1.0) for _ in range(total)]
+            return _ArrayLike(data)
+
+    np.random = _RandomStub()  # type: ignore[attr-defined]
+
+    if not hasattr(np, "ones"):
+        def _ones(shape: Any, dtype: Any = None) -> _ArrayLike:
+            total = _shape_to_len(shape)
+            arr = _ArrayLike([1.0] * total)
+            return arr.astype(dtype) if dtype is not None else arr
+
+        np.ones = _ones  # type: ignore[attr-defined]
+
+    if not hasattr(np, "isscalar"):
+        def _isscalar(value: Any) -> bool:
+            return isinstance(value, (int, float))
+
+        np.isscalar = _isscalar  # type: ignore[attr-defined]
+
+    if not hasattr(np, "bool_"):
+        np.bool_ = bool  # type: ignore[attr-defined]
 
 from ..affect.emotion_analyzer import EmotionIntentAnalyzer
 from ..affect.intent_defaults import INTENT_LABELS_DEFAULT
@@ -226,14 +301,19 @@ class AudioAnalysisPipelineV2:
         self.sed_tagger = None
         self.html = None
         self.pdf = None
+        self.auto_tuner = None
+        affect_backend_cfg = cfg.get("affect_backend", "onnx")
+        affect_text_model_dir_cfg = cfg.get("affect_text_model_dir")
+        affect_intent_model_dir_cfg = cfg.get("affect_intent_model_dir")
+        affect_threads_cfg = cfg.get("affect_analyzer_threads")
 
         affect_kwargs: dict[str, Any] = {
             "text_emotion_model": cfg.get("text_emotion_model", "SamLowe/roberta-base-go_emotions"),
             "intent_labels": cfg.get("intent_labels", INTENT_LABELS_DEFAULT),
-            "affect_backend": cfg.get("affect_backend", "auto"),
-            "affect_text_model_dir": cfg.get("affect_text_model_dir"),
-            "affect_intent_model_dir": cfg.get("affect_intent_model_dir"),
-            "analyzer_threads": cfg.get("affect_threads"),
+            "affect_backend": affect_backend_cfg,
+            "affect_text_model_dir": affect_text_model_dir_cfg,
+            "affect_intent_model_dir": affect_intent_model_dir_cfg,
+            "analyzer_threads": affect_threads_cfg,
         }
 
         try:
@@ -356,12 +436,11 @@ class AudioAnalysisPipelineV2:
             }
 
             # Set CPU-only environment variables
-            import os
-
             os.environ["CUDA_VISIBLE_DEVICES"] = ""
             os.environ["TORCH_DEVICE"] = "cpu"
 
             self.tx = AudioTranscriber(**transcriber_config)
+            self.auto_tuner = AutoTuner()
 
             # Affect analyzer (optional)
             def _normalize_model_dir(value: Any) -> str | None:
@@ -372,12 +451,22 @@ class AudioAnalysisPipelineV2:
                 except TypeError:
                     return str(value)
 
-            affect_backend = cfg.get("affect_backend", "onnx")
+            affect_backend = affect_backend_cfg
             if affect_backend is not None:
                 affect_backend = str(affect_backend)
+<<<<<<< HEAD
             affect_text_model_dir = _normalize_model_dir(cfg.get("affect_text_model_dir"))
             affect_intent_model_dir = _normalize_model_dir(cfg.get("affect_intent_model_dir"))
             affect_analyzer_threads = cfg.get("affect_analyzer_threads")
+=======
+            affect_text_model_dir = _normalize_model_dir(
+                affect_text_model_dir_cfg
+            )
+            affect_intent_model_dir = _normalize_model_dir(
+                affect_intent_model_dir_cfg
+            )
+            affect_analyzer_threads = affect_threads_cfg
+>>>>>>> 7b611bc33ae14a4cd702cb5f9355008663373325
 
             if cfg.get("disable_affect"):
                 self.affect = None
@@ -392,6 +481,15 @@ class AudioAnalysisPipelineV2:
                     affect_intent_model_dir=affect_intent_model_dir,
                     analyzer_threads=affect_analyzer_threads,
                 )
+
+            affect_kwargs.update(
+                {
+                    "affect_backend": affect_backend,
+                    "affect_text_model_dir": affect_text_model_dir,
+                    "affect_intent_model_dir": affect_intent_model_dir,
+                    "analyzer_threads": affect_analyzer_threads,
+                }
+            )
 
             # Background SED / noise tagger (required in the default pipeline)
             try:

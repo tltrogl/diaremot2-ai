@@ -103,6 +103,32 @@ Notes
 python -m diaremot.pipeline.audio_pipeline_core --verify_deps --strict_dependency_versions
 ```
 
+<<<<<<< HEAD
+=======
+## Adaptive VAD Overrides (Orchestrator vs CLI)
+
+The orchestrator tightens diarization defaults when the CLI does **not** specify overrides. This reduces micro-segments in noisy recordings but can be relaxed via flags:
+
+| Parameter | CLI default | Orchestrator auto-tune | Override flag |
+|-----------|-------------|------------------------|---------------|
+| `vad_threshold` | 0.30 | **0.35** | `--vad-threshold` |
+| `vad_min_speech_sec` | 0.80 s | **0.80 s** (unchanged) | `--vad-min-speech-sec` |
+| `vad_min_silence_sec` | 0.80 s | **0.80 s** (unchanged) | `--vad-min-silence-sec` |
+| `vad_speech_pad_sec` | 0.20 s | **0.10 s** | `--vad-speech-pad-sec` |
+
+To keep the original CLI defaults, supply all four flags explicitly:
+
+```bash
+python -m diaremot.cli run --input data/sample.wav --outdir outputs/ \
+  --vad-threshold 0.30 \
+  --vad-min-speech-sec 0.80 \
+  --vad-min-silence-sec 0.80 \
+  --vad-speech-pad-sec 0.20
+```
+
+All values verified in `src/diaremot/pipeline/orchestrator.py::_init_components` (strict overrides applied only when a value is absent from the merged config).
+
+>>>>>>> 7b611bc33ae14a4cd702cb5f9355008663373325
 Troubleshooting
 - Torch `_C` import errors: ensure you used the venv created here; the code lazily imports heavy backends now.
 - Librosa lazy_loader error: the code imports `librosa` module and uses `librosa.func` style, which avoids the issue. Ensure you’re on the pinned versions from `requirements.txt`.

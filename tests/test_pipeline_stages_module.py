@@ -246,6 +246,7 @@ def test_stage_services_execute_full_cycle(tmp_path, monkeypatch, stub_pipeline)
 
 def test_affect_stage_uses_paralinguistics_metrics(tmp_path, stub_pipeline):
     pipeline = stub_pipeline
+    pipeline = stub_pipeline
 
     state = PipelineState(input_audio_path="dummy.wav", out_dir=tmp_path)
     state.sr = 16000

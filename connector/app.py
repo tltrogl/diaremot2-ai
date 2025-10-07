@@ -6,11 +6,17 @@ import os
 import pathlib
 import tempfile
 import uuid
+<<<<<<< HEAD
 from collections.abc import Mapping
 from collections.abc import Mapping as MappingABC
 from collections.abc import Sequence as SequenceABC
 from datetime import UTC, datetime
 from typing import Any
+=======
+from collections.abc import Mapping as MappingABC, Sequence as SequenceABC
+from datetime import datetime, timezone
+from typing import Any, Mapping
+>>>>>>> 7b611bc33ae14a4cd702cb5f9355008663373325
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
@@ -20,6 +26,10 @@ from pydantic import BaseModel, Field
 
 from diaremot.pipeline.orchestrator import run_pipeline as orchestrator_run
 
+<<<<<<< HEAD
+=======
+
+>>>>>>> 7b611bc33ae14a4cd702cb5f9355008663373325
 logger = logging.getLogger(__name__)
 
 
@@ -71,7 +81,13 @@ def _resolve_audio_source(audio_url: str | None, workdir: pathlib.Path) -> pathl
     parsed = urlparse(audio_url)
     if parsed.scheme in {"http", "https"}:
         suffix = pathlib.Path(parsed.path).suffix or ".wav"
+<<<<<<< HEAD
         tmp_handle = tempfile.NamedTemporaryFile(suffix=suffix, delete=False, dir=str(workdir))
+=======
+        tmp_handle = tempfile.NamedTemporaryFile(
+            suffix=suffix, delete=False, dir=str(workdir)
+        )
+>>>>>>> 7b611bc33ae14a4cd702cb5f9355008663373325
         tmp_path = pathlib.Path(tmp_handle.name)
         request = Request(audio_url, headers={"User-Agent": "DiaRemotConnector/1.0"})
         try:
@@ -83,7 +99,14 @@ def _resolve_audio_source(audio_url: str | None, workdir: pathlib.Path) -> pathl
                 ):
                     raise HTTPException(
                         status_code=413,
+<<<<<<< HEAD
                         detail=(f"Audio file exceeds connector limit of {MAX_DOWNLOAD_MB} MB"),
+=======
+                        detail=(
+                            "Audio file exceeds connector limit of "
+                            f"{MAX_DOWNLOAD_MB} MB"
+                        ),
+>>>>>>> 7b611bc33ae14a4cd702cb5f9355008663373325
                     )
 
                 total = 0
@@ -95,7 +118,14 @@ def _resolve_audio_source(audio_url: str | None, workdir: pathlib.Path) -> pathl
                     if MAX_DOWNLOAD_BYTES and total > MAX_DOWNLOAD_BYTES:
                         raise HTTPException(
                             status_code=413,
+<<<<<<< HEAD
                             detail=(f"Audio file exceeds connector limit of {MAX_DOWNLOAD_MB} MB"),
+=======
+                            detail=(
+                                "Audio file exceeds connector limit of "
+                                f"{MAX_DOWNLOAD_MB} MB"
+                            ),
+>>>>>>> 7b611bc33ae14a4cd702cb5f9355008663373325
                         )
                     tmp_handle.write(chunk)
                 tmp_handle.flush()
@@ -139,7 +169,11 @@ def _prepare_config(overrides: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def _utcnow() -> str:
+<<<<<<< HEAD
     return datetime.now(UTC).isoformat().replace("+00:00", "Z")
+=======
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+>>>>>>> 7b611bc33ae14a4cd702cb5f9355008663373325
 
 
 def _make_json_safe(value: Any) -> Any:
@@ -152,7 +186,13 @@ def _make_json_safe(value: Any) -> Any:
     if isinstance(value, MappingABC):
         return {str(k): _make_json_safe(v) for k, v in value.items()}
     if isinstance(value, set):
+<<<<<<< HEAD
         return [_make_json_safe(v) for v in sorted(value, key=lambda item: repr(item))]
+=======
+        return [
+            _make_json_safe(v) for v in sorted(value, key=lambda item: repr(item))
+        ]
+>>>>>>> 7b611bc33ae14a4cd702cb5f9355008663373325
     if isinstance(value, SequenceABC) and not isinstance(value, (str, bytes, bytearray)):
         return [_make_json_safe(v) for v in value]
     return str(value)
@@ -177,7 +217,13 @@ def _write_status(
         payload["outputs"] = dict(outputs_obj)
         payload["public_urls"] = _build_public_urls(job_dir, payload["outputs"])
 
+<<<<<<< HEAD
     tmp_file = tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False, dir=str(job_dir))
+=======
+    tmp_file = tempfile.NamedTemporaryFile(
+        "w", encoding="utf-8", delete=False, dir=str(job_dir)
+    )
+>>>>>>> 7b611bc33ae14a4cd702cb5f9355008663373325
     try:
         json.dump(_make_json_safe(payload), tmp_file, indent=2, sort_keys=True)
         tmp_file.flush()
@@ -199,7 +245,13 @@ def _load_status(job_dir: pathlib.Path) -> dict[str, Any] | None:
         return None
 
 
+<<<<<<< HEAD
 def _build_public_urls(job_dir: pathlib.Path, outputs: Mapping[str, Any] | None) -> dict[str, str]:
+=======
+def _build_public_urls(
+    job_dir: pathlib.Path, outputs: Mapping[str, Any] | None
+) -> dict[str, str]:
+>>>>>>> 7b611bc33ae14a4cd702cb5f9355008663373325
     if not outputs:
         return {}
 
@@ -322,3 +374,7 @@ def results(job_id: str, x_api_key: str | None = Header(None, alias="x-api-key")
         "public_urls": status_payload.get("public_urls", {}),
         "manifest": status_payload.get("manifest", {}),
     }
+<<<<<<< HEAD
+=======
+
+>>>>>>> 7b611bc33ae14a4cd702cb5f9355008663373325

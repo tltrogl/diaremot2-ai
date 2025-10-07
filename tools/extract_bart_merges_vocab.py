@@ -1,4 +1,5 @@
 """Export merge and vocab files from a BART tokenizer.json payload."""
+<<<<<<< HEAD
 
 from __future__ import annotations
 
@@ -10,6 +11,19 @@ from pathlib import Path
 if __package__ in (None, ""):
     sys.path.append(str(Path(__file__).resolve().parents[1]))
 
+=======
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from pathlib import Path
+from typing import Optional
+
+if __package__ in (None, ""):
+    sys.path.append(str(Path(__file__).resolve().parents[1]))
+
+>>>>>>> 7b611bc33ae14a4cd702cb5f9355008663373325
 from tools.bart_cli_utils import describe_bart_candidates, resolve_bart_dir
 
 
@@ -47,14 +61,25 @@ def dump_merges_and_vocab(model_dir: Path) -> None:
         )
 
     if vocab and not vocab_json.exists():
+<<<<<<< HEAD
         ordered = {
             token: int(idx) for token, idx in sorted(vocab.items(), key=lambda item: item[1])
         }
+=======
+        ordered = {token: int(idx) for token, idx in sorted(vocab.items(), key=lambda item: item[1])}
+>>>>>>> 7b611bc33ae14a4cd702cb5f9355008663373325
         with vocab_json.open("w", encoding="utf-8") as handle:
             json.dump(ordered, handle, ensure_ascii=False)
         print(f"Wrote {vocab_json} with {len(ordered)} entries")
     else:
+<<<<<<< HEAD
         print("Skipped writing vocab.json (exists=%s, size=%s)" % (vocab_json.exists(), len(vocab)))
+=======
+        print(
+            "Skipped writing vocab.json (exists=%s, size=%s)"
+            % (vocab_json.exists(), len(vocab))
+        )
+>>>>>>> 7b611bc33ae14a4cd702cb5f9355008663373325
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -68,7 +93,11 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+<<<<<<< HEAD
 def main(argv: list[str] | None = None) -> int:
+=======
+def main(argv: Optional[list[str]] = None) -> int:
+>>>>>>> 7b611bc33ae14a4cd702cb5f9355008663373325
     parser = build_parser()
     args = parser.parse_args(argv)
 
