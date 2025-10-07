@@ -12,10 +12,6 @@ resampy==0.4.2
 soundfile==0.12.1
 av==11.0.0
 praat-parselmouth==0.4.3
-# Use CPU-only builds from the PyTorch index
-torch==2.4.1+cpu --index-url https://download.pytorch.org/whl/cpu
-torchaudio==2.4.1+cpu --index-url https://download.pytorch.org/whl/cpu
-torchvision==0.19.1+cpu --index-url https://download.pytorch.org/whl/cpu
 
 # Transcription
 ctranslate2==4.6.0

@@ -25,8 +25,8 @@ from .orchestrator import (
     AudioAnalysisPipelineV2,
     clear_pipeline_cache,
     diagnostics,
-    run_pipeline,
     resume,
+    run_pipeline,
     verify_dependencies,
 )
 from .outputs import (

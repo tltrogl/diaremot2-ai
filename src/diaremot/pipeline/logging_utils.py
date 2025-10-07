@@ -11,8 +11,6 @@ from pathlib import Path
 from typing import Any
 
 
-
-
 def _make_json_safe(obj: Any) -> Any:
     """Recursively convert values into JSON-serialisable types."""
     if isinstance(obj, Path):
@@ -27,6 +25,7 @@ def _make_json_safe(obj: Any) -> Any:
             return converted
         return converted
     return obj
+
 
 class JSONLWriter:
     def __init__(self, path: Path):

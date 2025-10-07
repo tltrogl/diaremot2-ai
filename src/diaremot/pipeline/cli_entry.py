@@ -5,15 +5,15 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from .config import build_pipeline_config
-from .runtime_env import DEFAULT_WHISPER_MODEL
 from .orchestrator import (
     AudioAnalysisPipelineV2,
     clear_pipeline_cache,
     config_verify_dependencies,
 )
+from .runtime_env import DEFAULT_WHISPER_MODEL
 from .speaker_diarization import DiarizationConfig
 
 __all__ = ["main", "_build_arg_parser", "_args_to_config"]
@@ -90,7 +90,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--affect-backend",
         default="onnx",
-            choices=["auto", "onnx"],
+        choices=["auto", "onnx"],
         help="Backend for affect analysis",
     )
     parser.add_argument(
@@ -198,7 +198,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--vad-backend",
-            choices=["auto", "onnx"],
+        choices=["auto", "onnx"],
         default="auto",
         help="Preferred Silero VAD backend",
     )
@@ -292,7 +292,7 @@ def _handle_cache_clear(requested: bool, *, cache_root: Path, ignore_tx_cache: b
         return True
 
 
-def main(argv: Optional[list[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = _build_arg_parser()
     args = parser.parse_args(argv)
 
@@ -323,5 +323,3 @@ def main(argv: Optional[list[str]] = None) -> int:
 
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(main())
-
-

@@ -17,7 +17,6 @@ import logging
 import os
 import sys
 from types import ModuleType
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -85,7 +84,7 @@ def onnxruntime_available() -> bool:
     return get_onnxruntime() is not None
 
 
-def last_onnxruntime_error() -> Optional[Exception]:
+def last_onnxruntime_error() -> Exception | None:
     """Return the last import error, if any."""
 
     return _CACHED_ERROR

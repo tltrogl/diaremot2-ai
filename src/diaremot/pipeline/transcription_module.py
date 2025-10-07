@@ -58,9 +58,11 @@ class BackendAvailability:
 
     def _check_backends(self):
         import importlib.util as _util
+
         # Librosa
         try:
             import librosa
+
             self.librosa = librosa
             self.has_librosa = True
         except Exception:
@@ -305,7 +307,10 @@ class ModelManager:
         }
 
         try:
-            from faster_whisper import WhisperModel  # lazy import to avoid torch/_C during module import
+            from faster_whisper import (
+                WhisperModel,  # lazy import to avoid torch/_C during module import
+            )
+
             model = WhisperModel(model_size, **model_kwargs)
             self.logger.info(f"Loaded faster-whisper: {model_size}")
             return model
@@ -341,6 +346,7 @@ class ModelManager:
         model_name = self._map_to_openai_model(config["model_size"])
         try:
             import whisper as openai_whisper  # lazy import; may require torch
+
             model = openai_whisper.load_model(model_name, device="cpu")
             self.logger.info(f"Loaded OpenAI whisper: {model_name}")
             return model
@@ -352,6 +358,7 @@ class ModelManager:
             )
             # Try explicit tiny as a last resort
             import whisper as openai_whisper
+
             tiny = openai_whisper.load_model("tiny", device="cpu")
             self.logger.info("Loaded OpenAI whisper fallback: tiny")
             return tiny

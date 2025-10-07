@@ -9,10 +9,10 @@ Keeping this file ensures older code that imports
 """
 
 from .emotion_analyzer import (
-    EmotionAnalyzer,
-    EmotionOutputs,
     GOEMOTIONS_LABELS,
     SER8_LABELS,
+    EmotionAnalyzer,
+    EmotionOutputs,
 )
 
 __all__ = [
@@ -21,4 +21,3 @@ __all__ = [
     "GOEMOTIONS_LABELS",
     "SER8_LABELS",
 ]
-

@@ -13,7 +13,7 @@ from .onnx_runtime_guard import (
 )
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
-    import onnxruntime as ort
+    pass
 
 logger = logging.getLogger(__name__)
 
@@ -74,7 +74,7 @@ def ensure_onnx_model(
 
 def create_onnx_session(
     model_path: str | Path, *, cpu_only: bool = True, threads: int = 1
-) -> "onnxruntime.InferenceSession":
+) -> onnxruntime.InferenceSession:
     """Create an ONNX Runtime session with consistent CPU behaviour."""
     ort = ensure_onnxruntime()
     opts = ort.SessionOptions()

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Dict, Optional, Tuple
 
 import numpy as np
 
@@ -56,21 +55,17 @@ class SERDpngtm:
 
     def __init__(
         self,
-        model_dir: Optional[str] = None,
+        model_dir: str | None = None,
         *,
         allow_downloads: bool = True,
-        device: Optional[str] = None,
+        device: str | None = None,
     ) -> None:
         if torch is None or Wav2Vec2Processor is None or Wav2Vec2ForSequenceClassification is None:
             raise RuntimeError(
                 "PyTorch/transformers are required for SERDpngtm but were not found."
             )
 
-        resolved_dir = (
-            model_dir
-            or os.getenv("DIAREMOT_SER_MODEL_DIR")
-            or DEFAULT_MODEL_ID
-        )
+        resolved_dir = model_dir or os.getenv("DIAREMOT_SER_MODEL_DIR") or DEFAULT_MODEL_ID
 
         local_files_only = not allow_downloads
         # If the resolved path is a real directory we can keep local_files_only
@@ -96,9 +91,7 @@ class SERDpngtm:
                 local_files_only=local_files_only,
             )
         except Exception as exc:  # pragma: no cover - external dependency error paths
-            raise RuntimeError(
-                f"Unable to load SER model from '{model_source}': {exc}"
-            ) from exc
+            raise RuntimeError(f"Unable to load SER model from '{model_source}': {exc}") from exc
 
         self.device = torch.device(device or "cpu")
         self.model.to(self.device)
@@ -112,7 +105,7 @@ class SERDpngtm:
         else:
             self.id2label = {idx: label for idx, label in enumerate(ID2LABEL)}
 
-    def predict_16k_f32(self, wav_16k_f32: np.ndarray) -> Tuple[str, Dict[str, float]]:
+    def predict_16k_f32(self, wav_16k_f32: np.ndarray) -> tuple[str, dict[str, float]]:
         """Predict emotion scores for a 16 kHz mono waveform."""
 
         if torch is None:

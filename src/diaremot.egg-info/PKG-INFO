@@ -43,100 +43,111 @@ Requires-Dist: panns-inference==0.1.1
 Requires-Dist: click==8.1.7
 Requires-Dist: typer==0.9.0
 
-# DiaRemot — CPU‑Only Speech Intelligence Pipeline
+# DiaRemot - Codex Cloud Quickstart (Ubuntu + apt)
 
-Process long, real‑world audio **on CPU** and produce a diarized transcript with per‑segment:
-- **Tone (Valence/Arousal/Dominance)**
-- **Speech emotion (8‑class)**
-- **Text emotions (GoEmotions, 28)**
-- **Intent** (zero‑shot over fixed labels)
-- **Sound‑event context (SED: music, keyboard, door, TV, etc.)**
-- **Paralinguistics (REQUIRED)**: speech rate (WPM), pauses, and voice‑quality via **Praat‑Parselmouth**: **jitter**, **shimmer**, **HNR**, **CPPS**
-- **Persistent speaker names across files**
+IMPORTANT: Use These Pinned Versions
+- Always activate the repo venv and `pip install -r requirements.txt`.
+- Do NOT upgrade packages; the pipeline is validated on these exact pins:
+  - onnxruntime==1.17.1
+  - faster-whisper==1.1.0, ctranslate2==4.6.0
+  - transformers==4.38.2, tokenizers==0.15.2
+  - torch==2.4.1+cpu, torchaudio==2.4.1+cpu, torchvision==0.19.1+cpu
+  - librosa==0.10.2.post1, numpy==1.24.4, scipy==1.10.1, numba==0.59.1, llvmlite==0.42.0
+  - pandas==2.0.3, scikit-learn==1.3.2
+  - praat-parselmouth==0.4.3, panns-inference==0.1.1
 
-Outputs:
-- `diarized_transcript_with_emotion.csv` — primary, scrub‑friendly
-- `segments.jsonl` — per‑segment payload (audio + text + SED overlaps)
-- `speakers_summary.csv` — per‑speaker rollups (V/A/D, emotion mix, intents, WPM, SNR, voice‑quality)
-- `summary.html` — Quick Take, Speaker Snapshots, Moments to Check (SED), Action Items
-- `speaker_registry.json` — persistent names via centroids
-- `events_timeline.csv` + `events.jsonl` — SED events
-- `timeline.csv`, `qc_report.json` — fast scrubbing + health checks
-
-## Model set (CPU‑friendly)
-
-- **Diarization**: Diart (Silero VAD + ECAPA‑TDNN embeddings + AHC). Prefers ONNX, Torch fallback for Silero VAD.
-- **ASR**: Faster‑Whisper `tiny.en` via CTranslate2 (default `compute_type=int8`).
-- **Tone (V/A/D)**: `audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim`.
-- **Speech emotion (8‑class)**: `Dpngtm/wav2vec2-emotion-recognition`.
-- **Text emotions (28)**: `SamLowe/roberta-base-go_emotions` (full distribution; keep top‑5).
-- **Intent**: Prefers local ONNX exports (e.g., `model_uint8.onnx` under `affect_intent_model_dir` such as `D:\\diaremot\\diaremot2-1\\models\\bart\\`) and falls back to the `facebook/bart-large-mnli` Hugging Face pipeline when no ONNX asset is available.
-- **SED**: PANNs CNN14 (ONNX) on onnxruntime; 1.0s frames, 0.5s hop; median filter 3–5; hysteresis 0.50/0.35; `min_dur=0.30s`; `merge_gap≤0.20s`; collapse AudioSet→~20 labels.
-- **Paralinguistics (REQUIRED)**: **Praat‑Parselmouth** for jitter/shimmer/HNR/CPPS + prosody (WPM/pauses).
-
-## Install (local; Windows PowerShell shown)
-
-1) **Python 3.11**; **FFmpeg on PATH** (`ffmpeg -version`).
-2) Create venv and install:
-```powershell
-py -3.11 -m venv .venv
-. .\.venv\Scripts\Activate.ps1
-python -m pip install -U pip wheel setuptools
-pip install -r requirements.txt
-pip install -e .
+Quick check after setup:
 ```
-3) Dev tools:
-```powershell
-pip install ruff pytest mypy
+python - <<'PY'
+from importlib.metadata import version
+assert version('onnxruntime')=='1.17.1'
+assert version('faster-whisper')=='1.1.0'
+assert version('ctranslate2')=='4.6.0'
+assert version('transformers')=='4.38.2'
+assert version('tokenizers')=='0.15.2'
+print('Pins OK')
+PY
 ```
 
-## Codex Cloud usage
+This guide is a Codex-Cloud–specific companion to the main README. It assumes an Ubuntu-like runner with `apt` available and focuses on reproducible, CPU-only setup with ONNX-first inference.
 
-```bash
+Prereqs
+- Ubuntu-like environment with `apt`
+- Python 3.9–3.11
+- Git access to this repo
+
+1) System Utilities (allowed on Codex Cloud)
+```
+sudo apt-get update -qq
+sudo apt-get install -y ffmpeg
+```
+
+2) Create and Activate the Virtualenv
+```
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip setuptools wheel
+```
+
+3) Install Pinned Python Dependencies
+```
+python -m pip install -r requirements.txt
+```
+
+4) Cache & Environment Defaults
+```
+export CACHE_ROOT="$(pwd)/.cache"
+mkdir -p "$CACHE_ROOT" "$CACHE_ROOT/hf" "$CACHE_ROOT/torch" "$CACHE_ROOT/transformers"
+export HF_HOME="$CACHE_ROOT/hf"
+export HUGGINGFACE_HUB_CACHE="$CACHE_ROOT/hf"
+export TRANSFORMERS_CACHE="$CACHE_ROOT/transformers"
+export TORCH_HOME="$CACHE_ROOT/torch"
+export XDG_CACHE_HOME="$CACHE_ROOT"
+export DIAREMOT_MODEL_DIR="$(pwd)/.cache/models"
+export OMP_NUM_THREADS=${OMP_NUM_THREADS:-4}
+export MKL_NUM_THREADS=${MKL_NUM_THREADS:-4}
+export NUMEXPR_MAX_THREADS=${NUMEXPR_MAX_THREADS:-4}
+export TOKENIZERS_PARALLELISM=false
+export CUDA_VISIBLE_DEVICES=""; export TORCH_DEVICE=cpu
+```
+
+5) Stage Models (Use Your GitHub Release Asset)
+- Recommended: Provide a signed `models.zip` release. Then:
+```
+export DIAREMOT_AUTO_DOWNLOAD=1
+export DIAREMOT_MODELS_URL="https://github.com/OWNER/REPO/releases/download/TAG/models.zip"
+export DIAREMOT_MODELS_SHA256="<sha256-hex>"
+```
+- Or place `models.zip` at repo root, or pre-populate `DIAREMOT_MODEL_DIR` with files.
+- Expected files:
+  - panns_cnn14.onnx, audioset_labels.csv
+  - silero_vad.onnx, ecapa_tdnn.onnx
+  - ser_8class.onnx, vad_model.onnx
+  - roberta-base-go_emotions.onnx, bart-large-mnli.onnx
+
+6) One-Command Setup
+Use the repo script (Codex Cloud–aware). It will install Python deps, ensure env defaults, and fetch/unpack models if configured. It also bootstraps ffmpeg via imageio-ffmpeg when apt is unavailable.
+```
+chmod +x ./setup.sh
 ./setup.sh
-./maint-codex.sh
-python -m diaremot.cli run --input data/sample.wav --outdir outputs/ --asr-compute-type int8
 ```
 
-## Environment variables
-
-- `DIAREMOT_MODEL_DIR` — models root (e.g., `/workspace/models`).
-- `HF_HOME`, `HUGGINGFACE_HUB_CACHE`, `TRANSFORMERS_CACHE`, `TORCH_HOME` — `./.cache/`.
-- Threads: `OMP_NUM_THREADS`, `MKL_NUM_THREADS`, `NUMEXPR_MAX_THREADS`.
-- `TOKENIZERS_PARALLELISM=false`.
-
-## CSV schema (primary)
-
-The canonical schema is defined in `src/diaremot/pipeline/outputs.py::SEGMENT_COLUMNS` (39 columns):
-
+7) Smoke Test
 ```
-file_id,start,end,speaker_id,speaker_name,text,
-valence,arousal,dominance,
-emotion_top,emotion_scores_json,
-text_emotions_top5_json,text_emotions_full_json,
-intent_top,intent_top3_json,
-events_top3_json,noise_tag,
-asr_logprob_avg,snr_db,snr_db_sed,
-wpm,duration_s,words,pause_ratio,
-low_confidence_ser,vad_unstable,affect_hint,
-pause_count,pause_time_s,
-f0_mean_hz,f0_std_hz,
-loudness_rms,disfluency_count,
-error_flags,
-vq_jitter_pct,vq_shimmer_db,vq_hnr_db,vq_cpps_db,voice_quality_hint
+python -m diaremot.cli run \
+  --input data/sample.wav \
+  --outdir ./outputs \
+  --asr-compute-type float32
 ```
 
-**Key columns:**
-- `events_top3_json` — Top-k AudioSet clusters detected per segment
-- `noise_tag` — Dominant background class
-- `snr_db_sed` — Approximate SNR from SED noise score
-- `low_confidence_ser` — Speech emotion recognition confidence flag
-- `vad_unstable` — VAD instability indicator
-- `affect_hint` — Affect state summary (e.g., "calm-positive", "agitated-negative")
-- `pause_count`, `pause_time_s` — Pause metrics from paralinguistics
-- `f0_mean_hz`, `f0_std_hz` — Pitch statistics
-- `loudness_rms` — RMS loudness
-- `disfluency_count` — Filler words and hesitations
-- `error_flags` — Processing error indicators
-- `vq_jitter_pct`, `vq_shimmer_db`, `vq_hnr_db`, `vq_cpps_db` — Voice quality (Praat-Parselmouth)
-- `voice_quality_hint` — Voice quality interpretation
+Notes
+- CPU-only: The pipeline uses `CPUExecutionProvider` for ONNXRuntime and CTranslate2 on CPU.
+- If you prefer apt-installed ffmpeg (Codex Cloud): already covered in step 1. The setup script will otherwise provide a portable ffmpeg via `imageio-ffmpeg` in `./.cache/bin`.
+- Verify deps quickly:
+```
+python -m diaremot.pipeline.audio_pipeline_core --verify_deps --strict_dependency_versions
+```
+
+Troubleshooting
+- Torch `_C` import errors: ensure you used the venv created here; the code lazily imports heavy backends now.
+- Librosa lazy_loader error: the code imports `librosa` module and uses `librosa.func` style, which avoids the issue. Ensure you’re on the pinned versions from `requirements.txt`.

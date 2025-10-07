@@ -126,11 +126,7 @@ def test_third_party_imports_are_declared() -> None:
     for name in _iter_import_roots():
         if name in PYTHON_STDLIB:
             continue
-        if (
-            name in INTERNAL_IMPORTS
-            or name.startswith("diaremot")
-            or name in _PROJECT_MODULE_NAMES
-        ):
+        if name in INTERNAL_IMPORTS or name.startswith("diaremot") or name in _PROJECT_MODULE_NAMES:
             continue
         if name in OPTIONAL_IMPORTS:
             continue

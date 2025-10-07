@@ -96,8 +96,7 @@ def run_conversation(
         state.conv_metrics = metrics
     except (RuntimeError, ValueError, ZeroDivisionError) as exc:
         pipeline.corelog.warn(
-            "Conversation analysis failed: "
-            f"{exc}. Falling back to neutral conversational metrics."
+            f"Conversation analysis failed: {exc}. Falling back to neutral conversational metrics."
         )
         try:
             state.conv_metrics = ConversationMetrics(

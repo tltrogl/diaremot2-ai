@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Iterable, Iterator
 from pathlib import Path
-from typing import Iterable, Iterator
 
 __all__ = ["iter_model_roots", "iter_model_subpaths", "collect_model_roots"]
 
@@ -51,7 +51,9 @@ def iter_model_roots(extra: Iterable[str | Path] | None = None) -> Iterator[Path
     yield from _dedupe_paths(roots)
 
 
-def iter_model_subpaths(relative_path: str | Path, *, extra_roots: Iterable[str | Path] | None = None) -> Iterator[Path]:
+def iter_model_subpaths(
+    relative_path: str | Path, *, extra_roots: Iterable[str | Path] | None = None
+) -> Iterator[Path]:
     """Yield candidate concrete paths under each known model root."""
 
     rel = Path(relative_path)

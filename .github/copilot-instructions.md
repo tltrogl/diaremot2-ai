@@ -46,13 +46,3 @@ DiaRemot is a CPU-only, multi-stage speech intelligence pipeline for long-form a
 
 ---
 For any uncertainty, cite the relevant file and propose a diagnostic test. Do not guess at API signatures or behaviors.
-
-## Repo facts & gotchas (verified)
-- Pipeline stage count: the code in `src/diaremot/pipeline/stages/__init__.py` defines 11 stages. Some docs (e.g., `CLAUDE.md`) list an extra `auto_tune` stage; treat `CLAUDE.md` as out-of-date and use the `PIPELINE_STAGES` source of truth.
-- ASR default compute type: the CLI (`src/diaremot/cli.py`) sets `asr_compute_type` default to `float32` (not int8). If you see README claims of `int8` defaults, prefer the CLI default.
-- Cache / HF env vars: `src/diaremot/pipeline/runtime_env.py::configure_local_cache_env()` sets local cache and exports `HF_HOME`, `HUGGINGFACE_HUB_CACHE`, `TRANSFORMERS_CACHE`, `TORCH_HOME`, and `XDG_CACHE_HOME`. Agents should prefer these runtime-set paths when looking for caches.
-- Model roots discovery: `runtime_env.py` builds `MODEL_ROOTS` from `DIAREMOT_MODEL_DIR`, platform defaults (`D:/models` on Windows), and several local candidates (project `models/`, cwd `models/`, home `models/`). Use `iter_model_roots()` / `DEFAULT_MODELS_ROOT` when resolving models.
-- Critical stages: `src/diaremot/pipeline/logging_utils.py::StageGuard` marks `preprocess` and `outputs` as critical — failures there are not silently swallowed. Handle them as hard errors.
-- Schema / versioning: the canonical CSV columns array is `SEGMENT_COLUMNS` in `src/diaremot/pipeline/outputs.py`. `RunStats` defaults a schema_version of `2.0.0` — be mindful when changing CSV fields.
-
-If you want, I can (a) merge these notes into other docs (`README.md`, `CLAUDE.md`) to avoid future drift, or (b) run a short grep across the repo to list other files that contradict the verified values above.

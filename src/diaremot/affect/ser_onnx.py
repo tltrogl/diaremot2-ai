@@ -1,7 +1,10 @@
-import os, numpy as np
+import os
+
+import numpy as np
 import onnxruntime as ort
 
-ID2LABEL = ["angry","calm","disgust","fearful","happy","neutral","sad","surprised"]
+ID2LABEL = ["angry", "calm", "disgust", "fearful", "happy", "neutral", "sad", "surprised"]
+
 
 def _pick_provider():
     # DiaRemot is CPU-only. Ignore GPU/DML providers even if present.
@@ -10,9 +13,12 @@ def _pick_provider():
         return [force]
     return ["CPUExecutionProvider"]
 
+
 class SEROnnx:
     def __init__(self, onnx_path=None, threads=4):
-        onnx_path = onnx_path or os.getenv("DIAREMOT_SER_ONNX", r"D:\diaremot\diaremot2-1\models\ser8-onnx\model.onnx")
+        onnx_path = onnx_path or os.getenv(
+            "DIAREMOT_SER_ONNX", r"D:\diaremot\diaremot2-1\models\ser8-onnx\model.onnx"
+        )
         so = ort.SessionOptions()
         so.intra_op_num_threads = threads
         so.inter_op_num_threads = 1
@@ -26,7 +32,8 @@ class SEROnnx:
     @staticmethod
     def _softmax(x: np.ndarray) -> np.ndarray:
         x = x - x.max()
-        e = np.exp(x); return e / e.sum()
+        e = np.exp(x)
+        return e / e.sum()
 
     def predict_16k_f32(self, wav_f32: np.ndarray):
         if wav_f32.ndim > 1:

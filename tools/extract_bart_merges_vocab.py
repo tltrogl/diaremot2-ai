@@ -1,11 +1,11 @@
 """Export merge and vocab files from a BART tokenizer.json payload."""
+
 from __future__ import annotations
 
 import argparse
 import json
 import sys
 from pathlib import Path
-from typing import Optional
 
 if __package__ in (None, ""):
     sys.path.append(str(Path(__file__).resolve().parents[1]))
@@ -47,15 +47,14 @@ def dump_merges_and_vocab(model_dir: Path) -> None:
         )
 
     if vocab and not vocab_json.exists():
-        ordered = {token: int(idx) for token, idx in sorted(vocab.items(), key=lambda item: item[1])}
+        ordered = {
+            token: int(idx) for token, idx in sorted(vocab.items(), key=lambda item: item[1])
+        }
         with vocab_json.open("w", encoding="utf-8") as handle:
             json.dump(ordered, handle, ensure_ascii=False)
         print(f"Wrote {vocab_json} with {len(ordered)} entries")
     else:
-        print(
-            "Skipped writing vocab.json (exists=%s, size=%s)"
-            % (vocab_json.exists(), len(vocab))
-        )
+        print("Skipped writing vocab.json (exists=%s, size=%s)" % (vocab_json.exists(), len(vocab)))
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -69,7 +68,7 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: Optional[list[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 

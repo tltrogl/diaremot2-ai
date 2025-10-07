@@ -1,3 +1,4 @@
 [console_scripts]
 diaremot = diaremot.cli:app
+diaremot-deps-check = diaremot.tools.deps_check:main
 diaremot-diagnostics = diaremot.cli:main_diagnostics

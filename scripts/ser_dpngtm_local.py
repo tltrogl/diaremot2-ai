@@ -1,8 +1,13 @@
-import os, json, numpy as np, soundfile as sf, librosa, torch
-from transformers import Wav2Vec2Processor, Wav2Vec2ForSequenceClassification
+import json
+
+import librosa
+import numpy as np
+import soundfile as sf
+import torch
+from transformers import Wav2Vec2ForSequenceClassification, Wav2Vec2Processor
 
 MODEL_DIR = r"D:\diaremot\diaremot2-1\models\dpngtm_ser"
-AUDIO = r"D:\diaremot\diaremot2-ai\data\sample.wav"   # <-- change to a REAL file path
+AUDIO = r"D:\diaremot\diaremot2-ai\data\sample.wav"  # <-- change to a REAL file path
 SR_TARGET = 16000
 
 # Load locally only; no internet calls
@@ -22,7 +27,7 @@ with torch.no_grad():
     logits = model(**inputs).logits
 probs = torch.softmax(logits, dim=-1)[0].tolist()
 
-labels = ["angry","calm","disgust","fearful","happy","neutral","sad","surprised"]
+labels = ["angry", "calm", "disgust", "fearful", "happy", "neutral", "sad", "surprised"]
 top = int(np.argmax(probs))
 print("TOP:", labels[top])
-print("DISTR:", json.dumps({labels[i]: float(p) for i,p in enumerate(probs)}, indent=2))
+print("DISTR:", json.dumps({labels[i]: float(p) for i, p in enumerate(probs)}, indent=2))

@@ -180,9 +180,9 @@ def build_speakers_summary(
                         ) + _float(item["score"])
                     elif isinstance(item, (list, tuple)) and len(item) >= 2:
                         lbl, sc = item[0], item[1]
-                        S["text_top_sum"][str(lbl)] = S["text_top_sum"].get(
-                            str(lbl), 0.0
-                        ) + _float(sc)
+                        S["text_top_sum"][str(lbl)] = S["text_top_sum"].get(str(lbl), 0.0) + _float(
+                            sc
+                        )
 
         # Paralinguistics
         if row.get("f0_mean_hz") not in (None, ""):
@@ -217,18 +217,14 @@ def build_speakers_summary(
         if row.get("overlap_ratio") not in (None, ""):
             # keep last or max; here we keep max seen
             val = _float(row["overlap_ratio"])
-            S["overlap_ratio"] = (
-                val if S["overlap_ratio"] is None else max(S["overlap_ratio"], val)
-            )
+            S["overlap_ratio"] = val if S["overlap_ratio"] is None else max(S["overlap_ratio"], val)
 
     # Merge interruption data from per_speaker_interrupts
     for speaker_id, int_data in (per_speaker_interrupts or {}).items():
         if speaker_id in agg:
             S = agg[speaker_id]
             S["interruptions_made"] = int(int_data.get("made", S["interruptions_made"]))
-            S["interruptions_received"] = int(
-                int_data.get("received", S["interruptions_received"])
-            )
+            S["interruptions_received"] = int(int_data.get("received", S["interruptions_received"]))
             overlap_sec = float(int_data.get("overlap_sec", 0.0))
             total_dur = sum(S["durations"]) or 1.0
             S["overlap_ratio"] = overlap_sec / total_dur
@@ -239,11 +235,7 @@ def build_speakers_summary(
         total_dur = sum(S["durations"])
         total_min = total_dur / 60.0 if total_dur > 0 else 0.0
         # primary WPM from words/time; fallback to median of per-segment WPM
-        avg_wpm = (
-            (S["words"] / total_min)
-            if total_min > 0
-            else (_median(S["per_seg_wpm"], 0.0))
-        )
+        avg_wpm = (S["words"] / total_min) if total_min > 0 else (_median(S["per_seg_wpm"], 0.0))
 
         # Dominant speech emotion by votes
         dominant_speech = (
@@ -292,9 +284,7 @@ def build_speakers_summary(
                 "interruptions_made": int(S["interruptions_made"]),
                 "interruptions_received": int(S["interruptions_received"]),
                 "overlap_ratio": (
-                    round(S["overlap_ratio"], 3)
-                    if (S["overlap_ratio"] is not None)
-                    else ""
+                    round(S["overlap_ratio"], 3) if (S["overlap_ratio"] is not None) else ""
                 ),
                 "f0_mean_hz": round(_median(S["f0_mean_vals"], 0.0), 2),
                 "f0_std_hz": round(_median(S["f0_std_vals"], 0.0), 2),

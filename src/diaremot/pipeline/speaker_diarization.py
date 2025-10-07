@@ -6,12 +6,13 @@ import json
 import logging
 import os
 import socket
+from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FuturesTimeoutError
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Iterable, Iterator
+from typing import Any
 
 import librosa
 import numpy as np
@@ -22,15 +23,19 @@ from ..pipeline.runtime_env import DEFAULT_MODELS_ROOT, iter_model_roots
 
 MODEL_ROOTS = tuple(iter_model_roots()) or (DEFAULT_MODELS_ROOT,)
 
+
 def iter_model_subpaths(*relative_paths: Path) -> Iterator[Path]:
     for root in MODEL_ROOTS:
         for rel in relative_paths:
             yield Path(root) / rel
 
+
 # --- FIXED: sklearn AgglomerativeClustering wrapper for metric/affinity drift ---
 try:
     import inspect as _inspect
+
     from sklearn.cluster import AgglomerativeClustering as _SkAgglo
+
     def _agglo(distance_threshold: float | None, **kw):
         init_sig = _inspect.signature(_SkAgglo.__init__)
         params = set(init_sig.parameters)
@@ -51,10 +56,13 @@ try:
         return _SkAgglo(**wanted)
 except Exception:
     _SkAgglo = None
+
     def _agglo(distance_threshold: float | None, **kw):
         raise RuntimeError("sklearn AgglomerativeClustering not available")
         # Unreachable return to satisfy static analysis
         return None
+
+
 logger = logging.getLogger(__name__)
 if not logger.handlers:
     h = logging.StreamHandler()
@@ -62,6 +70,8 @@ if not logger.handlers:
     h.setFormatter(logging.Formatter("[%(levelname)s] %(message)s"))
     logger.addHandler(h)
 logger.setLevel(logging.INFO)
+
+
 def _bool_env(name: str) -> bool | None:
     """Parse a boolean environment variable."""
     val = os.getenv(name)
@@ -73,6 +83,8 @@ def _bool_env(name: str) -> bool | None:
     if norm in {"0", "false", "no", "off"}:
         return False
     return None
+
+
 def _can_reach_host(host: str, port: int = 443, timeout: float = 3.0) -> bool:
     """Return True when a TCP connection to ``host`` succeeds quickly."""
     try:
@@ -80,10 +92,13 @@ def _can_reach_host(host: str, port: int = 443, timeout: float = 3.0) -> bool:
             return True
     except OSError:
         return False
+
+
 def _torch_repo_cached() -> bool:
     """Detect whether the Silero TorchHub repo already exists locally."""
     try:
         import torch.hub as hub
+
         hub_dir = Path(hub.get_dir())
     except Exception:
         return False
@@ -93,6 +108,8 @@ def _torch_repo_cached() -> bool:
         hub_dir / "silero-vad",  # custom mirrors
     ]
     return any(path.exists() for path in candidates)
+
+
 def _resolve_state_shape(shape: tuple[Any, ...] | None) -> tuple[int, ...]:
     """Return a concrete hidden-state shape for Silero ONNX sessions."""
     default = (2, 1, 128)
@@ -107,6 +124,8 @@ def _resolve_state_shape(shape: tuple[Any, ...] | None) -> tuple[int, ...]:
     if len(resolved) < len(default):
         resolved.extend(default[len(resolved) :])
     return tuple(resolved[: len(default)])
+
+
 @dataclass
 class DiarizationConfig:
     target_sr: int = 16000
@@ -142,6 +161,8 @@ class DiarizationConfig:
     allow_energy_vad_fallback: bool = True
     energy_gate_db: float = -33.0
     energy_hop_sec: float = 0.01
+
+
 @dataclass
 class DiarizedTurn:
     start: float
@@ -151,11 +172,14 @@ class DiarizedTurn:
     candidate_name: str | None = None
     needs_review: bool = False
     embedding: np.ndarray | None = None
+
+
 class _SileroWrapper:
     """Silero VAD wrapper with optional ONNX Runtime backend.
     Prefers ONNX if an exported model is available locally, otherwise falls
     back to the TorchHub PyTorch implementation (fully CPU).
     """
+
     def __init__(self, threshold: float, speech_pad_sec: float = 0.05, backend: str = "auto"):
         self.threshold = float(threshold)
         self.speech_pad_sec = float(speech_pad_sec)
@@ -174,9 +198,11 @@ class _SileroWrapper:
         self._onnx_context_cache: np.ndarray | None = None
         self._onnx_last_sr: int | None = None
         self._load()
+
     # ------------------------------------------------------------------
     def _load(self) -> None:
         """Load Silero VAD honoring backend preference (onnx|torch|auto)."""
+
         # Prefer Torch by default for reliability across exports
         def _load_torch():
             override = _bool_env("SILERO_VAD_TORCH")
@@ -198,6 +224,7 @@ class _SileroWrapper:
                 timeout = 30.0
             timeout = max(5.0, timeout)
             import torch.hub as hub
+
             def _hub_load():
                 return hub.load(
                     "snakers4/silero-vad",
@@ -205,6 +232,7 @@ class _SileroWrapper:
                     force_reload=False,
                     trust_repo=True,
                 )
+
             try:
                 with ThreadPoolExecutor(max_workers=1) as pool:
                     future = pool.submit(_hub_load)
@@ -232,10 +260,13 @@ class _SileroWrapper:
             self.model.eval()
             logger.info("Silero VAD PyTorch model loaded (TorchHub)")
             return True
+
         def _load_onnx():
             try:
                 from pathlib import Path
+
                 from ..io.onnx_utils import create_onnx_session
+
                 onnx_path = os.getenv("SILERO_VAD_ONNX_PATH")
                 if not onnx_path:
                     candidate_paths = list(iter_model_subpaths("silero_vad.onnx"))
@@ -319,6 +350,7 @@ class _SileroWrapper:
             self.input_name = None
             self.output_name = None
             return False
+
         pref = (self.backend_preference or "auto").lower()
         if pref == "onnx":
             if not _load_onnx():
@@ -341,6 +373,7 @@ class _SileroWrapper:
             logger.info("Silero VAD Torch backend unavailable; proceeding without it")
         else:
             logger.info("Silero VAD Torch backend skipped (offline/disabled); using fallbacks")
+
     # ------------------------------------------------------------------
     def _detect_with_onnx(
         self,
@@ -463,6 +496,7 @@ class _SileroWrapper:
         if not padded:
             return []
         return _merge_regions(padded, gap=min_silence_sec)
+
     # ------------------------------------------------------------------
     def detect(
         self, wav: np.ndarray, sr: int, min_speech_sec: float, min_silence_sec: float
@@ -483,6 +517,7 @@ class _SileroWrapper:
             return []
         try:
             import torch
+
             wav_t = torch.from_numpy(wav.astype(np.float32))
             ts = self.get_speech_timestamps(
                 wav_t,
@@ -498,14 +533,18 @@ class _SileroWrapper:
         except Exception as e:  # pragma: no cover - inference issues
             logger.warning(f"Silero VAD failed: {e}")
             return []
+
+
 class _ECAPAWrapper:
     """ECAPA-TDNN embedding extraction via ONNX Runtime."""
+
     def __init__(self, model_path: Path | None = None) -> None:
         self.session = None
         self.input_name: str | None = None
         self.output_name: str | None = None
         self.model_path = Path(model_path) if model_path else None
         self._load()
+
     def _load(self) -> None:
         """Load ECAPA ONNX model from an environment-defined or default path."""
         try:
@@ -516,7 +555,9 @@ class _ECAPAWrapper:
                 if env_path:
                     model_path = Path(env_path)
                 else:
-                    candidate_paths = list(iter_model_subpaths(Path("ecapa_onnx") / "ecapa_tdnn.onnx"))
+                    candidate_paths = list(
+                        iter_model_subpaths(Path("ecapa_onnx") / "ecapa_tdnn.onnx")
+                    )
                     candidate_paths.extend(list(iter_model_subpaths("ecapa_tdnn.onnx")))
                     unique_candidates: list[Path] = []
                     seen: set[str] = set()
@@ -539,6 +580,7 @@ class _ECAPAWrapper:
         except Exception as e:
             logger.error(f"ECAPA ONNX model unavailable: {e}")
             self.session = None
+
     def embed_batch(self, batch: list[np.ndarray], sr: int) -> list[np.ndarray | None]:
         if self.session is None or not batch:
             return [None] * len(batch)
@@ -585,6 +627,8 @@ class _ECAPAWrapper:
         except Exception as e:
             logger.warning(f"ECAPA embed failed: {e}")
             return [None] * len(batch)
+
+
 class SpeakerRegistry:
     def __init__(self, path: str):
         self.path = Path(path)
@@ -592,10 +636,12 @@ class SpeakerRegistry:
         self._metadata: dict[str, Any] = {}
         self._use_wrapped_format: bool = False
         self._load()
+
     @staticmethod
     def _iso_now() -> str:
         """Return an ISO-8601 UTC timestamp without microseconds."""
         return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
     def _load(self) -> None:
         """Load registry data, supporting legacy flat and metadata-wrapped schemas."""
         self._speakers = {}
@@ -624,6 +670,7 @@ class SpeakerRegistry:
             self._speakers = {}
             self._metadata = {}
             self._use_wrapped_format = False
+
     def _touch_metadata(self) -> None:
         if not (self._use_wrapped_format or self._metadata):
             return
@@ -639,6 +686,7 @@ class SpeakerRegistry:
                 meta_block["total_speakers"] = len(self._speakers)
                 self._metadata["metadata"] = meta_block
         self._use_wrapped_format = True
+
     def save(self) -> None:
         """Atomic registry save to prevent corruption."""
         try:
@@ -659,8 +707,10 @@ class SpeakerRegistry:
             temp_path = self.path.with_suffix(".tmp")
             if temp_path.exists():
                 temp_path.unlink(missing_ok=True)
+
     def has(self, name: str) -> bool:
         return name in self._speakers
+
     def enroll(self, name: str, centroid: np.ndarray) -> None:
         stamp = self._iso_now()
         self._speakers[name] = {
@@ -668,6 +718,7 @@ class SpeakerRegistry:
             "samples": 1,
             "last_seen": stamp,
         }
+
     def update_centroid(self, name: str, centroid: np.ndarray, alpha: float = 0.30) -> None:
         if not self.has(name):
             self.enroll(name, centroid)
@@ -683,6 +734,7 @@ class SpeakerRegistry:
         existing["samples"] = int(existing.get("samples", 1)) + 1
         existing["last_seen"] = self._iso_now()
         self._speakers[name] = existing
+
     def match(self, centroid: np.ndarray) -> tuple[str | None, float]:
         if not self._speakers:
             return None, 0.0
@@ -697,6 +749,8 @@ class SpeakerRegistry:
             if sim > best_sim:
                 best, best_sim = name, sim
         return best, best_sim
+
+
 def _merge_regions(spans: list[tuple[float, float]], gap: float) -> list[tuple[float, float]]:
     if not spans:
         return []
@@ -708,6 +762,8 @@ def _merge_regions(spans: list[tuple[float, float]], gap: float) -> list[tuple[f
         else:
             out.append([s, e])
     return [(s, e) for s, e in out]
+
+
 def _energy_vad_fallback(
     wav: np.ndarray, sr: int, gate_db: float, hop_sec: float
 ) -> list[tuple[float, float]]:
@@ -736,6 +792,8 @@ def _energy_vad_fallback(
     if start is not None:
         regions.append((start, len(speech) * hop_sec))
     return _merge_regions(regions, gap=0.5)
+
+
 class SpeakerDiarizer:
     def __init__(self, config: DiarizationConfig):
         self.config = config
@@ -754,6 +812,7 @@ class SpeakerDiarizer:
                 logger.warning(f"Registry unavailable: {e}")
         # Holds turns from the most recent diarization run
         self._last_turns: list[DiarizedTurn] = []
+
     def get_segment_embeddings(self) -> list[dict[str, Any]]:
         """Return turn embeddings from the last diarization run."""
         return [
@@ -761,6 +820,7 @@ class SpeakerDiarizer:
             for t in self._last_turns
             if t.embedding is not None
         ]
+
     def diarize_audio(self, wav: np.ndarray, sr: int) -> list[dict[str, Any]]:
         """Main diarization entry point."""
         self._last_turns = []
@@ -834,6 +894,7 @@ class SpeakerDiarizer:
         # Store for centroid updates
         self._last_turns = turns
         return [self._turn_to_dict(t) for t in turns]
+
     def _extract_embedding_windows(
         self, wav: np.ndarray, sr: int, speech_regions: list[tuple[float, float]]
     ) -> list[dict[str, Any]]:
@@ -862,6 +923,7 @@ class SpeakerDiarizer:
                     )
                 cursor += self.config.embed_shift_sec
         return windows
+
     def _build_continuous_segments(
         self,
         windows: list[dict[str, Any]],
@@ -1031,6 +1093,7 @@ class SpeakerDiarizer:
             else:
                 merged.append(seg)
         return merged
+
     def _merge_short_gaps(self, turns: list[DiarizedTurn]) -> list[DiarizedTurn]:
         """Merge turns from same speaker separated by short gaps."""
         if not turns:
@@ -1048,6 +1111,7 @@ class SpeakerDiarizer:
             else:
                 merged.append(turn)
         return merged
+
     def _assign_speaker_names(self, turns: list[DiarizedTurn]) -> list[DiarizedTurn]:
         """Assign speaker names using registry if available."""
         if not self.registry:
@@ -1061,6 +1125,7 @@ class SpeakerDiarizer:
                     if self.config.flag_band_low <= similarity <= self.config.flag_band_high:
                         turn.needs_review = True
         return turns
+
     def reassign_with_registry(self, turns: list[dict[str, Any]]) -> None:
         """Reassign speaker names after registry updates."""
         if not self.registry:
@@ -1072,6 +1137,7 @@ class SpeakerDiarizer:
                 if name and similarity >= self.config.auto_assign_cosine:
                     turn["speaker_name"] = name
                     turn["candidate_name"] = name
+
     def _turn_to_dict(self, turn: DiarizedTurn) -> dict[str, Any]:
         """Convert DiarizedTurn to dict format expected by core."""
         return {
@@ -1083,4 +1149,3 @@ class SpeakerDiarizer:
             "needs_review": turn.needs_review,
             "embedding": (turn.embedding.tolist() if turn.embedding is not None else None),
         }
-

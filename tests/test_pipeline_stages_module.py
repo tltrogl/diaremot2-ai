@@ -1,7 +1,7 @@
 import json
+import math
 import types
 
-import math
 import numpy as np
 import pytest
 
@@ -242,7 +242,6 @@ def test_stage_services_execute_full_cycle(tmp_path, monkeypatch, stub_pipeline)
     assert "auto_tune" in pipeline.stats.config_snapshot
     assert isinstance(state.tuning_summary, dict)
     assert isinstance(state.tuning_history, list)
-
 
 
 def test_affect_stage_uses_paralinguistics_metrics(tmp_path, stub_pipeline):

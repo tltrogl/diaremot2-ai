@@ -14,9 +14,9 @@ except Exception:  # pragma: no cover - fallback if packaging missing
 from .pipeline_config import CORE_DEPENDENCY_REQUIREMENTS
 
 
-def _iter_dependency_status() -> (
-    Iterator[tuple[str, str, Any, str | None, Exception | None, Exception | None]]
-):
+def _iter_dependency_status() -> Iterator[
+    tuple[str, str, Any, str | None, Exception | None, Exception | None]
+]:
     for mod, min_ver in CORE_DEPENDENCY_REQUIREMENTS.items():
         import_error: Exception | None = None
         metadata_error: Exception | None = None

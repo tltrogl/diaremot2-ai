@@ -1,3 +1,5 @@
-import inspect, sitecustomize
-print('loaded', inspect.getfile(sitecustomize))
+import inspect
 
+import sitecustomize
+
+print("loaded", inspect.getfile(sitecustomize))

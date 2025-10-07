@@ -5,8 +5,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from .speaker_diarization import DiarizationConfig
 from .runtime_env import DEFAULT_WHISPER_MODEL
+from .speaker_diarization import DiarizationConfig
 
 DEFAULT_PIPELINE_CONFIG: dict[str, Any] = {
     "registry_path": "speaker_registry.json",

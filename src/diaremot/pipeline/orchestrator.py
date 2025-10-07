@@ -375,12 +375,8 @@ class AudioAnalysisPipelineV2:
             affect_backend = cfg.get("affect_backend", "onnx")
             if affect_backend is not None:
                 affect_backend = str(affect_backend)
-            affect_text_model_dir = _normalize_model_dir(
-                cfg.get("affect_text_model_dir")
-            )
-            affect_intent_model_dir = _normalize_model_dir(
-                cfg.get("affect_intent_model_dir")
-            )
+            affect_text_model_dir = _normalize_model_dir(cfg.get("affect_text_model_dir"))
+            affect_intent_model_dir = _normalize_model_dir(cfg.get("affect_intent_model_dir"))
             affect_analyzer_threads = cfg.get("affect_analyzer_threads")
 
             if cfg.get("disable_affect"):

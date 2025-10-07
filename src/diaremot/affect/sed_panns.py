@@ -10,16 +10,16 @@ import sys
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from ..io.onnx_utils import create_onnx_session
 from ..io.onnx_runtime_guard import (
     OnnxRuntimeUnavailable,
     format_unavailable_message,
     onnxruntime_available,
 )
+from ..io.onnx_utils import create_onnx_session
 from ..pipeline.runtime_env import DEFAULT_MODELS_ROOT, iter_model_roots
 
 MODEL_ROOTS = tuple(iter_model_roots())
@@ -45,7 +45,7 @@ except Exception:  # pragma: no cover - env dependent
     _HAVE_LIBROSA = False
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
-    import onnxruntime as ort
+    pass
 
 _HAVE_ORT = onnxruntime_available()
 if not _HAVE_ORT:
@@ -117,7 +117,7 @@ class PANNSEventTagger:
                 backend = "none"
         self.backend = backend
         self._tagger: AudioTagging | None = None  # type: ignore
-        self._session: "onnxruntime.InferenceSession" | None = None
+        self._session: onnxruntime.InferenceSession | None = None
         self._labels: list[str] | None = None
         self.available = True
         self._ensure_model()

@@ -47,4 +47,3 @@ try:
             os.environ.setdefault("DIAREMOT_INTENT_MODEL_DIR", str(bart))
 except Exception:
     pass
-

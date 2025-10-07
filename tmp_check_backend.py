@@ -1,20 +1,22 @@
-from diaremot.pipeline.cli_entry import _args_to_config
 from types import SimpleNamespace
+
+from diaremot.pipeline.cli_entry import _args_to_config
 from diaremot.pipeline.orchestrator import AudioAnalysisPipelineV2
+
 args = SimpleNamespace(
-    registry_path='registry/speaker_registry.json',
+    registry_path="registry/speaker_registry.json",
     ahc_distance_threshold=0.02,
     speaker_limit=None,
-    whisper_model='faster-whisper-tiny.en',
-    asr_backend='auto',
-    asr_compute_type='int8',
+    whisper_model="faster-whisper-tiny.en",
+    asr_backend="auto",
+    asr_compute_type="int8",
     asr_cpu_threads=1,
     language=None,
-    language_mode='auto',
+    language_mode="auto",
     ignore_tx_cache=False,
     quiet=False,
     disable_affect=False,
-    affect_backend='auto',
+    affect_backend="auto",
     affect_text_model_dir=None,
     affect_intent_model_dir=None,
     beam_size=1,
@@ -30,7 +32,7 @@ args = SimpleNamespace(
     vad_min_speech_sec=0.8,
     vad_min_silence_sec=0.8,
     vad_speech_pad_sec=0.2,
-    vad_backend='auto',
+    vad_backend="auto",
     no_energy_fallback=False,
     energy_gate_db=-33.0,
     energy_hop_sec=0.01,
@@ -43,7 +45,6 @@ args = SimpleNamespace(
     strict_dependency_versions=False,
 )
 config = _args_to_config(args, ignore_tx_cache=False)
-print('affect_backend config', config['affect_backend'])
+print("affect_backend config", config["affect_backend"])
 pipe = AudioAnalysisPipelineV2(config)
-print('pipeline affect backend', pipe.affect.affect_backend if pipe.affect else None)
-
+print("pipeline affect backend", pipe.affect.affect_backend if pipe.affect else None)

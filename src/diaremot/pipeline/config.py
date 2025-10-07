@@ -132,9 +132,7 @@ class PipelineConfig:
             "affect_backend", self.affect_backend, {"auto", "onnx"}
         )
         self.asr_backend = self._lower_choice("asr_backend", self.asr_backend, None)
-        self.vad_backend = self._lower_choice(
-            "vad_backend", self.vad_backend, {"auto", "onnx"}
-        )
+        self.vad_backend = self._lower_choice("vad_backend", self.vad_backend, {"auto", "onnx"})
         self.loudness_mode = self._lower_choice(
             "loudness_mode", self.loudness_mode, {"asr", "broadcast"}
         )
@@ -185,9 +183,7 @@ class PipelineConfig:
         if not isinstance(value, (int, float)) or value <= 0:
             raise ValueError(f"{name} must be a number > 0")
 
-    def model_dump(
-        self, *, mode: str = "python"
-    ) -> dict[str, Any]:  # noqa: D401 - compatibility shim
+    def model_dump(self, *, mode: str = "python") -> dict[str, Any]:  # noqa: D401 - compatibility shim
         """Return the configuration as a dictionary."""
 
         if mode not in {"python", "json"}:  # pragma: no cover - defensive guard
@@ -263,9 +259,9 @@ def build_pipeline_config(
     return validated.model_dump(mode="python")
 
 
-def _iter_dependency_status() -> (
-    Iterator[tuple[str, str, Any, str | None, Exception | None, Exception | None]]
-):
+def _iter_dependency_status() -> Iterator[
+    tuple[str, str, Any, str | None, Exception | None, Exception | None]
+]:
     for mod, min_ver in CORE_DEPENDENCY_REQUIREMENTS.items():
         import_error: Exception | None = None
         metadata_error: Exception | None = None

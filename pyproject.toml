@@ -52,6 +52,7 @@ dependencies = [
 [project.scripts]
 diaremot = "diaremot.cli:app"
 diaremot-diagnostics = "diaremot.cli:main_diagnostics"
+diaremot-deps-check = "diaremot.tools.deps_check:main"
 
 [tool.setuptools.package-dir]
 "" = "src"
