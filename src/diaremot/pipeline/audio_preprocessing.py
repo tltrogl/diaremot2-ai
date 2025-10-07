@@ -37,7 +37,7 @@ class PreprocessConfig:
 
     # Auto-chunking for long audio files
     auto_chunk_enabled: bool = True
-    chunk_threshold_minutes: float = 30.0  # Split audio longer than this
+    chunk_threshold_minutes: float = 60.0  # Split audio longer than this
     chunk_size_minutes: float = 20.0  # Each chunk duration
     chunk_overlap_seconds: float = 30.0  # Overlap between chunks
     chunk_temp_dir: str | None = None  # Use system temp if None
@@ -710,8 +710,12 @@ class AudioPreprocessor:
         duration, info = _probe_audio_metadata(path)
         threshold_seconds = self.config.chunk_threshold_minutes * 60.0
 
-        if self.config.auto_chunk_enabled and duration > threshold_seconds:
-            logger.info(f"Long audio detected ({duration / 60:.1f}min), using auto-chunking")
+        if self.config.auto_chunk_enabled and duration >= threshold_seconds:
+            logger.info(
+                "Long audio detected (%.1fmin), auto-chunking into ~%d min windows",
+                duration / 60.0,
+                int(self.config.chunk_size_minutes),
+            )
             return self._process_file_chunked(path, duration, info)
         else:
             logger.info(f"Processing audio normally ({duration / 60:.1f}min)")

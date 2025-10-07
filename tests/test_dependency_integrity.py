@@ -65,7 +65,6 @@ for path in PACKAGE_ROOT.rglob("*.py"):
         _PROJECT_MODULE_NAMES.add(path.stem)
 
 OPTIONAL_IMPORTS = {
-    "suppress_warnings",  # optional environment helper
     "importlib_metadata",  # stdlib fallback only used on <3.8
 }
 

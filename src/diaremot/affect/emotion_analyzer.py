@@ -20,6 +20,7 @@ import numpy as np
 from .ser_dpngtm import SERDpngtm
 from .intent_defaults import INTENT_LABELS_DEFAULT
 from ..io.onnx_utils import create_onnx_session
+from ..pipeline.runtime_env import DEFAULT_MODELS_ROOT
 
 # Preprocessing: strictly librosa/scipy/numpy
 try:
@@ -100,14 +101,45 @@ SER8_LABELS: List[str] = [
 DEFAULT_INTENT_MODEL = "facebook/bart-large-mnli"
 
 
-def _resolve_model_dir() -> str:
-    d = os.environ.get("DIAREMOT_MODEL_DIR", "")
+def _resolve_model_dir() -> Path:
+    d = os.environ.get("DIAREMOT_MODEL_DIR")
     if d:
-        return d
-    # Windows-friendly default under repo-local cache
-    local = os.path.join(".cache", "models")
-    os.makedirs(local, exist_ok=True)
-    return local
+        return Path(d).expanduser()
+    return Path(DEFAULT_MODELS_ROOT)
+
+
+def _resolve_component_dir(
+    cli_value: Optional[str], env_key: str, *default_subpath: str
+) -> Path:
+    candidates: list[Path] = []
+    if cli_value:
+        candidates.append(Path(cli_value).expanduser())
+    env_value = os.getenv(env_key)
+    if env_value:
+        candidates.append(Path(env_value).expanduser())
+    model_root = _resolve_model_dir()
+    if default_subpath:
+        candidates.append(model_root.joinpath(*default_subpath))
+    else:
+        candidates.append(model_root)
+
+    seen: set[str] = set()
+    for candidate in candidates:
+        key = str(candidate)
+        if key in seen:
+            continue
+        seen.add(key)
+        if candidate.exists():
+            return candidate
+    return candidates[0]
+
+
+def _select_first_existing(directory: Path, names: Sequence[str]) -> Path:
+    for name in names:
+        candidate = directory / name
+        if candidate.exists():
+            return candidate
+    return directory / names[0]
 
 
 def _normalize_backend(value: Optional[str]) -> str:
@@ -150,6 +182,7 @@ def _intent_candidate_dirs(explicit: Optional[str]) -> Iterable[Path]:
     if model_root:
         root = Path(model_root).expanduser()
         _add(root)
+        _add(root / "intent")
         _add(root / "bart")
         _add(root / "bart-large-mnli")
         _add(root / "facebook" / "bart-large-mnli")
@@ -424,9 +457,49 @@ class EmotionAnalyzer:
     - text_emotions_top5_json, text_emotions_full_json
     """
 
-    def __init__(self, model_dir: Optional[str] = None, disable_downloads: Optional[bool] = None):
-        self.model_dir = model_dir or _resolve_model_dir()
+    def __init__(
+        self,
+        model_dir: Optional[str] = None,
+        disable_downloads: Optional[bool] = None,
+        *,
+        text_model_dir: Optional[str] = None,
+        ser_model_dir: Optional[str] = None,
+        vad_model_dir: Optional[str] = None,
+    ):
+        base_dir = Path(model_dir).expanduser() if model_dir else _resolve_model_dir()
+        self.model_dir = str(base_dir)
         self.disable_downloads = bool(disable_downloads or False)
+        self.issues: list[str] = []
+
+        self.text_model_dir = _resolve_component_dir(
+            text_model_dir, "DIAREMOT_TEXT_EMO_MODEL_DIR", "text_emotions"
+        )
+        self.ser_model_dir = _resolve_component_dir(
+            ser_model_dir, "AFFECT_SER_MODEL_DIR", "affect", "ser8"
+        )
+        self.vad_model_dir = _resolve_component_dir(
+            vad_model_dir, "AFFECT_VAD_DIM_MODEL_DIR", "affect", "vad_dim"
+        )
+
+        # Paths
+        self.path_text_onnx = str(
+            _select_first_existing(
+                self.text_model_dir,
+                ("model.onnx", "roberta-base-go_emotions.onnx"),
+            )
+        )
+        self.path_ser8_onnx = str(
+            _select_first_existing(
+                self.ser_model_dir,
+                ("model.onnx", "ser_8class.onnx"),
+            )
+        )
+        self.path_vad_onnx = str(
+            _select_first_existing(
+                self.vad_model_dir,
+                ("model.onnx", "vad_model.onnx"),
+            )
+        )
 
         # Try ONNX/Torch for each component (lazily initialised)
         self._text_model: Optional[OnnxTextEmotion] = None
@@ -436,17 +509,12 @@ class EmotionAnalyzer:
         )
         self._vad_model: Optional[OnnxVADEmotion] = None
 
-        # Paths
-        self.path_text_onnx = os.path.join(self.model_dir, "roberta-base-go_emotions.onnx")
-        self.path_ser8_onnx = os.path.join(self.model_dir, "ser_8class.onnx")
-        self.path_vad_onnx = os.path.join(self.model_dir, "vad_model.onnx")
-
         # Torch SER location (optional local snapshot)
         self.path_ser_torch: Optional[str] = os.getenv("DIAREMOT_SER_MODEL_DIR")
         if not self.path_ser_torch:
-            candidate = os.path.join(self.model_dir, "dpngtm_ser")
+            candidate = base_dir / "dpngtm_ser"
             if os.path.isdir(candidate):
-                self.path_ser_torch = candidate
+                self.path_ser_torch = os.fspath(candidate)
 
         # Allow explicit override from env (exported ONNX path)
         env_ser = os.getenv("DIAREMOT_SER_ONNX")
@@ -456,6 +524,10 @@ class EmotionAnalyzer:
     # Initialize lazily upon first use to avoid import overhead when unused
 
     # ---- Lazy initializers ----
+    def _record_issue(self, message: str) -> None:
+        if message not in self.issues:
+            self.issues.append(message)
+
     def _ensure_text_model(self):
         if self._text_model is not None or self._text_fallback is not None:
             return
@@ -463,6 +535,9 @@ class EmotionAnalyzer:
             self._text_model = OnnxTextEmotion(self.path_text_onnx)
         except (FileNotFoundError, RuntimeError) as exc:
             logger.warning("Text emotion ONNX unavailable: %s", exc)
+            self._record_issue(
+                f"Text emotion ONNX missing under {self.text_model_dir}"
+            )
             if self.disable_downloads:
                 self._text_fallback = None
             else:
@@ -472,6 +547,7 @@ class EmotionAnalyzer:
                 except Exception as fb_exc:  # noqa: BLE001
                     logger.warning("HF fallback unavailable: %s", fb_exc)
                     self._text_fallback = None
+                    self._record_issue("Text emotion fallback unavailable; outputs neutral")
 
     def _ensure_audio_model(self):
         if self._audio_model is not None:
@@ -495,6 +571,10 @@ class EmotionAnalyzer:
         except (FileNotFoundError, RuntimeError) as exc:
             logger.warning("Audio SER ONNX unavailable: %s", exc)
             self._audio_model = None
+        if self._audio_model is None:
+            self._record_issue(
+                f"Speech emotion model unavailable under {self.ser_model_dir}"
+            )
 
     def _ensure_vad_model(self):
         if self._vad_model is not None:
@@ -504,6 +584,9 @@ class EmotionAnalyzer:
         except (FileNotFoundError, RuntimeError) as exc:
             logger.warning("V/A/D ONNX unavailable: %s", exc)
             self._vad_model = None
+            self._record_issue(
+                f"Valence/arousal/dominance model unavailable under {self.vad_model_dir}"
+            )
 
     # ---- Public API ----
     def analyze_text(self, text: str) -> Tuple[List[Tuple[str, float]], Dict[str, float]]:
@@ -578,12 +661,20 @@ class EmotionIntentAnalyzer(EmotionAnalyzer):
         intent_labels: Sequence[str] | None = None,
         affect_backend: Optional[str] = None,
         affect_text_model_dir: Optional[str] = None,
+        affect_ser_model_dir: Optional[str] = None,
+        affect_vad_model_dir: Optional[str] = None,
         affect_intent_model_dir: Optional[str] = None,
         analyzer_threads: Optional[int] = None,
         disable_downloads: Optional[bool] = None,
         model_dir: Optional[str] = None,
     ) -> None:
-        super().__init__(model_dir=model_dir, disable_downloads=disable_downloads)
+        super().__init__(
+            model_dir=model_dir,
+            disable_downloads=disable_downloads,
+            text_model_dir=affect_text_model_dir,
+            ser_model_dir=affect_ser_model_dir,
+            vad_model_dir=affect_vad_model_dir,
+        )
 
         self.text_emotion_model = text_emotion_model
         labels = intent_labels or INTENT_LABELS_DEFAULT
@@ -591,10 +682,9 @@ class EmotionIntentAnalyzer(EmotionAnalyzer):
         self.affect_backend = _normalize_backend(affect_backend)
         self.analyzer_threads = analyzer_threads
 
-        self.affect_text_model_dir = affect_text_model_dir
-        if affect_text_model_dir:
-            text_dir = os.fspath(affect_text_model_dir)
-            self.path_text_onnx = os.path.join(text_dir, "roberta-base-go_emotions.onnx")
+        self.affect_text_model_dir = os.fspath(self.text_model_dir)
+        self.affect_ser_model_dir = os.fspath(self.ser_model_dir)
+        self.affect_vad_model_dir = os.fspath(self.vad_model_dir)
 
         self.affect_intent_model_dir = _resolve_intent_model_dir(affect_intent_model_dir)
 
@@ -633,6 +723,7 @@ class EmotionIntentAnalyzer(EmotionAnalyzer):
         if not model_dir_str:
             if strict:
                 logger.warning("Intent ONNX backend requested but no model directory is configured")
+            self._record_issue("Intent model directory not configured")
             return False
 
         model_dir = Path(model_dir_str)
@@ -640,6 +731,7 @@ class EmotionIntentAnalyzer(EmotionAnalyzer):
         if model_path is None:
             if strict:
                 logger.warning("Intent ONNX backend missing model.onnx in %s", model_dir)
+            self._record_issue(f"Intent ONNX model missing under {model_dir}")
             return False
 
         threads = self.analyzer_threads or 1
@@ -648,6 +740,7 @@ class EmotionIntentAnalyzer(EmotionAnalyzer):
         except Exception as exc:  # pragma: no cover - runtime dependent
             logger.warning("Intent ONNX session unavailable: %s", exc)
             self._intent_session = None
+            self._record_issue(f"Intent ONNX session unavailable: {exc}")
             return False
 
         try:
@@ -655,6 +748,7 @@ class EmotionIntentAnalyzer(EmotionAnalyzer):
         except ModuleNotFoundError as exc:
             logger.warning("transformers unavailable for intent tokenizer: %s", exc)
             self._intent_session = None
+            self._record_issue("Transformers package missing for intent tokenizer")
             return False
 
         try:
@@ -665,6 +759,9 @@ class EmotionIntentAnalyzer(EmotionAnalyzer):
             self._intent_session = None
             self._intent_tokenizer = None
             self._intent_config = None
+            self._record_issue(
+                f"Intent tokenizer/config unavailable under {model_dir_str}: {exc}"
+            )
             return False
 
         id2label_raw = getattr(self._intent_config, "id2label", {})
@@ -688,6 +785,7 @@ class EmotionIntentAnalyzer(EmotionAnalyzer):
             return True
         pipeline = _maybe_import_transformers_pipeline()
         if pipeline is None:
+            self._record_issue("Transformers pipeline unavailable for intent analysis")
             return False
         try:
             self._intent_pipeline = pipeline(
@@ -698,6 +796,7 @@ class EmotionIntentAnalyzer(EmotionAnalyzer):
         except Exception as exc:  # noqa: BLE001 - HF backend specific
             logger.warning("Intent pipeline unavailable: %s", exc)
             self._intent_pipeline = None
+            self._record_issue(f"Intent transformers pipeline unavailable: {exc}")
             return False
         return True
 

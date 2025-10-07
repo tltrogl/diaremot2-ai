@@ -13,79 +13,6 @@ from typing import Any
 
 import numpy as np
 
-if not hasattr(np, "random"):
-    class _ArrayLike(list):
-        def __init__(self, data: list[float]) -> None:
-            super().__init__(float(x) for x in data)
-
-        def astype(self, dtype: Any) -> "_ArrayLike":
-            try:
-                converter = dtype if callable(dtype) else float
-            except TypeError:
-                converter = float
-            return _ArrayLike([converter(x) for x in self])
-
-        @property
-        def size(self) -> int:
-            return len(self)
-
-        def __getitem__(self, item: Any) -> Any:
-            result = super().__getitem__(item)
-            if isinstance(item, slice):
-                return _ArrayLike(result)
-            return result
-
-        def __pow__(self, power: float) -> "_ArrayLike":
-            return _ArrayLike([float(x) ** power for x in self])
-
-        def __mul__(self, other: Any) -> "_ArrayLike":
-            if isinstance(other, (int, float)):
-                return _ArrayLike([float(x) * float(other) for x in self])
-            return _ArrayLike(super().__mul__(other))
-
-        __rmul__ = __mul__
-
-    def _shape_to_len(shape: Any) -> int:
-        if isinstance(shape, int):
-            return max(0, int(shape))
-        if isinstance(shape, (list, tuple)):
-            total = 1
-            for dim in shape:
-                total *= max(0, int(dim))
-            return total
-        return max(0, int(shape or 0))
-
-    class _RandomStub:
-        @staticmethod
-        def randn(*shape: Any) -> _ArrayLike:
-            dims: Any
-            if len(shape) == 1 and isinstance(shape[0], (tuple, list)):
-                dims = shape[0]
-            else:
-                dims = shape
-            total = _shape_to_len(dims if dims else 1)
-            data = [random.gauss(0.0, 1.0) for _ in range(total)]
-            return _ArrayLike(data)
-
-    np.random = _RandomStub()  # type: ignore[attr-defined]
-
-    if not hasattr(np, "ones"):
-        def _ones(shape: Any, dtype: Any = None) -> _ArrayLike:
-            total = _shape_to_len(shape)
-            arr = _ArrayLike([1.0] * total)
-            return arr.astype(dtype) if dtype is not None else arr
-
-        np.ones = _ones  # type: ignore[attr-defined]
-
-    if not hasattr(np, "isscalar"):
-        def _isscalar(value: Any) -> bool:
-            return isinstance(value, (int, float))
-
-        np.isscalar = _isscalar  # type: ignore[attr-defined]
-
-    if not hasattr(np, "bool_"):
-        np.bool_ = bool  # type: ignore[attr-defined]
-
 from ..affect.emotion_analyzer import EmotionIntentAnalyzer
 from ..affect.intent_defaults import INTENT_LABELS_DEFAULT
 from ..affect.sed_panns import PANNSEventTagger, SEDConfig  # type: ignore
@@ -120,21 +47,12 @@ from .runtime_env import (
     WINDOWS_MODELS_ROOT,
     configure_local_cache_env,
 )
-from .speaker_diarization import DiarizationConfig, SpeakerDiarizer
+from . import speaker_diarization as _speaker_diarization
+
+# Backwards-compatible aliases for test hooks and StageGuard shims
+DiarizationConfig = _speaker_diarization.DiarizationConfig
+SpeakerDiarizer = _speaker_diarization.SpeakerDiarizer
 from .stages import PIPELINE_STAGES, PipelineState
-
-# Early environment and warning configuration (also done in run_pipeline.py).
-# Ensure direct module runs get the same behavior.
-try:
-    import suppress_warnings as _dia_suppress
-
-    # Initialize environment vars and warning filters (no-op if unavailable)
-    if hasattr(_dia_suppress, "initialize"):
-        _dia_suppress.initialize()
-except Exception:
-    # Proceed without suppression if module not available
-    pass
-
 
 configure_local_cache_env()
 
@@ -312,8 +230,12 @@ class AudioAnalysisPipelineV2:
             "intent_labels": cfg.get("intent_labels", INTENT_LABELS_DEFAULT),
             "affect_backend": affect_backend_cfg,
             "affect_text_model_dir": affect_text_model_dir_cfg,
+            "affect_ser_model_dir": cfg.get("affect_ser_model_dir"),
+            "affect_vad_model_dir": cfg.get("affect_vad_model_dir"),
             "affect_intent_model_dir": affect_intent_model_dir_cfg,
             "analyzer_threads": affect_threads_cfg,
+            "disable_downloads": cfg.get("disable_downloads"),
+            "model_dir": cfg.get("affect_model_dir"),
         }
 
         try:
@@ -324,7 +246,7 @@ class AudioAnalysisPipelineV2:
                 denoise=denoise_mode,
                 loudness_mode=cfg.get("loudness_mode", "asr"),
                 auto_chunk_enabled=cfg.get("auto_chunk_enabled", True),
-                chunk_threshold_minutes=cfg.get("chunk_threshold_minutes", 30.0),
+                chunk_threshold_minutes=cfg.get("chunk_threshold_minutes", 60.0),
                 chunk_size_minutes=cfg.get("chunk_size_minutes", 20.0),
                 chunk_overlap_seconds=cfg.get("chunk_overlap_seconds", 30.0),
             )
@@ -358,7 +280,7 @@ class AudioAnalysisPipelineV2:
                     break
             ecapa_path = resolved_path
             # Create diarization config first
-            self.diar_conf = DiarizationConfig(
+            self.diar_conf = _speaker_diarization.DiarizationConfig(
                 target_sr=self.pp_conf.target_sr,
                 registry_path=registry_path,
                 ahc_distance_threshold=cfg.get(
@@ -368,17 +290,29 @@ class AudioAnalysisPipelineV2:
                 ecapa_model_path=ecapa_path,
                 vad_backend=cfg.get("vad_backend", "auto"),
                 # Allow CLI to tune VAD
-                vad_threshold=cfg.get("vad_threshold", DiarizationConfig.vad_threshold),
+                vad_threshold=cfg.get(
+                    "vad_threshold",
+                    _speaker_diarization.DiarizationConfig.vad_threshold,
+                ),
                 vad_min_speech_sec=cfg.get(
-                    "vad_min_speech_sec", DiarizationConfig.vad_min_speech_sec
+                    "vad_min_speech_sec",
+                    _speaker_diarization.DiarizationConfig.vad_min_speech_sec,
                 ),
                 vad_min_silence_sec=cfg.get(
-                    "vad_min_silence_sec", DiarizationConfig.vad_min_silence_sec
+                    "vad_min_silence_sec",
+                    _speaker_diarization.DiarizationConfig.vad_min_silence_sec,
                 ),
-                speech_pad_sec=cfg.get("vad_speech_pad_sec", DiarizationConfig.speech_pad_sec),
+                speech_pad_sec=cfg.get(
+                    "vad_speech_pad_sec",
+                    _speaker_diarization.DiarizationConfig.speech_pad_sec,
+                ),
                 allow_energy_vad_fallback=not bool(cfg.get("disable_energy_vad_fallback", False)),
-                energy_gate_db=cfg.get("energy_gate_db", DiarizationConfig.energy_gate_db),
-                energy_hop_sec=cfg.get("energy_hop_sec", DiarizationConfig.energy_hop_sec),
+                energy_gate_db=cfg.get(
+                    "energy_gate_db", _speaker_diarization.DiarizationConfig.energy_gate_db
+                ),
+                energy_hop_sec=cfg.get(
+                    "energy_hop_sec", _speaker_diarization.DiarizationConfig.energy_hop_sec
+                ),
             )
             # Fix VAD oversegmentation: stricter thresholds, longer minimums, less padding
             try:
@@ -395,7 +329,7 @@ class AudioAnalysisPipelineV2:
                 pass
 
             # Diarizer: baseline by default; optional CPU-optimized wrapper behind a flag
-            self.diar = SpeakerDiarizer(self.diar_conf)
+            self.diar = _speaker_diarization.SpeakerDiarizer(self.diar_conf)
             if bool(cfg.get("cpu_diarizer", False)):
                 try:
                     from .cpu_optimized_diarizer import (
@@ -457,6 +391,8 @@ class AudioAnalysisPipelineV2:
             affect_text_model_dir = _normalize_model_dir(
                 affect_text_model_dir_cfg
             )
+            affect_ser_model_dir = _normalize_model_dir(cfg.get("affect_ser_model_dir"))
+            affect_vad_model_dir = _normalize_model_dir(cfg.get("affect_vad_model_dir"))
             affect_intent_model_dir = _normalize_model_dir(
                 affect_intent_model_dir_cfg
             )
@@ -472,30 +408,42 @@ class AudioAnalysisPipelineV2:
                     intent_labels=cfg.get("intent_labels", INTENT_LABELS_DEFAULT),
                     affect_backend=affect_backend,
                     affect_text_model_dir=affect_text_model_dir,
+                    affect_ser_model_dir=affect_ser_model_dir,
+                    affect_vad_model_dir=affect_vad_model_dir,
                     affect_intent_model_dir=affect_intent_model_dir,
                     analyzer_threads=affect_analyzer_threads,
+                    disable_downloads=cfg.get("disable_downloads"),
+                    model_dir=cfg.get("affect_model_dir"),
                 )
+                if getattr(self.affect, "issues", None):
+                    self.stats.issues.extend(self.affect.issues)
 
             affect_kwargs.update(
                 {
                     "affect_backend": affect_backend,
                     "affect_text_model_dir": affect_text_model_dir,
+                    "affect_ser_model_dir": affect_ser_model_dir,
+                    "affect_vad_model_dir": affect_vad_model_dir,
                     "affect_intent_model_dir": affect_intent_model_dir,
                     "analyzer_threads": affect_analyzer_threads,
                 }
             )
 
-            # Background SED / noise tagger (required in the default pipeline)
+            # Background SED / noise tagger (always attempt; handles missing models gracefully)
+            self.sed_tagger = None
             try:
-                sed_enabled = bool(cfg.get("enable_sed", True))
-                if PANNSEventTagger is not None and sed_enabled:
+                if PANNSEventTagger is not None:
                     self.sed_tagger = PANNSEventTagger(SEDConfig() if SEDConfig else None)
-                elif not sed_enabled:
-                    self.corelog.warn(
-                        "[sed] disabled via configuration; pipeline outputs will lack background tags"
-                    )
-            except Exception:
+            except Exception as exc:
                 self.sed_tagger = None
+                self.corelog.warn(
+                    "[sed] initialization failed: %s. Background tagging will emit empty results.",
+                    exc,
+                )
+            if self.sed_tagger is None or not getattr(self.sed_tagger, "available", False):
+                self.stats.issues.append(
+                    "background_sed assets unavailable; emitting empty tag summary"
+                )
 
             # HTML & PDF generators
             self.html = HTMLSummaryGenerator()
@@ -524,6 +472,8 @@ class AudioAnalysisPipelineV2:
                 "intent_labels": cfg.get("intent_labels", INTENT_LABELS_DEFAULT),
                 "affect_backend": affect_backend,
                 "affect_text_model_dir": affect_text_model_dir,
+                "affect_ser_model_dir": affect_ser_model_dir,
+                "affect_vad_model_dir": affect_vad_model_dir,
                 "affect_intent_model_dir": affect_intent_model_dir,
                 "affect_analyzer_threads": affect_analyzer_threads,
                 "text_emotion_model": cfg.get(
@@ -542,7 +492,9 @@ class AudioAnalysisPipelineV2:
                 self.pre = None
             try:
                 if getattr(self, "diar", None) is None:
-                    self.diar = SpeakerDiarizer(DiarizationConfig(target_sr=16000))
+                    self.diar = _speaker_diarization.SpeakerDiarizer(
+                        _speaker_diarization.DiarizationConfig(target_sr=16000)
+                    )
             except Exception:
                 self.diar = None
             try:
@@ -584,6 +536,10 @@ class AudioAnalysisPipelineV2:
         try:
             if hasattr(self.affect, "analyze"):
                 res = self.affect.analyze(wav=wav, sr=sr, text=text)
+                if getattr(self.affect, "issues", None):
+                    for issue in self.affect.issues:
+                        if issue not in self.stats.issues:
+                            self.stats.issues.append(issue)
                 return res or default_affect()
 
             # Fallback implementation
@@ -839,6 +795,10 @@ class AudioAnalysisPipelineV2:
             "out_dir": str(outp.resolve()),
             "outputs": outputs,
         }
+
+        if getattr(self.stats, "issues", None):
+            dedup_issues = sorted({str(issue) for issue in self.stats.issues})
+            manifest["issues"] = dedup_issues
 
         try:
             dep_ok = bool(self.stats.config_snapshot.get("dependency_ok", True))

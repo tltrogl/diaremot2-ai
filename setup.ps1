@@ -33,6 +33,31 @@ function Expand-Zip([string]$Zip,[string]$Dest) {
   }
 }
 
+function Resolve-PreferredDirectory {
+  param(
+    [Parameter(Mandatory=$true)][string]$Primary,
+    [Parameter(Mandatory=$true)][string]$Fallback,
+    [Parameter(Mandatory=$true)][string]$Label
+  )
+
+  foreach ($candidate in @($Primary, $Fallback)) {
+    try {
+      New-Item -Force -ItemType Directory -Path $candidate | Out-Null
+      if ($candidate -eq $Primary) {
+        return $candidate
+      }
+      Write-Warning "Using fallback $Label at $candidate"
+      return $candidate
+    } catch {
+      if ($candidate -eq $Primary) {
+        Write-Warning "Unable to initialise $Label at $candidate ($_)."
+      } else {
+        throw "Failed creating fallback $Label at $candidate: $_"
+      }
+    }
+  }
+}
+
 # ---- Python / venv ----
 function Resolve-Python() {
   if ($Python) { return $Python }
@@ -60,15 +85,21 @@ python -m pip install -r requirements.txt
 
 # ---- Local caches + required env vars ----
 Write-Host "==> Preparing local caches and env vars"
-$cacheRoot = if ($env:CACHE_ROOT) { $env:CACHE_ROOT } else { Join-Path $RepoRoot '.cache' }
-New-Item -Force -ItemType Directory -Path $cacheRoot,$(Join-Path $cacheRoot 'hf'),$(Join-Path $cacheRoot 'torch'),$(Join-Path $cacheRoot 'transformers') | Out-Null
+$repoCacheRoot = Join-Path $RepoRoot '.cache'
+New-Item -Force -ItemType Directory -Path $repoCacheRoot | Out-Null
 
-Set-Env HF_HOME                 ($env:HF_HOME                 ? $env:HF_HOME                 : (Join-Path $cacheRoot 'hf'))
-Set-Env HUGGINGFACE_HUB_CACHE   ($env:HUGGINGFACE_HUB_CACHE   ? $env:HUGGINGFACE_HUB_CACHE   : (Join-Path $cacheRoot 'hf'))
-Set-Env TRANSFORMERS_CACHE      ($env:TRANSFORMERS_CACHE      ? $env:TRANSFORMERS_CACHE      : (Join-Path $cacheRoot 'transformers'))
-Set-Env TORCH_HOME              ($env:TORCH_HOME              ? $env:TORCH_HOME              : (Join-Path $cacheRoot 'torch'))
-Set-Env XDG_CACHE_HOME          ($env:XDG_CACHE_HOME          ? $env:XDG_CACHE_HOME          : $cacheRoot)
-Set-Env PYTHONPATH              ("$RepoRoot/src" + ($(if ($env:PYTHONPATH) { ';' + $env:PYTHONPATH } else { '' })))
+$hfDefault = if ($env:HF_HOME) { $env:HF_HOME } else { Resolve-PreferredDirectory -Primary 'D:\hf_cache' -Fallback (Join-Path $repoCacheRoot 'hf') -Label 'HF cache' }
+$transformersDefault = if ($env:TRANSFORMERS_CACHE) { $env:TRANSFORMERS_CACHE } else { Resolve-PreferredDirectory -Primary 'D:\hf_cache\transformers' -Fallback (Join-Path $repoCacheRoot 'transformers') -Label 'Transformers cache' }
+$torchDefault = if ($env:TORCH_HOME) { $env:TORCH_HOME } else { Resolve-PreferredDirectory -Primary 'D:\hf_cache\torch' -Fallback (Join-Path $repoCacheRoot 'torch') -Label 'Torch cache' }
+
+Set-Env HF_HOME               $hfDefault
+Set-Env HUGGINGFACE_HUB_CACHE ($env:HUGGINGFACE_HUB_CACHE ? $env:HUGGINGFACE_HUB_CACHE : $hfDefault)
+Set-Env TRANSFORMERS_CACHE    $transformersDefault
+Set-Env TORCH_HOME            $torchDefault
+Set-Env XDG_CACHE_HOME        ($env:XDG_CACHE_HOME ? $env:XDG_CACHE_HOME : $repoCacheRoot)
+Set-Env HF_HUB_ENABLE_HF_TRANSFER ($env:HF_HUB_ENABLE_HF_TRANSFER ? $env:HF_HUB_ENABLE_HF_TRANSFER : '1')
+Set-Env TOKENIZERS_PARALLELISM ($env:TOKENIZERS_PARALLELISM ? $env:TOKENIZERS_PARALLELISM : 'false')
+Set-Env PYTHONPATH            ("$RepoRoot/src" + ($(if ($env:PYTHONPATH) { ';' + $env:PYTHONPATH } else { '' })))
 Set-Env CUDA_VISIBLE_DEVICES    ''
 Set-Env TORCH_DEVICE            'cpu'
 
@@ -77,10 +108,23 @@ $threads = [Math]::Min(4, [Math]::Max(1, $cpu))
 Set-Env OMP_NUM_THREADS         ($env:OMP_NUM_THREADS         ? $env:OMP_NUM_THREADS         : "$threads")
 Set-Env MKL_NUM_THREADS         ($env:MKL_NUM_THREADS         ? $env:MKL_NUM_THREADS         : "$threads")
 Set-Env NUMEXPR_MAX_THREADS     ($env:NUMEXPR_MAX_THREADS     ? $env:NUMEXPR_MAX_THREADS     : "$threads")
-Set-Env TOKENIZERS_PARALLELISM  ($env:TOKENIZERS_PARALLELISM  ? $env:TOKENIZERS_PARALLELISM  : 'false')
 
-Set-Env DIAREMOT_MODEL_DIR      ($env:DIAREMOT_MODEL_DIR      ? $env:DIAREMOT_MODEL_DIR      : (Join-Path $RepoRoot 'models'))
-New-Item -Force -ItemType Directory -Path $env:DIAREMOT_MODEL_DIR | Out-Null
+$modelRootDefault = if ($env:DIAREMOT_MODEL_DIR) { $env:DIAREMOT_MODEL_DIR } else { Resolve-PreferredDirectory -Primary 'D:\models' -Fallback (Join-Path $RepoRoot 'models') -Label 'model root' }
+Set-Env DIAREMOT_MODEL_DIR $modelRootDefault
+
+$canonicalSubdirs = @(
+  'asr_ct2',
+  'diarization',
+  'sed_panns',
+  'affect',
+  'affect\ser8',
+  'affect\vad_dim',
+  'intent',
+  'text_emotions'
+)
+foreach ($sub in $canonicalSubdirs) {
+  New-Item -Force -ItemType Directory -Path (Join-Path $env:DIAREMOT_MODEL_DIR $sub) | Out-Null
+}
 
 # ---- Optional FFmpeg bootstrap (pip-only, no system installs) ----
 if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue)) {
@@ -103,11 +147,26 @@ if (-not (Get-Command ffmpeg -ErrorAction SilentlyContinue)) {
 
 # ---- Models staging (gated) ----
 $required = @(
-  'panns_cnn14.onnx', 'audioset_labels.csv', 'silero_vad.onnx', 'ecapa_tdnn.onnx',
-  'ser_8class.onnx', 'vad_model.onnx', 'roberta-base-go_emotions.onnx', 'bart-large-mnli.onnx'
+  'asr_ct2/config.json',
+  'asr_ct2/model.bin',
+  'asr_ct2/tokenizer.json',
+  'diarization/ecapa_tdnn.onnx',
+  'sed_panns/cnn14.onnx',
+  'sed_panns/labels.csv',
+  'affect/ser8/model.onnx',
+  'affect/vad_dim/model.onnx',
+  'intent/model.onnx',
+  'intent/tokenizer.json',
+  'text_emotions/model.onnx',
+  'text_emotions/tokenizer.json'
 )
 $needModels = $false
-foreach ($f in $required) { if (-not (Test-Path (Join-Path $env:DIAREMOT_MODEL_DIR $f))) { $needModels = $true; break } }
+foreach ($f in $required) {
+  if (-not (Test-Path (Join-Path $env:DIAREMOT_MODEL_DIR $f))) {
+    $needModels = $true
+    break
+  }
+}
 
 if ($needModels) {
   Write-Host "==> Models not fully present under $env:DIAREMOT_MODEL_DIR"

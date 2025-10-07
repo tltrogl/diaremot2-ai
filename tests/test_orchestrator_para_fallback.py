@@ -28,7 +28,6 @@ class TestParalinguisticsFallback:
         config = {
             "quiet": True,
             "disable_affect": True,
-            "enable_sed": False,
         }
         pipe = AudioAnalysisPipelineV2(config)
 
@@ -102,7 +101,7 @@ class TestParalinguisticsFallback:
 
         monkeypatch.setattr(orch_module, "para", BrokenPara())
 
-        config = {"quiet": True, "disable_affect": True, "enable_sed": False}
+        config = {"quiet": True, "disable_affect": True}
         pipe = AudioAnalysisPipelineV2(config)
 
         wav = np.random.randn(16000).astype(np.float32)
@@ -133,7 +132,7 @@ class TestParalinguisticsFallback:
 
         monkeypatch.setattr(orch_module, "para", BrokenPara())
 
-        config = {"quiet": True, "disable_affect": True, "enable_sed": False}
+        config = {"quiet": True, "disable_affect": True}
         pipe = AudioAnalysisPipelineV2(config)
 
         # Create audio with known RMS
@@ -165,7 +164,7 @@ class TestParalinguisticsFallback:
 
         monkeypatch.setattr(orch_module, "para", BrokenPara())
 
-        config = {"quiet": True, "disable_affect": True, "enable_sed": False}
+        config = {"quiet": True, "disable_affect": True}
         pipe = AudioAnalysisPipelineV2(config)
 
         wav = np.random.randn(48000).astype(np.float32)  # 3 sec

@@ -50,21 +50,48 @@ python -m pip install -r requirements.txt
 ```
 
 4) Cache & Environment Defaults
+
+DiaRemot now standardises on canonical cache/model locations. The runtime and setup scripts attempt these paths first, then fall back to repo-local `.cache/` if they are not writable.
+
+| Purpose | Environment variable | Windows default | Linux / GCP default |
+|---------|---------------------|-----------------|---------------------|
+| Model root | `DIAREMOT_MODEL_DIR` | `D:\models` | `/srv/models` |
+| Hugging Face home & hub cache | `HF_HOME`, `HUGGINGFACE_HUB_CACHE` | `D:\hf_cache` | `/srv/.cache/hf` |
+| Transformers cache | `TRANSFORMERS_CACHE` | `D:\hf_cache\transformers` | `/srv/.cache/transformers` |
+| Torch cache | `TORCH_HOME` | `D:\hf_cache\torch` | `/srv/.cache/torch` |
+| Enable HF Transfer | `HF_HUB_ENABLE_HF_TRANSFER` | `1` | `1` |
+| Disable tokenizer threads | `TOKENIZERS_PARALLELISM` | `false` | `false` |
+
+**Windows PowerShell**
+```powershell
+$env:DIAREMOT_MODEL_DIR = "D:\models"
+$env:HF_HOME = "D:\hf_cache"
+$env:HUGGINGFACE_HUB_CACHE = $env:HF_HOME
+$env:TRANSFORMERS_CACHE = "D:\hf_cache\transformers"
+$env:TORCH_HOME = "D:\hf_cache\torch"
+$env:HF_HUB_ENABLE_HF_TRANSFER = "1"
+$env:TOKENIZERS_PARALLELISM = "false"
+$env:OMP_NUM_THREADS = ${env:OMP_NUM_THREADS} ?: "4"
+$env:MKL_NUM_THREADS = ${env:MKL_NUM_THREADS} ?: "4"
+$env:NUMEXPR_MAX_THREADS = ${env:NUMEXPR_MAX_THREADS} ?: "4"
 ```
-export CACHE_ROOT="$(pwd)/.cache"
-mkdir -p "$CACHE_ROOT" "$CACHE_ROOT/hf" "$CACHE_ROOT/torch" "$CACHE_ROOT/transformers"
-export HF_HOME="$CACHE_ROOT/hf"
-export HUGGINGFACE_HUB_CACHE="$CACHE_ROOT/hf"
-export TRANSFORMERS_CACHE="$CACHE_ROOT/transformers"
-export TORCH_HOME="$CACHE_ROOT/torch"
-export XDG_CACHE_HOME="$CACHE_ROOT"
-export DIAREMOT_MODEL_DIR="$(pwd)/.cache/models"
+
+**Linux / GCP (bash)**
+```bash
+export DIAREMOT_MODEL_DIR=${DIAREMOT_MODEL_DIR:-/srv/models}
+export HF_HOME=${HF_HOME:-/srv/.cache/hf}
+export HUGGINGFACE_HUB_CACHE=${HUGGINGFACE_HUB_CACHE:-$HF_HOME}
+export TRANSFORMERS_CACHE=${TRANSFORMERS_CACHE:-/srv/.cache/transformers}
+export TORCH_HOME=${TORCH_HOME:-/srv/.cache/torch}
+export HF_HUB_ENABLE_HF_TRANSFER=${HF_HUB_ENABLE_HF_TRANSFER:-1}
+export TOKENIZERS_PARALLELISM=${TOKENIZERS_PARALLELISM:-false}
 export OMP_NUM_THREADS=${OMP_NUM_THREADS:-4}
 export MKL_NUM_THREADS=${MKL_NUM_THREADS:-4}
 export NUMEXPR_MAX_THREADS=${NUMEXPR_MAX_THREADS:-4}
-export TOKENIZERS_PARALLELISM=false
 export CUDA_VISIBLE_DEVICES=""; export TORCH_DEVICE=cpu
 ```
+
+> ℹ️ `/srv` paths are preferred for production VMs. If they are not writable in your shell, DiaRemot automatically reverts to `./.cache/` underneath the repository.
 
 5) Stage Models (Use Your GitHub Release Asset)
 - Recommended: Provide a signed `models.zip` release. Then:
@@ -73,12 +100,34 @@ export DIAREMOT_AUTO_DOWNLOAD=1
 export DIAREMOT_MODELS_URL="https://github.com/OWNER/REPO/releases/download/TAG/models.zip"
 export DIAREMOT_MODELS_SHA256="<sha256-hex>"
 ```
-- Or place `models.zip` at repo root, or pre-populate `DIAREMOT_MODEL_DIR` with files.
-- Expected files:
-  - panns_cnn14.onnx, audioset_labels.csv
-  - silero_vad.onnx, ecapa_tdnn.onnx
-  - ser_8class.onnx, vad_model.onnx
-  - roberta-base-go_emotions.onnx, bart-large-mnli.onnx
+- Or place `models.zip` at repo root, or pre-populate `DIAREMOT_MODEL_DIR` with the canonical layout below.
+- Expected layout (Windows: `D:\models`, Linux/GCP: `/srv/models`):
+
+```
+models/
+├── asr_ct2/
+│   ├── config.json
+│   ├── model.bin
+│   ├── tokenizer.json
+│   └── vocabulary.json
+├── diarization/
+│   ├── ecapa_tdnn.onnx
+│   └── silero_vad.onnx           # optional; PyTorch Silero fallback auto-loads
+├── sed_panns/
+│   ├── cnn14.onnx
+│   └── labels.csv
+├── affect/
+│   ├── ser8/
+│   │   └── model.onnx
+│   └── vad_dim/
+│       └── model.onnx
+├── intent/
+│   ├── model.onnx                # facebook/bart-large-mnli (ONNX)
+│   └── tokenizer.json
+└── text_emotions/
+    ├── model.onnx                # SamLowe/roberta-base-go_emotions (ONNX)
+    └── tokenizer.json
+```
 
 6) One-Command Setup
 Use the repo script (Codex Cloud–aware). It will install Python deps, ensure env defaults, and fetch/unpack models if configured. It also bootstraps ffmpeg via imageio-ffmpeg when apt is unavailable.

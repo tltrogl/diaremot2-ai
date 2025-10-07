@@ -117,18 +117,22 @@ def run_preprocess(
 def run_background_sed(
     pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGuard
 ) -> None:
+    empty_result = {"top": [], "dominant_label": None, "noise_score": 0.0}
+    sed_info = empty_result
     try:
-        if getattr(pipeline, "sed_tagger", None) is not None and state.y.size > 0 and state.sr:
-            sed_info = pipeline.sed_tagger.tag(state.y, state.sr)
-            if sed_info:
-                pipeline.corelog.event(
-                    "background_sed",
-                    "tags",
-                    dominant_label=sed_info.get("dominant_label"),
-                    noise_score=sed_info.get("noise_score"),
-                )
-                pipeline.stats.config_snapshot["background_sed"] = sed_info
-                state.sed_info = sed_info
+        tagger = getattr(pipeline, "sed_tagger", None)
+        if tagger is not None and state.y.size > 0 and state.sr:
+            sed_info = tagger.tag(state.y, state.sr) or empty_result
+            pipeline.corelog.event(
+                "background_sed",
+                "tags",
+                dominant_label=sed_info.get("dominant_label"),
+                noise_score=sed_info.get("noise_score"),
+            )
+        else:
+            pipeline.corelog.warn(
+                "[sed] tagger unavailable; emitting empty background tag summary."
+            )
     except (
         ImportError,
         ModuleNotFoundError,
@@ -137,8 +141,10 @@ def run_background_sed(
         OSError,
     ) as exc:
         pipeline.corelog.warn(
-            "[sed] tagging skipped: "
-            f"{exc}. Install sed_panns dependencies; background SED is required."
+            "[sed] tagging skipped: %s. Emitting empty background tag summary.",
+            exc,
         )
     finally:
+        pipeline.stats.config_snapshot["background_sed"] = sed_info
+        state.sed_info = sed_info
         guard.done()

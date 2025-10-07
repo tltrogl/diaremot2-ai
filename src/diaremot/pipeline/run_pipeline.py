@@ -9,15 +9,6 @@ if "_DIAREMOT_CACHE_ENV_CONFIGURED" not in globals():
     configure_local_cache_env()
     _DIAREMOT_CACHE_ENV_CONFIGURED = True
 
-
-try:
-    import suppress_warnings as _dia_suppress
-
-    if hasattr(_dia_suppress, "initialize"):
-        _dia_suppress.initialize()
-except Exception:  # pragma: no cover - legacy guard should never raise
-    pass
-
 AudioAnalysisPipelineV2 = _core.AudioAnalysisPipelineV2
 DEFAULT_PIPELINE_CONFIG = _core.DEFAULT_PIPELINE_CONFIG
 

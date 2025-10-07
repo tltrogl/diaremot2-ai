@@ -17,7 +17,8 @@ for candidate in (SRC_DIR, TESTS_ROOT):
     if str(candidate) not in sys.path:
         sys.path.insert(0, str(candidate))
 
-from diaremot.cli import app, diagnostics  # noqa: E402\nfrom diaremot.pipeline.runtime_env import DEFAULT_WHISPER_MODEL  # noqa: E402
+from diaremot.cli import app, diagnostics  # noqa: E402
+from diaremot.pipeline.runtime_env import DEFAULT_WHISPER_MODEL  # noqa: E402
 
 
 @pytest.fixture()

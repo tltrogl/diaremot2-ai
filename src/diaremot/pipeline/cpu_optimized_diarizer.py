@@ -156,7 +156,7 @@ class CPUOptimizedSpeakerDiarizer:
                         )
                     else:
                         clusterer = _agglo(
-                            distance_threshold=getattr(cfg, "ahc_distance_threshold", 0.12),
+                            distance_threshold=getattr(cfg, "ahc_distance_threshold", 0.15),
                             linkage=getattr(cfg, "ahc_linkage", "average"),
                             metric="cosine",
                         )

@@ -1,5 +1,7 @@
 from pathlib import Path
 
+from pathlib import Path
+
 from diaremot.pipeline import runtime_env
 
 
@@ -50,7 +52,7 @@ def test_configure_local_cache_env_site_packages(monkeypatch, tmp_path):
 
     runtime_env.configure_local_cache_env()
 
-    expected_root = (home_dir / ".cache" / "diaremot").resolve()
+    expected_root = runtime_env.LINUX_CACHE_BASE.resolve()
     assert expected_root.exists()
 
     for env_name, subdir in {
@@ -93,13 +95,14 @@ def test_configure_local_cache_env_repo_cache_fallback(monkeypatch, tmp_path):
     home_dir.mkdir()
     monkeypatch.setattr(Path, "home", lambda: home_dir)
 
+    canonical_root = runtime_env.LINUX_CACHE_BASE.resolve()
     blocked_repo_cache = (repo_root / ".cache").resolve()
     attempted: list[Path] = []
     original_ensure = runtime_env._ensure_writable_directory
 
     def tracking_ensure(path: Path) -> bool:
         attempted.append(path)
-        if path == blocked_repo_cache:
+        if path in {canonical_root, blocked_repo_cache}:
             return False
         return original_ensure(path)
 
@@ -108,8 +111,9 @@ def test_configure_local_cache_env_repo_cache_fallback(monkeypatch, tmp_path):
     runtime_env.configure_local_cache_env()
 
     expected_root = (work_dir / ".cache").resolve()
-    assert attempted[0] == blocked_repo_cache
-    assert attempted[1] == expected_root
+    assert attempted[0] == canonical_root
+    assert attempted[1] == blocked_repo_cache
+    assert attempted[2] == expected_root
 
     for env_name, subdir in {
         "HF_HOME": "hf",
