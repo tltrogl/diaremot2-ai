@@ -8,14 +8,18 @@ V/A/D estimates, returning fields consumed by Stage 7.
 from __future__ import annotations
 
 import json
+import json
 import logging
 import os
 from dataclasses import dataclass
-from typing import Callable, Dict, List, Optional, Tuple
+from pathlib import Path
+from typing import Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
 import numpy as np
 
 from .ser_dpngtm import SERDpngtm
+from .intent_defaults import INTENT_LABELS_DEFAULT
+from ..io.onnx_utils import create_onnx_session
 
 # Preprocessing: strictly librosa/scipy/numpy
 try:
@@ -93,6 +97,8 @@ SER8_LABELS: List[str] = [
     "surprised",
 ]
 
+DEFAULT_INTENT_MODEL = "facebook/bart-large-mnli"
+
 
 def _resolve_model_dir() -> str:
     d = os.environ.get("DIAREMOT_MODEL_DIR", "")
@@ -102,6 +108,79 @@ def _resolve_model_dir() -> str:
     local = os.path.join(".cache", "models")
     os.makedirs(local, exist_ok=True)
     return local
+
+
+def _normalize_backend(value: Optional[str]) -> str:
+    if not value:
+        return "auto"
+    normalized = value.lower()
+    if normalized not in {"auto", "onnx", "torch"}:
+        return "auto"
+    return normalized
+
+
+def _intent_dir_has_assets(path: Path) -> bool:
+    if not path.exists() or not path.is_dir():
+        return False
+    config = path / "config.json"
+    if not config.exists():
+        return False
+    if (path / "model.onnx").exists() or (path / "model_uint8.onnx").exists():
+        return True
+    if (path / "pytorch_model.bin").exists():
+        return True
+    shard = list(path.glob("pytorch_model-*.bin"))
+    index = path / "pytorch_model.bin.index.json"
+    return bool(shard and index.exists())
+
+
+def _intent_candidate_dirs(explicit: Optional[str]) -> Iterable[Path]:
+    candidates: list[Path] = []
+
+    def _add(candidate: Optional[str | Path]) -> None:
+        if not candidate:
+            return
+        path = Path(candidate).expanduser()
+        candidates.append(path)
+
+    _add(explicit)
+    _add(os.getenv("DIAREMOT_INTENT_MODEL_DIR"))
+
+    model_root = os.getenv("DIAREMOT_MODEL_DIR")
+    if model_root:
+        root = Path(model_root).expanduser()
+        _add(root)
+        _add(root / "bart")
+        _add(root / "bart-large-mnli")
+        _add(root / "facebook" / "bart-large-mnli")
+        _add(root / "bart" / "facebook" / "bart-large-mnli")
+
+    seen: set[str] = set()
+    for candidate in candidates:
+        key = str(candidate)
+        if key in seen:
+            continue
+        seen.add(key)
+        yield candidate
+
+
+def _resolve_intent_model_dir(explicit: Optional[str]) -> Optional[str]:
+    if explicit:
+        path = Path(explicit).expanduser()
+        if path.exists():
+            return str(path)
+    for candidate in _intent_candidate_dirs(explicit):
+        if _intent_dir_has_assets(candidate):
+            return str(candidate)
+    return None
+
+
+def _find_label_index(id2label: Dict[int, str], target: str) -> Optional[int]:
+    target_lower = target.lower()
+    for idx, label in id2label.items():
+        if str(label).lower() == target_lower:
+            return int(idx)
+    return None
 
 
 def _ort_session(path: str):
@@ -490,9 +569,236 @@ __all__ = (
 )
 
 
-# Back-compat alias expected by orchestrator
+# Back-compat alias expected by orchestrator with extended intent controls
 class EmotionIntentAnalyzer(EmotionAnalyzer):
-    pass
+    def __init__(
+        self,
+        *,
+        text_emotion_model: str = "SamLowe/roberta-base-go_emotions",
+        intent_labels: Sequence[str] | None = None,
+        affect_backend: Optional[str] = None,
+        affect_text_model_dir: Optional[str] = None,
+        affect_intent_model_dir: Optional[str] = None,
+        analyzer_threads: Optional[int] = None,
+        disable_downloads: Optional[bool] = None,
+        model_dir: Optional[str] = None,
+    ) -> None:
+        super().__init__(model_dir=model_dir, disable_downloads=disable_downloads)
+
+        self.text_emotion_model = text_emotion_model
+        labels = intent_labels or INTENT_LABELS_DEFAULT
+        self.intent_labels: List[str] = [str(label) for label in labels]
+        self.affect_backend = _normalize_backend(affect_backend)
+        self.analyzer_threads = analyzer_threads
+
+        self.affect_text_model_dir = affect_text_model_dir
+        if affect_text_model_dir:
+            text_dir = os.fspath(affect_text_model_dir)
+            self.path_text_onnx = os.path.join(text_dir, "roberta-base-go_emotions.onnx")
+
+        self.affect_intent_model_dir = _resolve_intent_model_dir(affect_intent_model_dir)
+
+        self._intent_session: Optional[object] = None
+        self._intent_tokenizer: Optional[Callable[..., Dict[str, np.ndarray]]] = None
+        self._intent_config: Optional[object] = None
+        self._intent_pipeline: Optional[Callable[..., object]] = None
+        self._intent_entail_idx: Optional[int] = None
+        self._intent_contra_idx: Optional[int] = None
+        self._intent_hypothesis_template: str = "This example is {}."
+
+    # ---- Intent helpers ----
+    def _lazy_intent(self) -> None:
+        backend = self.affect_backend
+        if backend == "onnx":
+            self._ensure_intent_onnx(strict=False)
+        elif backend == "torch":
+            self._ensure_intent_pipeline()
+        else:
+            if not self._ensure_intent_onnx(strict=False):
+                self._ensure_intent_pipeline()
+
+    def _select_onnx_model(self, model_dir: Path) -> Optional[Path]:
+        for name in ("model_uint8.onnx", "model.onnx"):
+            candidate = model_dir / name
+            if candidate.exists():
+                return candidate
+        remaining = list(model_dir.glob("*.onnx"))
+        return remaining[0] if remaining else None
+
+    def _ensure_intent_onnx(self, *, strict: bool) -> bool:
+        if self._intent_session is not None and self._intent_tokenizer is not None:
+            return True
+
+        model_dir_str = self.affect_intent_model_dir
+        if not model_dir_str:
+            if strict:
+                logger.warning("Intent ONNX backend requested but no model directory is configured")
+            return False
+
+        model_dir = Path(model_dir_str)
+        model_path = self._select_onnx_model(model_dir)
+        if model_path is None:
+            if strict:
+                logger.warning("Intent ONNX backend missing model.onnx in %s", model_dir)
+            return False
+
+        threads = self.analyzer_threads or 1
+        try:
+            self._intent_session = create_onnx_session(model_path, threads=threads)
+        except Exception as exc:  # pragma: no cover - runtime dependent
+            logger.warning("Intent ONNX session unavailable: %s", exc)
+            self._intent_session = None
+            return False
+
+        try:
+            from transformers import AutoConfig, AutoTokenizer  # type: ignore
+        except ModuleNotFoundError as exc:
+            logger.warning("transformers unavailable for intent tokenizer: %s", exc)
+            self._intent_session = None
+            return False
+
+        try:
+            self._intent_tokenizer = AutoTokenizer.from_pretrained(model_dir_str)
+            self._intent_config = AutoConfig.from_pretrained(model_dir_str)
+        except Exception as exc:  # noqa: BLE001 - dependent on HF cache state
+            logger.warning("Failed to load intent tokenizer/config: %s", exc)
+            self._intent_session = None
+            self._intent_tokenizer = None
+            self._intent_config = None
+            return False
+
+        id2label_raw = getattr(self._intent_config, "id2label", {})
+        if isinstance(id2label_raw, dict):
+            id2label = {int(k): str(v) for k, v in id2label_raw.items()}
+        else:
+            id2label = {int(idx): str(label) for idx, label in enumerate(id2label_raw)}
+        self._intent_entail_idx = _find_label_index(id2label, "entailment")
+        self._intent_contra_idx = _find_label_index(id2label, "contradiction")
+
+        template = getattr(self._intent_config, "hypothesis_template", None)
+        if isinstance(template, str) and "{}" in template:
+            self._intent_hypothesis_template = template
+        else:
+            self._intent_hypothesis_template = "This example is {}."
+
+        return True
+
+    def _ensure_intent_pipeline(self) -> bool:
+        if self._intent_pipeline is not None:
+            return True
+        pipeline = _maybe_import_transformers_pipeline()
+        if pipeline is None:
+            return False
+        try:
+            self._intent_pipeline = pipeline(
+                task="zero-shot-classification",
+                model=DEFAULT_INTENT_MODEL,
+                multi_label=True,
+            )
+        except Exception as exc:  # noqa: BLE001 - HF backend specific
+            logger.warning("Intent pipeline unavailable: %s", exc)
+            self._intent_pipeline = None
+            return False
+        return True
+
+    def _intent_default_prediction(self) -> Tuple[str, List[Dict[str, float]]]:
+        if not self.intent_labels:
+            return "", []
+        topn = min(3, len(self.intent_labels))
+        default_labels = self.intent_labels[:topn]
+        score = 1.0 / topn if topn else 0.0
+        entries = [{"label": label, "score": score} for label in default_labels]
+        return default_labels[0], entries
+
+    def _infer_intent_with_onnx(self, text: str) -> Tuple[str, List[Dict[str, float]]]:
+        if self._intent_session is None or self._intent_tokenizer is None:
+            return self._intent_default_prediction()
+
+        entail_idx = self._intent_entail_idx
+        contra_idx = self._intent_contra_idx
+        results: List[Dict[str, float]] = []
+
+        for label in self.intent_labels:
+            hypothesis = self._intent_hypothesis_template.format(label)
+            encoded = self._intent_tokenizer(
+                text,
+                hypothesis,
+                return_tensors="np",
+                truncation=True,
+            )
+            inputs = {name: np.asarray(value) for name, value in encoded.items()}
+            logits = self._intent_session.run(None, inputs)[0]
+            arr = np.array(logits, dtype=np.float32).ravel()
+
+            if (
+                entail_idx is not None
+                and contra_idx is not None
+                and 0 <= entail_idx < arr.size
+                and 0 <= contra_idx < arr.size
+            ):
+                pair = np.array([arr[contra_idx], arr[entail_idx]], dtype=np.float32)
+                score = float(_softmax(pair)[-1])
+            elif entail_idx is not None and 0 <= entail_idx < arr.size:
+                probs = _softmax(arr)
+                score = float(probs[entail_idx])
+            else:
+                probs = _softmax(arr)
+                score = float(np.max(probs))
+
+            results.append({"label": label, "score": score})
+
+        results.sort(key=lambda item: item["score"], reverse=True)
+        top_label = results[0]["label"] if results else ""
+        return top_label, results[: min(3, len(results))]
+
+    def _infer_intent_with_pipeline(self, text: str) -> Tuple[str, List[Dict[str, float]]]:
+        if self._intent_pipeline is None:
+            return self._intent_default_prediction()
+
+        candidates = self.intent_labels or ["other"]
+        raw = self._intent_pipeline(text, candidate_labels=candidates, multi_label=True)
+        entries: List[Dict[str, float]]
+        if isinstance(raw, dict) and "labels" in raw and "scores" in raw:
+            entries = [
+                {"label": str(label), "score": float(score)}
+                for label, score in zip(raw["labels"], raw["scores"])
+            ]
+        else:
+            entries = []
+            for item in raw:
+                if isinstance(item, dict):
+                    label = str(item.get("label", ""))
+                    score = float(item.get("score", 0.0))
+                else:
+                    label = str(getattr(item, "label", ""))
+                    score = float(getattr(item, "score", 0.0))
+                entries.append({"label": label, "score": score})
+
+        entries.sort(key=lambda item: item["score"], reverse=True)
+        top_label = entries[0]["label"] if entries else ""
+        return top_label, entries[: min(3, len(entries))]
+
+    # ---- Public API extension ----
+    def _infer_intent(self, text: str) -> Tuple[str, List[Dict[str, float]]]:
+        clean_text = (text or "").strip()
+        if not clean_text:
+            return self._intent_default_prediction()
+
+        self._lazy_intent()
+
+        if self._intent_session is not None and self._intent_tokenizer is not None:
+            try:
+                return self._infer_intent_with_onnx(clean_text)
+            except Exception as exc:  # noqa: BLE001 - runtime dependent
+                logger.warning("Intent ONNX inference failed: %s", exc)
+
+        if self._intent_pipeline is not None:
+            try:
+                return self._infer_intent_with_pipeline(clean_text)
+            except Exception as exc:  # noqa: BLE001 - runtime dependent
+                logger.warning("Intent pipeline inference failed: %s", exc)
+
+        return self._intent_default_prediction()
 
 
-__all__ = __all__ + ("EmotionIntentAnalyzer",)
+__all__ = __all__ + ("EmotionIntentAnalyzer", "create_onnx_session")

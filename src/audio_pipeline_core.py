@@ -4,17 +4,10 @@ This module re-exports the public API from ``diaremot.pipeline.audio_pipeline_co
 so that older entrypoints importing ``audio_pipeline_core`` from the repository
 root continue to function. The real implementation lives under ``src/``.
 """
-
 from __future__ import annotations
 
 import os
 import sys
-from pathlib import Path
-
-REPO_ROOT = Path(__file__).resolve().parent
-SRC_DIR = REPO_ROOT / "src"
-if str(SRC_DIR) not in sys.path:
-    sys.path.insert(0, str(SRC_DIR))
 
 import diaremot.pipeline.audio_pipeline_core as _core
 from diaremot.pipeline import cli_entry as _cli_entry
