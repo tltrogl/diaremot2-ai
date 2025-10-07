@@ -198,8 +198,8 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--vad-backend",
-        choices=["auto", "onnx"],
         default="auto",
+        choices=["auto", "onnx"],
         help="Preferred Silero VAD backend",
     )
     parser.add_argument(
