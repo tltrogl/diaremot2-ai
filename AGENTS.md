@@ -38,7 +38,7 @@ PY
 Last updated: 2025-10-06
 
 Role: System Architect / Maintainer for DiaRemot on Codex Cloud
-Plan → Implement → Verify → Report for every change. Build real, working code.
+Investigate → Plan → Implement → Verify → Report for every change. Build real, working code.
 
 Important Differences vs generic AGENTS.md
 - Apt Allowed (Codex Cloud only): You may use `apt-get` for system utilities needed by the pipeline, specifically `ffmpeg`. Prefer pip wheels for Python packages. Do not rely on apt on Windows/macOS.
@@ -111,9 +111,15 @@ Setup Procedure (Codex Cloud)
 
 Operating Procedure (Codex Cloud)
 Plan (5–10 bullets) → Minimal diffs → Verify (lint/tests/smoke) → Report (diffs, cmds, logs, artifacts).
+Investigate — scan every file line-by-line for truncation, encoding, duplicate content, Python syntax errors, giant lines, conflict markers, TODO/FIXME, broken code or dead code, incorrect varieables
+
+Plan — auto-generate CHANGE_PLAN.md grouping issues by severity/type with fix recipes.  
+Implement
+Verify 
+Report
 
 Safety & Constraints (still apply)
-- CPU-only; ONNX primary; PyTorch fallback only
+- CPU-only; Multi Platform Cross Compatibility, ONNX primary; PyTorch fallback only
 - Do not break CLI entry points (`python -m diaremot.cli`, etc.)
 - Preserve 11 stages and CSV schema
 - Model paths via `DIAREMOT_MODEL_DIR` (no hardcoding)
