@@ -29,6 +29,7 @@ from .orchestrator import (
     resume,
     verify_dependencies,
 )
+from .speaker_diarization import SpeakerDiarizer
 from .outputs import (
     SEGMENT_COLUMNS,
     default_affect,
@@ -48,6 +49,7 @@ __all__ = [
     "CoreLogger",
     "RunStats",
     "StageGuard",
+    "SpeakerDiarizer",
     "SEGMENT_COLUMNS",
     "_args_to_config",
     "_build_arg_parser",

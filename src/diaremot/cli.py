@@ -47,7 +47,6 @@ BUILTIN_PROFILES: dict[str, dict[str, Any]] = {
         "beam_size": 1,
         "temperature": 0.0,
         "affect_backend": "torch",
-        "enable_sed": False,
     },
     "accurate": {
         "whisper_model": str(DEFAULT_WHISPER_MODEL),
@@ -169,7 +168,6 @@ def _common_options(**kwargs: Any) -> dict[str, Any]:
         "temperature": kwargs.get("temperature"),
         "no_speech_threshold": kwargs.get("no_speech_threshold"),
         "noise_reduction": kwargs.get("noise_reduction"),
-        "enable_sed": kwargs.get("enable_sed"),
         "auto_chunk_enabled": kwargs.get("chunk_enabled"),
         "chunk_threshold_minutes": kwargs.get("chunk_threshold_minutes"),
         "chunk_size_minutes": kwargs.get("chunk_size_minutes"),
@@ -215,7 +213,7 @@ def run(
         Path("speaker_registry.json"), help="Speaker registry path."
     ),
     ahc_distance_threshold: float = typer.Option(
-        0.12, help="Agglomerative clustering distance threshold."
+        0.15, help="Agglomerative clustering distance threshold."
     ),
     speaker_limit: Optional[int] = typer.Option(None, help="Maximum number of speakers to keep."),
     whisper_model: str = typer.Option(str(DEFAULT_WHISPER_MODEL), help="Whisper/Faster-Whisper model identifier."
@@ -263,12 +261,6 @@ def run(
         False,
         "--noise-reduction",
         help="Enable gentle noise reduction.",
-        is_flag=True,
-    ),
-    disable_sed: bool = typer.Option(
-        False,
-        "--disable-sed",
-        help="Disable background sound event tagging.",
         is_flag=True,
     ),
     chunk_enabled: Optional[bool] = typer.Option(
@@ -330,7 +322,6 @@ def run(
         temperature=temperature,
         no_speech_threshold=no_speech_threshold,
         noise_reduction=noise_reduction,
-        enable_sed=not disable_sed,
         chunk_enabled=chunk_enabled,
         chunk_threshold_minutes=chunk_threshold_minutes,
         chunk_size_minutes=chunk_size_minutes,
@@ -381,7 +372,7 @@ def resume(
         Path("speaker_registry.json"), help="Speaker registry path."
     ),
     ahc_distance_threshold: float = typer.Option(
-        0.12, help="Agglomerative clustering distance threshold."
+        0.15, help="Agglomerative clustering distance threshold."
     ),
     speaker_limit: Optional[int] = typer.Option(None, help="Maximum number of speakers to keep."),
     whisper_model: str = typer.Option(str(DEFAULT_WHISPER_MODEL), help="Whisper/Faster-Whisper model identifier."
@@ -423,12 +414,6 @@ def resume(
         False,
         "--noise-reduction",
         help="Enable gentle noise reduction.",
-        is_flag=True,
-    ),
-    disable_sed: bool = typer.Option(
-        False,
-        "--disable-sed",
-        help="Disable background sound event tagging.",
         is_flag=True,
     ),
     chunk_enabled: Optional[bool] = typer.Option(
@@ -484,7 +469,6 @@ def resume(
         temperature=temperature,
         no_speech_threshold=no_speech_threshold,
         noise_reduction=noise_reduction,
-        enable_sed=not disable_sed,
         chunk_enabled=chunk_enabled,
         chunk_threshold_minutes=chunk_threshold_minutes,
         chunk_size_minutes=chunk_size_minutes,

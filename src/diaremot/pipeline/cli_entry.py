@@ -103,6 +103,16 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         default=None,
         help="Path to intent classifier model assets",
     )
+    parser.add_argument(
+        "--affect-ser-model-dir",
+        default=None,
+        help="Path to speech emotion recognition model assets",
+    )
+    parser.add_argument(
+        "--affect-vad-model-dir",
+        default=None,
+        help="Path to valence/arousal/dominance model assets",
+    )
     parser.add_argument("--beam-size", type=int, default=1, help="ASR beam search size")
     parser.add_argument("--temperature", type=float, default=0.0, help="ASR decoding temperature")
     parser.add_argument(
@@ -117,11 +127,6 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         help="Enable spectral subtraction noise reduction",
     )
     parser.add_argument(
-        "--disable-sed",
-        action="store_true",
-        help="Disable background sound event detection",
-    )
-    parser.add_argument(
         "--chunk-enabled",
         action=argparse.BooleanOptionalAction,
         default=True,
@@ -130,7 +135,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--chunk-threshold-minutes",
         type=float,
-        default=30.0,
+        default=60.0,
         help="Duration threshold before chunking",
     )
     parser.add_argument(
@@ -250,11 +255,12 @@ def _args_to_config(args: argparse.Namespace, *, ignore_tx_cache: bool) -> dict[
         "affect_backend": args.affect_backend,
         "affect_text_model_dir": args.affect_text_model_dir,
         "affect_intent_model_dir": args.affect_intent_model_dir,
+        "affect_ser_model_dir": args.affect_ser_model_dir,
+        "affect_vad_model_dir": args.affect_vad_model_dir,
         "beam_size": args.beam_size,
         "temperature": args.temperature,
         "no_speech_threshold": args.no_speech_threshold,
         "noise_reduction": bool(args.noise_reduction),
-        "enable_sed": not bool(args.disable_sed),
         "auto_chunk_enabled": bool(args.chunk_enabled),
         "chunk_threshold_minutes": float(args.chunk_threshold_minutes),
         "chunk_size_minutes": float(args.chunk_size_minutes),

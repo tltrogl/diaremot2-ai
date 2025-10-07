@@ -64,14 +64,15 @@ class PipelineConfig:
     affect_backend: str = "onnx"
     affect_text_model_dir: Path | None = None
     affect_intent_model_dir: Path | None = None
+    affect_ser_model_dir: Path | None = None
+    affect_vad_model_dir: Path | None = None
     affect_analyzer_threads: int | None = None
     beam_size: int = 1
     temperature: float = 0.0
     no_speech_threshold: float = 0.50
     noise_reduction: bool = False
-    enable_sed: bool = True
     auto_chunk_enabled: bool = True
-    chunk_threshold_minutes: float = 30.0
+    chunk_threshold_minutes: float = 60.0
     chunk_size_minutes: float = 20.0
     chunk_overlap_seconds: float = 30.0
     vad_threshold: float = 0.30
@@ -107,6 +108,12 @@ class PipelineConfig:
         self.checkpoint_dir = Path(self.checkpoint_dir)
         self.affect_text_model_dir = _coerce_optional_path(self.affect_text_model_dir)
         self.affect_intent_model_dir = _coerce_optional_path(self.affect_intent_model_dir)
+        self.affect_ser_model_dir = _coerce_optional_path(
+            getattr(self, "affect_ser_model_dir", None)
+        )
+        self.affect_vad_model_dir = _coerce_optional_path(
+            getattr(self, "affect_vad_model_dir", None)
+        )
 
         if isinstance(self.cache_roots, (str, Path)):
             self.cache_roots = [Path(self.cache_roots)]

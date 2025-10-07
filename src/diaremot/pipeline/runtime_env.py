@@ -17,6 +17,12 @@ __all__ = [
 ]
 
 
+WINDOWS_CANONICAL_MODEL_ROOT = Path("D:/models")
+LINUX_CANONICAL_MODEL_ROOT = Path("/srv/models")
+WINDOWS_CACHE_BASE = Path("D:/hf_cache")
+LINUX_CACHE_BASE = Path("/srv/.cache")
+
+
 PROJECT_ROOT_MARKERS = ("pyproject.toml", ".git")
 
 
@@ -36,6 +42,10 @@ def _find_project_root(start: Path) -> Path | None:
 def _candidate_cache_roots(script_path: Path) -> Iterable[Path]:
     project_root = _find_project_root(script_path)
     candidates: list[Path] = []
+    if os.name == "nt":
+        candidates.append(WINDOWS_CACHE_BASE)
+    else:
+        candidates.append(LINUX_CACHE_BASE)
     if project_root is not None:
         candidates.append(project_root / ".cache")
 
@@ -89,9 +99,10 @@ def configure_local_cache_env() -> None:
     if cache_root is None:
         raise PermissionError("Unable to locate a writable cache directory for DiaRemot")
 
+    hf_home = cache_root if os.name == "nt" else cache_root / "hf"
     targets = {
-        "HF_HOME": cache_root / "hf",
-        "HUGGINGFACE_HUB_CACHE": cache_root / "hf",
+        "HF_HOME": hf_home,
+        "HUGGINGFACE_HUB_CACHE": hf_home,
         "TRANSFORMERS_CACHE": cache_root / "transformers",
         "TORCH_HOME": cache_root / "torch",
         "XDG_CACHE_HOME": cache_root,
@@ -101,39 +112,59 @@ def configure_local_cache_env() -> None:
         existing = os.environ.get(env_name)
         if existing:
             try:
-                existing_path = Path(existing).resolve()
+                existing_path = Path(existing).expanduser().resolve()
             except (OSError, RuntimeError, ValueError):
                 existing_path = None
             if existing_path is not None:
-                if existing_path == target_path:
-                    continue
                 try:
-                    if existing_path.is_relative_to(cache_root):
+                    if existing_path == target_path or existing_path.is_relative_to(cache_root):
                         continue
                 except AttributeError:
-                    # Python < 3.9 compatibility – fall back to manual check
-                    try:
-                        if str(existing_path).startswith(str(cache_root)):
-                            continue
-                    except Exception:
-                        pass
+                    if str(existing_path).startswith(str(cache_root)):
+                        continue
         target_path.mkdir(parents=True, exist_ok=True)
         os.environ[env_name] = str(target_path)
+
+    os.environ.setdefault("HF_HUB_ENABLE_HF_TRANSFER", "1")
+    os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 
 
 configure_local_cache_env()
 
 
-def _discover_model_roots() -> list[Path]:
-    roots: list[Path] = []
+def _default_model_root() -> Path:
+    preferred = (
+        WINDOWS_CANONICAL_MODEL_ROOT if os.name == "nt" else LINUX_CANONICAL_MODEL_ROOT
+    )
+    if _ensure_writable_directory(preferred):
+        return preferred
+
+    fallback = Path.cwd() / ".cache" / "models"
+    _ensure_writable_directory(fallback)
+    return fallback
+
+
+def _resolve_model_root_from_env() -> Path:
     env_root = os.environ.get("DIAREMOT_MODEL_DIR")
     if env_root:
-        roots.append(Path(env_root).expanduser())
+        return Path(env_root).expanduser()
+
+    default_root = _default_model_root()
+    os.environ.setdefault("DIAREMOT_MODEL_DIR", str(default_root))
+    return default_root
+
+
+_PRIMARY_MODEL_ROOT = _resolve_model_root_from_env()
+
+
+def _discover_model_roots() -> list[Path]:
+    roots: list[Path] = []
+    roots.append(_PRIMARY_MODEL_ROOT)
 
     if os.name == "nt":
-        roots.append(Path("D:/models"))
+        roots.append(WINDOWS_CANONICAL_MODEL_ROOT)
     else:
-        roots.append(Path("/models"))
+        roots.append(LINUX_CANONICAL_MODEL_ROOT)
 
     project_root = _find_project_root(Path(__file__).resolve())
     if project_root:
@@ -141,6 +172,7 @@ def _discover_model_roots() -> list[Path]:
 
     roots.append(Path.cwd() / "models")
     roots.append(Path.home() / "models")
+    roots.append(Path.cwd() / ".cache" / "models")
 
     seen: set[str] = set()
     deduped: list[Path] = []

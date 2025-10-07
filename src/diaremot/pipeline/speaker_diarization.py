@@ -125,7 +125,7 @@ class DiarizationConfig:
     topk_windows: int = 3
     # Clustering
     ahc_linkage: str = "average"
-    ahc_distance_threshold: float = 0.12
+    ahc_distance_threshold: float = 0.15
     speaker_limit: int | None = None
     # Post-processing
     collar_sec: float = 0.25

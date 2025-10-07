@@ -58,6 +58,7 @@ class RunStats:
     failures: list[dict[str, Any]] = field(default_factory=list)
     models: dict[str, Any] = field(default_factory=dict)
     config_snapshot: dict[str, Any] = field(default_factory=dict)
+    issues: list[str] = field(default_factory=list)
 
     def mark(self, stage: str, elapsed_ms: float, counts: dict[str, int] | None = None) -> None:
         self.stage_timings_ms[stage] = self.stage_timings_ms.get(stage, 0.0) + float(elapsed_ms)
@@ -143,11 +144,6 @@ def _fmt_hms_ms(milliseconds: float) -> str:
 
 class StageGuard(AbstractContextManager["StageGuard"]):
     _OPTIONAL_STAGE_EXCEPTION_MAP = {
-        "registry_update": (
-            FileNotFoundError,
-            PermissionError,
-            OSError,
-        ),
         "paralinguistics": (
             ImportError,
             ModuleNotFoundError,
@@ -225,6 +221,8 @@ class StageGuard(AbstractContextManager["StageGuard"]):
                 message = f"{self.stage}: {type(exc).__name__}: {exc}"
                 self.stats.warnings.append(message)
                 self.stats.errors.append(message)
+                if known_nonfatal:
+                    self.stats.issues.append(message)
 
                 def _suggest_fix(stage: str, err: BaseException) -> str:
                     text = str(err).lower()
