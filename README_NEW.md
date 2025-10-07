@@ -186,7 +186,7 @@ ahc_distance_threshold = 0.15  # Looser (prevent speaker fragmentation)
 # Use CLI defaults instead of orchestrator tuning
 python -m diaremot.cli run -i audio.wav -o outputs/ \
   --vad-threshold 0.30 \
-  --speech-pad-sec 0.20 \
+  --vad-speech-pad-sec 0.20 \
   --ahc-distance-threshold 0.12
 ```
 

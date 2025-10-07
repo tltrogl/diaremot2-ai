@@ -74,6 +74,7 @@ Pipeline Architecture (unchanged)
 Contract (unchanged)
 - 11 stages must run by default; see `src/diaremot/pipeline/stages/__init__.py::PIPELINE_STAGES`
 - Segment CSV schema is 39 columns as defined in `src/diaremot/pipeline/outputs.py::SEGMENT_COLUMNS`
+- Paralinguistics stage must emit all 14 metrics: `wpm`, `duration_s`, `words`, `pause_count`, `pause_time_s`, `pause_ratio`, `f0_mean_hz`, `f0_std_hz`, `loudness_rms`, `disfluency_count`, `vq_jitter_pct`, `vq_shimmer_db`, `vq_hnr_db`, `vq_cpps_db`
 - ASR default compute type for main CLI is `float32`
 
 Models & Assets

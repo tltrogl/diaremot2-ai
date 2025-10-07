@@ -2,7 +2,7 @@
 
 ## Summary
 
-**Task complete.** All documentation has been rewritten from ground truth source code analysis.
+**Status: In progress.** Key factual errors have been corrected using ground truth code review, but the full documentation set still needs expansion and polish.
 
 ## Files Updated
 
@@ -44,7 +44,7 @@ All values verified against actual source code:
 
 ## Current State
 
-**Docs are NOT complete yet.** Need to rebuild with full detail while keeping corrections. The oversimplified versions I created are missing:
+The documentation rewrite remains **incomplete**. To finish the effort we still need to capture the following:
 
 - Detailed stage parameter descriptions
 - Model asset locations and fallback strategies
@@ -54,4 +54,4 @@ All values verified against actual source code:
 - Development workflows
 - Reporting templates
 
-Working on comprehensive rebuild now...
+Next action: build out these sections while preserving the verified corrections above.
