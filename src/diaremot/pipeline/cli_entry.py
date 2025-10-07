@@ -90,7 +90,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--affect-backend",
         default="onnx",
-            choices=["auto", "onnx"],
+        choices=["auto", "onnx"],
         help="Backend for affect analysis",
     )
     parser.add_argument(
@@ -203,8 +203,8 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--vad-backend",
-            choices=["auto", "onnx"],
         default="auto",
+        choices=["auto", "onnx"],
         help="Preferred Silero VAD backend",
     )
     parser.add_argument(
