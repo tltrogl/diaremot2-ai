@@ -110,7 +110,7 @@ Setup Procedure (Codex Cloud)
    - Optional: `ruff check`, `pytest`, and a smoke run on sample audio.
 
 Operating Procedure (Codex Cloud)
-Recieve instructions → Plan → Crear Diffs → Verify (lint/tests/smoke) → Report (diffs, cmds, logs, artifacts).
+Recieve instructions → Plan → Create Diffs → Verify (lint/tests/smoke) → Report (diffs, cmds, logs, artifacts).
 Investigate — scan every file line-by-line for context, truncation, encoding, duplicate content, Python syntax errors, giant lines, conflict markers, TODO/FIXME, broken code or dead code, incorrect varieables
 
 Plan — auto-generate CHANGE_PLAN.md grouping issues by severity/type with fix recipes.  
