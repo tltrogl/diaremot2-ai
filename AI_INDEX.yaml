@@ -746,10 +746,10 @@ cli_reference:
         choices: [float32, int8, int8_float16]
         description: ASR inference precision
         
-      - flag: --asr-model
+      - flag: --whisper-model
         type: string
         default: tiny.en
-        description: faster-whisper model name
+        description: faster-whisper / Whisper model identifier
         
     diarization_overrides:
       note: These override orchestrator defaults
@@ -773,7 +773,7 @@ cli_reference:
         orchestrator_default: 0.80
         description: Minimum silence duration
         
-      - flag: --speech-pad-sec
+      - flag: --vad-speech-pad-sec
         type: float
         default: null
         orchestrator_default: 0.10

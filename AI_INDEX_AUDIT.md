@@ -1,13 +1,14 @@
 # AI_INDEX.yaml Audit Report
-**Date:** 2025-10-04  
-**Status:** ✅ VERIFIED with minor corrections needed
+**Date:** 2025-10-07
+**Status:** ✅ VERIFIED — all previously flagged issues resolved
 
 ## Executive Summary
-AI_INDEX.yaml is **95% accurate** but has **3 issues** requiring correction:
+Re-audit confirms **AI_INDEX.yaml is accurate** after syncing documentation and CLI guidance.
+Previously flagged discrepancies have been resolved:
 
-1. **Missing paralinguistics metrics** in `pipeline_spec.paralinguistics.metrics`
-2. **Incorrect CLI examples** in README references
-3. **Stage count discrepancy** (AGENTS.md claims 12 stages, actual implementation shows 11)
+1. Paralinguistics metrics list now matches `SEGMENT_COLUMNS` (all 14 fields documented).
+2. CLI references use the canonical flags (`--input`, `--outdir`, `--asr-compute-type`, `--whisper-model`, `--vad-speech-pad-sec`).
+3. Stage count alignment clarified across README/AGENTS (11 registered pipeline stages, auto-tune remains an inline tuner).
 
 ---
 
@@ -42,111 +43,20 @@ AI_INDEX.yaml is **95% accurate** but has **3 issues** requiring correction:
 
 ---
 
-## ❌ ISSUES FOUND
+## ✅ Corrections Applied
 
-### Issue 1: Missing Paralinguistics Metrics
-**Location:** `pipeline_spec.paralinguistics.metrics`
+### 1. Paralinguistics Metrics Complete
+- YAML now enumerates all 14 metrics (WPM, duration_s, words, pause_count, pause_time_s, pause_ratio, f0_mean_hz, f0_std_hz, loudness_rms, disfluency_count, vq_jitter_pct, vq_shimmer_db, vq_hnr_db, vq_cpps_db).
+- Cross-checked with `src/diaremot/pipeline/outputs.py::SEGMENT_COLUMNS` — the documentation matches the schema exactly.
 
-**Current (AI_INDEX.yaml):**
-```yaml
-metrics:
-- WPM
-- pause_time_s
-- f0_mean_hz
-- f0_std_hz
-- loudness_rms
-- disfluency_count
-- jitter%
-- shimmer dB
-- HNR dB
-- CPPS dB
-```
+### 2. CLI Flag Canonicalisation
+- CLI reference now lists `--whisper-model` instead of the non-existent `--asr-model` flag.
+- VAD padding override documented as `--vad-speech-pad-sec`, matching Typer's generated option.
+- README/CLAUDE quickstart snippets aligned to the same canonical flags.
 
-**Missing (from outputs.py SEGMENT_COLUMNS):**
-- `pause_count` (separate from pause_time_s)
-- `pause_ratio` (ratio metric)
-- `duration_s` (segment duration)
-- `words` (word count)
-
-**Actual Schema includes:**
-```
-wpm, duration_s, words, pause_ratio,
-pause_count, pause_time_s,
-f0_mean_hz, f0_std_hz,
-loudness_rms, disfluency_count,
-vq_jitter_pct, vq_shimmer_db, vq_hnr_db, vq_cpps_db
-```
-
-**Fix Required:**
-```yaml
-metrics:
-- WPM
-- duration_s
-- words
-- pause_count
-- pause_time_s
-- pause_ratio
-- f0_mean_hz
-- f0_std_hz
-- loudness_rms
-- disfluency_count
-- jitter% (vq_jitter_pct)
-- shimmer dB (vq_shimmer_db)
-- HNR dB (vq_hnr_db)
-- CPPS dB (vq_cpps_db)
-```
-
----
-
-### Issue 2: CLI Command Inconsistencies
-**Location:** Multiple README examples reference different CLI flags
-
-**Variations found:**
-1. `--input` vs `--audio`
-2. `--outdir` vs `--out`
-3. `--asr-compute-type` vs `--compute-type`
-4. `--tag` appears in some examples
-
-**README.md shows:**
-```bash
-# Variant 1
-python -m diaremot.cli run --input data/sample.wav --outdir outputs/ --asr-compute-type int8
-
-# Variant 2  
-python -m diaremot.cli run --audio data/sample.wav --tag smoke --compute-type int8
-
-# Variant 3
-python -m diaremot.cli run --audio .\data\sample.wav --out .\outputs --report html
-```
-
-**Requires:** Verification of actual CLI arg names in `cli.py` to standardize documentation
-
----
-
-### Issue 3: Stage Count Mismatch
-**AGENTS.md states:** "Full pipeline run (all 12 stages)"
-
-**Actual pipeline (from codebase):**
-1. Quiet-Boost (pre-VAD)
-2. SED
-3. Diarization
-4. ASR
-5. Audio Affect
-6. Paralinguistics
-7. Text Analysis
-8. Affect & Assemble
-9. Overlap/Interruptions
-10. Conversation Analysis
-11. Speaker Rollups
-12. Outputs
-
-**Count:** 12 stages claimed, but some are sub-stages merged in implementation.
-
-**Actual distinct processing stages:** ~11 (Outputs is file writing, not processing)
-
-**Fix Required:** Clarify in AI_INDEX if "stages" means processing steps or includes I/O operations
-
----
+### 3. Stage Count Consistency
+- README, AGENTS, and AI_INDEX all note 11 registered stages with `auto_tune` handled inline in the orchestrator.
+- No lingering references to a 12-stage pipeline remain.
 
 ## Verification Evidence
 
@@ -169,22 +79,18 @@ python -m diaremot.cli run --audio .\data\sample.wav --out .\outputs --report ht
 
 ## Recommendations
 
-### Priority 1 (Critical)
-1. **Fix paralinguistics.metrics** - Add missing 4 fields
-2. **Standardize CLI examples** - Audit actual `cli.py` args
+### Priority 1 (Sustainment)
+1. Automate a doc smoke test that fails CI if CLI flags drift from `src/diaremot/cli.py` (simple Typer introspection).
+2. Keep AGENTS/README in lock-step with orchestrator defaults whenever adaptive tuning changes.
 
-### Priority 2 (Documentation)
-3. **Clarify stage count** - Define "stage" vs "sub-stage" consistently
-4. **Add note about Windows paths** - Example shows `D:\\diaremot\\diaremot2-1\\models\\bart\\`
-
-### Priority 3 (Enhancement)
-5. **Add SEGMENT_COLUMNS reference** - Direct link to outputs.py
-6. **Document ONNX candidates search order** - Useful for troubleshooting
+### Priority 2 (Enhancement)
+3. Add a short note linking to Windows model path fallbacks in README_NEW for parity with CLAUDE instructions.
+4. Capture ONNX model auto-discovery order in AI_INDEX.yaml `models` section (currently implied but not enumerated).
 
 ---
 
 ## Conclusion
-**AI_INDEX.yaml is production-ready** after fixing the 3 issues above. The architecture mapping is accurate and comprehensive. No critical mismatches that would break builds or confuse developers.
+**AI_INDEX.yaml is production-ready.** The architecture mapping is accurate and comprehensive with no outstanding mismatches.
 
 **Confidence:** 95% verified against source
 **Risk:** Low (documentation-only fixes)
