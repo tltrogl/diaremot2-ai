@@ -31,6 +31,7 @@ _LEGACY_MODULE_ALIASES = {
     "speaker_diarization": "diaremot.pipeline.speaker_diarization",
     "transcription_module": "diaremot.pipeline.transcription_module",
     "validate_system_complete": "diaremot.pipeline.validate_system_complete",
+    "emotion_analysis": "diaremot.affect.emotion_analysis",
     "emotion_analyzer": "diaremot.affect.emotion_analyzer",
     "intent_defaults": "diaremot.affect.intent_defaults",
     "paralinguistics": "diaremot.affect.paralinguistics",
