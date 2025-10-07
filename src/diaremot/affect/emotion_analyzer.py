@@ -8,7 +8,6 @@ V/A/D estimates, returning fields consumed by Stage 7.
 from __future__ import annotations
 
 import json
-import json
 import logging
 import os
 from dataclasses import dataclass
@@ -261,14 +260,55 @@ class EmotionOutputs:
 
 
 class OnnxTextEmotion:
-    def __init__(self, model_path: str, labels: List[str] = GOEMOTIONS_LABELS):
+    def __init__(
+        self,
+        model_path: str,
+        labels: List[str] = GOEMOTIONS_LABELS,
+        *,
+        tokenizer_source: Optional[str | os.PathLike[str]] = None,
+        disable_downloads: bool = False,
+    ):
         self.labels = labels
         self.sess = _ort_session(model_path)
+        self.tokenizer = self._load_tokenizer(
+            model_path,
+            tokenizer_source=tokenizer_source,
+            disable_downloads=disable_downloads,
+        )
 
-        # Tokenizer only (no HF inference)
+    def _load_tokenizer(
+        self,
+        model_path: str,
+        *,
+        tokenizer_source: Optional[str | os.PathLike[str]],
+        disable_downloads: bool,
+    ):
         from transformers import AutoTokenizer  # type: ignore
 
-        self.tokenizer = AutoTokenizer.from_pretrained("SamLowe/roberta-base-go_emotions")
+        candidates: list[tuple[str, dict[str, object]]] = []
+        errors: list[str] = []
+
+        if tokenizer_source:
+            local_dir = Path(tokenizer_source).expanduser()
+        else:
+            local_dir = Path(model_path).expanduser().parent
+
+        local_dir_str = os.fspath(local_dir)
+        candidates.append((local_dir_str, {"local_files_only": True}))
+        if not disable_downloads:
+            candidates.append((local_dir_str, {"local_files_only": False}))
+            candidates.append(("SamLowe/roberta-base-go_emotions", {}))
+
+        for identifier, kwargs in candidates:
+            try:
+                return AutoTokenizer.from_pretrained(identifier, **kwargs)
+            except Exception as exc:  # noqa: BLE001 - HF backend specific
+                errors.append(f"{identifier}: {exc}")
+
+        details = "; ".join(errors)
+        raise RuntimeError(
+            "Unable to load text emotion tokenizer; attempted candidates: " + details
+        )
 
     def __call__(self, text: str) -> Tuple[List[Tuple[str, float]], Dict[str, float]]:
         enc = self.tokenizer(
@@ -532,7 +572,11 @@ class EmotionAnalyzer:
         if self._text_model is not None or self._text_fallback is not None:
             return
         try:
-            self._text_model = OnnxTextEmotion(self.path_text_onnx)
+            self._text_model = OnnxTextEmotion(
+                self.path_text_onnx,
+                tokenizer_source=self.text_model_dir,
+                disable_downloads=self.disable_downloads,
+            )
         except (FileNotFoundError, RuntimeError) as exc:
             logger.warning("Text emotion ONNX unavailable: %s", exc)
             self._record_issue(
