@@ -10,11 +10,14 @@ from __future__ import annotations
 import json
 import logging
 import os
+import math
 from dataclasses import dataclass
-from typing import Callable, Dict, List, Optional, Tuple
+from pathlib import Path
+from typing import Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
 import numpy as np
 
+from .intent_defaults import INTENT_LABELS_DEFAULT
 from .ser_dpngtm import SERDpngtm
 
 # Preprocessing: strictly librosa/scipy/numpy
@@ -26,10 +29,30 @@ except ImportError:  # pragma: no cover - handled gracefully at runtime
 logger = logging.getLogger(__name__)
 
 
-def _softmax(x: np.ndarray) -> np.ndarray:
-    x = x - np.max(x)
-    e = np.exp(x)
-    return e / np.sum(e)
+DEFAULT_TEXT_EMOTION_MODEL = "SamLowe/roberta-base-go_emotions"
+
+if not hasattr(np, "int64"):
+    np.int64 = int  # type: ignore[attr-defined]
+if not hasattr(np, "ones"):
+    np.ones = lambda shape, dtype=None: [  # type: ignore[attr-defined]
+        1.0
+        for _ in range(
+            shape if isinstance(shape, int) else int(math.prod(shape))
+        )
+    ]
+
+
+def _softmax(x: Sequence[float]) -> np.ndarray:
+    arr = np.asarray(x, dtype=np.float32) if hasattr(np, "asarray") else list(x)
+    arr_list = list(arr)
+    if not arr_list:
+        return np.asarray([], dtype=np.float32) if hasattr(np, "asarray") else []
+    max_val = max(arr_list)
+    shifted = [value - max_val for value in arr_list]
+    exps = [math.exp(value) for value in shifted]
+    denom = sum(exps) or 1.0
+    probs = [value / denom for value in exps]
+    return np.asarray(probs, dtype=np.float32) if hasattr(np, "asarray") else probs
 
 
 def _topk(labels: List[str], probs: np.ndarray, k: int = 5) -> List[Tuple[str, float]]:
@@ -104,7 +127,7 @@ def _resolve_model_dir() -> str:
     return local
 
 
-def _ort_session(path: str):
+def _ort_session(path: str, *, intra_op_threads: Optional[int] = None):
     try:
         import onnxruntime as ort  # type: ignore
     except ImportError as exc:  # pragma: no cover
@@ -115,12 +138,21 @@ def _ort_session(path: str):
 
     sess_options = ort.SessionOptions()
     sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
-    sess_options.intra_op_num_threads = min(4, os.cpu_count() or 1)
+    if intra_op_threads is None:
+        sess_options.intra_op_num_threads = min(4, os.cpu_count() or 1)
+    else:
+        sess_options.intra_op_num_threads = max(1, int(intra_op_threads))
     sess_options.inter_op_num_threads = 1
     sess_options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
     # DiaRemot is CPU-only per AGENTS.md. Do not use GPU providers.
     providers = ["CPUExecutionProvider"]
     return ort.InferenceSession(path, sess_options=sess_options, providers=providers)
+
+
+def create_onnx_session(path: str, *, intra_op_threads: Optional[int] = None):
+    """Factory exposed for unit tests and dependency injection."""
+
+    return _ort_session(path, intra_op_threads=intra_op_threads)
 
 
 def _maybe_import_transformers_pipeline():
@@ -149,14 +181,18 @@ class EmotionOutputs:
 
 
 class OnnxTextEmotion:
-    def __init__(self, model_path: str, labels: List[str] = GOEMOTIONS_LABELS):
-        self.labels = labels
+    def __init__(
+        self,
+        model_path: str,
+        labels: Sequence[str] = GOEMOTIONS_LABELS,
+        tokenizer_name: str = DEFAULT_TEXT_EMOTION_MODEL,
+    ):
+        self.labels = list(labels)
         self.sess = _ort_session(model_path)
 
-        # Tokenizer only (no HF inference)
         from transformers import AutoTokenizer  # type: ignore
 
-        self.tokenizer = AutoTokenizer.from_pretrained("SamLowe/roberta-base-go_emotions")
+        self.tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
 
     def __call__(self, text: str) -> Tuple[List[Tuple[str, float]], Dict[str, float]]:
         enc = self.tokenizer(
@@ -185,13 +221,13 @@ class OnnxTextEmotion:
 
 
 class HfTextEmotionFallback:
-    def __init__(self):
+    def __init__(self, model_name: str = DEFAULT_TEXT_EMOTION_MODEL):
         pipeline = _maybe_import_transformers_pipeline()
         if pipeline is None:
             raise RuntimeError("transformers pipeline() unavailable for fallback")
         self.pipe = pipeline(
             task="text-classification",
-            model="SamLowe/roberta-base-go_emotions",
+            model=model_name,
             top_k=None,
             truncation=True,
         )
@@ -345,9 +381,18 @@ class EmotionAnalyzer:
     - text_emotions_top5_json, text_emotions_full_json
     """
 
-    def __init__(self, model_dir: Optional[str] = None, disable_downloads: Optional[bool] = None):
+    def __init__(
+        self,
+        model_dir: Optional[str] = None,
+        disable_downloads: Optional[bool] = None,
+        *,
+        text_emotion_model: str = DEFAULT_TEXT_EMOTION_MODEL,
+        affect_text_model_dir: Optional[str] = None,
+    ):
         self.model_dir = model_dir or _resolve_model_dir()
         self.disable_downloads = bool(disable_downloads or False)
+        self.text_emotion_model_name = text_emotion_model
+        self.affect_text_model_dir = affect_text_model_dir
 
         # Try ONNX/Torch for each component (lazily initialised)
         self._text_model: Optional[OnnxTextEmotion] = None
@@ -358,7 +403,8 @@ class EmotionAnalyzer:
         self._vad_model: Optional[OnnxVADEmotion] = None
 
         # Paths
-        self.path_text_onnx = os.path.join(self.model_dir, "roberta-base-go_emotions.onnx")
+        text_root = Path(affect_text_model_dir or self.model_dir)
+        self.path_text_onnx = str(text_root / "roberta-base-go_emotions.onnx")
         self.path_ser8_onnx = os.path.join(self.model_dir, "ser_8class.onnx")
         self.path_vad_onnx = os.path.join(self.model_dir, "vad_model.onnx")
 
@@ -381,14 +427,20 @@ class EmotionAnalyzer:
         if self._text_model is not None or self._text_fallback is not None:
             return
         try:
-            self._text_model = OnnxTextEmotion(self.path_text_onnx)
+            self._text_model = OnnxTextEmotion(
+                self.path_text_onnx,
+                labels=GOEMOTIONS_LABELS,
+                tokenizer_name=self.text_emotion_model_name,
+            )
         except (FileNotFoundError, RuntimeError) as exc:
             logger.warning("Text emotion ONNX unavailable: %s", exc)
             if self.disable_downloads:
                 self._text_fallback = None
             else:
                 try:
-                    self._text_fallback = HfTextEmotionFallback()
+                    self._text_fallback = HfTextEmotionFallback(
+                        model_name=self.text_emotion_model_name
+                    )
                     logger.warning("Using HuggingFace fallback for text emotion.")
                 except Exception as fb_exc:  # noqa: BLE001
                     logger.warning("HF fallback unavailable: %s", fb_exc)
@@ -490,9 +542,366 @@ __all__ = (
 )
 
 
-# Back-compat alias expected by orchestrator
 class EmotionIntentAnalyzer(EmotionAnalyzer):
-    pass
+    """Extends :class:`EmotionAnalyzer` with text intent classification support."""
+
+    def __init__(
+        self,
+        *,
+        affect_backend: Optional[str] = None,
+        affect_text_model_dir: Optional[str] = None,
+        affect_intent_model_dir: Optional[str] = None,
+        text_emotion_model: str = DEFAULT_TEXT_EMOTION_MODEL,
+        intent_labels: Optional[Sequence[str]] = None,
+        analyzer_threads: Optional[int] = None,
+        disable_downloads: Optional[bool] = None,
+        model_dir: Optional[str] = None,
+        **kwargs,
+    ):
+        super().__init__(
+            model_dir=model_dir,
+            disable_downloads=disable_downloads,
+            text_emotion_model=text_emotion_model,
+            affect_text_model_dir=affect_text_model_dir,
+        )
+
+        # Preserve legacy kwargs silently for backwards compatibility
+        if kwargs:
+            logger.debug("Unused EmotionIntentAnalyzer kwargs ignored: %s", sorted(kwargs))
+
+        self.affect_backend = (affect_backend or "auto").lower()
+        self.analyzer_threads = analyzer_threads
+        self.intent_labels = self._normalise_intent_labels(intent_labels)
+        self.intent_hypothesis_template = "This example is {}."
+        self.affect_intent_model_dir = self._discover_intent_model_dir(
+            affect_intent_model_dir
+        )
+
+        self._intent_session = None
+        self._intent_tokenizer = None
+        self._intent_config = None
+        self._intent_pipeline = None
+        self._intent_backend: Optional[str] = None
+
+    # ------------------------------------------------------------------
+    # Intent asset discovery helpers
+    # ------------------------------------------------------------------
+    def _normalise_intent_labels(
+        self, labels: Optional[Sequence[str]]
+    ) -> List[str]:
+        if labels is None:
+            source = INTENT_LABELS_DEFAULT
+        else:
+            source = labels
+        normalised = [str(label).strip() for label in source if str(label).strip()]
+        return normalised or list(INTENT_LABELS_DEFAULT)
+
+    def _discover_intent_model_dir(self, override: Optional[str]) -> Optional[str]:
+        candidates: Iterable[Optional[str]] = (
+            override,
+            os.getenv("DIAREMOT_INTENT_MODEL_DIR"),
+        )
+        model_root_candidates: List[Optional[str]] = [os.getenv("DIAREMOT_MODEL_DIR")]
+        if self.model_dir:
+            model_root_candidates.append(self.model_dir)
+        for root in model_root_candidates:
+            if root:
+                candidates = (*candidates, os.path.join(root, "bart"))
+
+        seen: set[str] = set()
+        for candidate in candidates:
+            if not candidate:
+                continue
+            path = str(Path(candidate).expanduser())
+            if path in seen:
+                continue
+            seen.add(path)
+            resolved = self._resolve_intent_dir(Path(path))
+            if resolved is not None:
+                return str(resolved)
+        return None
+
+    def _resolve_intent_dir(self, base: Path, max_depth: int = 3) -> Optional[Path]:
+        if not base.exists():
+            return None
+        queue: List[Tuple[Path, int]] = [(base, 0)]
+        visited: set[Path] = set()
+        while queue:
+            current, depth = queue.pop(0)
+            if current in visited:
+                continue
+            visited.add(current)
+            if self._intent_assets_present(current):
+                return current
+            if depth >= max_depth:
+                continue
+            try:
+                for child in current.iterdir():
+                    if child.is_dir():
+                        queue.append((child, depth + 1))
+            except PermissionError:
+                continue
+        return None
+
+    def _intent_assets_present(self, directory: Path) -> bool:
+        if not directory.is_dir():
+            return False
+        onnx_names = ["model_uint8.onnx", "model.onnx"]
+        has_explicit_onnx = any((directory / name).is_file() for name in onnx_names)
+        has_generic_onnx = bool(list(directory.glob("*.onnx")))
+        if has_explicit_onnx or has_generic_onnx:
+            return True
+        config_path = directory / "config.json"
+        has_config = config_path.is_file()
+        has_weights = bool(list(directory.glob("pytorch_model*.bin"))) or bool(
+            list(directory.glob("*.safetensors"))
+        )
+        return has_config and has_weights
+
+    # ------------------------------------------------------------------
+    # Backend initialisation
+    # ------------------------------------------------------------------
+    def _ensure_intent_backend(self) -> Optional[str]:
+        if self._intent_backend is not None:
+            return self._intent_backend
+
+        backend = self.affect_backend
+        if backend in {"auto", "onnx"}:
+            if self._init_intent_onnx():
+                self._intent_backend = "onnx"
+                return self._intent_backend
+            if backend == "onnx":
+                self._intent_backend = None
+                return None
+
+        if backend in {"auto", "hf", "pipeline", "torch"}:
+            if self._init_intent_pipeline():
+                self._intent_backend = "hf"
+                return self._intent_backend
+
+        self._intent_backend = None
+        return None
+
+    def _init_intent_onnx(self) -> bool:
+        if not self.affect_intent_model_dir:
+            return False
+
+        model_dir = Path(self.affect_intent_model_dir)
+        config_data: Dict[str, object] = {}
+        config_path = model_dir / "config.json"
+        if config_path.is_file():
+            try:
+                config_data = json.loads(config_path.read_text())
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Intent config unreadable at %s: %s", config_path, exc)
+                config_data = {}
+
+        template = config_data.get("hypothesis_template")
+        if isinstance(template, str) and "{}" in template:
+            self.intent_hypothesis_template = template
+
+        try:
+            from transformers import AutoConfig, AutoTokenizer  # type: ignore
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("transformers unavailable for intent tokenizer: %s", exc)
+            return False
+
+        try:
+            self._intent_tokenizer = AutoTokenizer.from_pretrained(model_dir)
+            self._intent_config = AutoConfig.from_pretrained(model_dir)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Failed to load intent tokenizer/config from %s: %s", model_dir, exc)
+            self._intent_tokenizer = None
+            self._intent_config = None
+            return False
+
+        onnx_path = self._select_intent_onnx_path(model_dir)
+        if onnx_path is None:
+            logger.warning("Intent ONNX weights missing under %s", model_dir)
+            return False
+
+        session_kwargs: Dict[str, object] = {}
+        if self.analyzer_threads is not None:
+            session_kwargs["intra_op_threads"] = self.analyzer_threads
+        try:
+            self._intent_session = create_onnx_session(str(onnx_path), **session_kwargs)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Failed to initialise intent ONNX session: %s", exc)
+            self._intent_session = None
+            return False
+
+        return True
+
+    def _select_intent_onnx_path(self, model_dir: Path) -> Optional[Path]:
+        preferred = ["model_uint8.onnx", "model_quantized.onnx", "model.onnx"]
+        for name in preferred:
+            candidate = model_dir / name
+            if candidate.is_file():
+                return candidate
+        for candidate in model_dir.glob("*.onnx"):
+            if candidate.is_file():
+                return candidate
+        return None
+
+    def _init_intent_pipeline(self) -> bool:
+        pipeline_fn = _maybe_import_transformers_pipeline()
+        if pipeline_fn is None:
+            return False
+
+        model_ref = self.affect_intent_model_dir or "facebook/bart-large-mnli"
+        try:
+            self._intent_pipeline = pipeline_fn(
+                task="zero-shot-classification",
+                model=model_ref,
+                device=-1,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Failed to initialise transformers intent pipeline: %s", exc)
+            self._intent_pipeline = None
+            return False
+
+        return True
+
+    # ------------------------------------------------------------------
+    # Inference
+    # ------------------------------------------------------------------
+    def _intent_default_response(self) -> Tuple[str, List[Dict[str, float]]]:
+        labels = [label for label in self.intent_labels if label]
+        if not labels:
+            return "", []
+        top_candidates = labels[:3]
+        weight = 1.0 / len(top_candidates)
+        return labels[0], [
+            {"label": label, "score": float(weight)} for label in top_candidates
+        ]
+
+    def _infer_intent(self, text: str) -> Tuple[str, List[Dict[str, float]]]:
+        text = text.strip()
+        if not text:
+            return self._intent_default_response()
+
+        backend = self._ensure_intent_backend()
+
+        if backend == "onnx" and self._intent_session and self._intent_tokenizer:
+            try:
+                return self._infer_intent_onnx(text)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Intent ONNX inference failed: %s", exc)
+
+        if backend == "hf" and self._intent_pipeline is not None:
+            try:
+                return self._infer_intent_pipeline(text)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Transformers intent pipeline failed: %s", exc)
+
+        return self._intent_default_response()
+
+    def _infer_intent_onnx(self, text: str) -> Tuple[str, List[Dict[str, float]]]:
+        tokenizer = self._intent_tokenizer
+        session = self._intent_session
+        config = self._intent_config
+        assert tokenizer is not None and session is not None
+
+        entail_idx = None
+        if config is not None:
+            label2id = getattr(config, "label2id", None) or {}
+            if isinstance(label2id, dict):
+                for label, idx in label2id.items():
+                    if str(label).lower() == "entailment":
+                        entail_idx = int(idx)
+                        break
+            if entail_idx is None:
+                id2label = getattr(config, "id2label", None) or {}
+                if isinstance(id2label, dict):
+                    for idx, label in id2label.items():
+                        if str(label).lower() == "entailment":
+                            entail_idx = int(idx)
+                            break
+        if entail_idx is None:
+            entail_idx = -1
+
+        scores: List[float] = []
+        for label in self.intent_labels:
+            hypothesis = self.intent_hypothesis_template.format(label)
+            encoded = tokenizer(
+                text,
+                hypothesis,
+                return_tensors="np",
+                truncation=True,
+            )
+
+            feeds: Dict[str, np.ndarray] = {}
+            input_names: Iterable[str]
+            if hasattr(session, "get_inputs"):
+                input_names = [meta.name for meta in session.get_inputs()]
+            else:
+                input_names = encoded.keys()
+            for name in input_names:
+                if name not in encoded:
+                    continue
+                value = encoded[name]
+                try:
+                    dtype = getattr(np, "int64", int)
+                    feeds[name] = np.asarray(value, dtype=dtype)
+                except Exception:  # noqa: BLE001
+                    feeds[name] = value
+
+            raw_logits = session.run(None, feeds)[0]
+            logits_array = (
+                np.asarray(raw_logits, dtype=np.float32)
+                if hasattr(np, "asarray")
+                else raw_logits
+            )
+            if hasattr(logits_array, "ndim") and getattr(logits_array, "ndim") > 1:
+                logits_array = logits_array[0]
+            elif not hasattr(logits_array, "ndim"):
+                if logits_array and isinstance(logits_array[0], (list, tuple)):
+                    logits_array = logits_array[0]
+            logits_vector = (
+                np.asarray(logits_array, dtype=np.float32)
+                if hasattr(np, "asarray")
+                else list(logits_array)
+            )
+            probs = _softmax(logits_vector)
+            probs_list = list(probs.tolist()) if hasattr(probs, "tolist") else list(probs)
+            if entail_idx >= 0 and entail_idx < len(probs_list):
+                score = float(probs_list[entail_idx])
+            else:
+                score = float(probs_list[-1])
+            scores.append(score)
+
+        return self._rank_intent_scores(scores)
+
+    def _infer_intent_pipeline(self, text: str) -> Tuple[str, List[Dict[str, float]]]:
+        pipeline = self._intent_pipeline
+        assert pipeline is not None
+
+        raw = pipeline(text, self.intent_labels, multi_label=True)
+        if isinstance(raw, list):
+            payload = raw[0] if raw else {}
+        else:
+            payload = raw
+        labels = payload.get("labels", []) if isinstance(payload, dict) else []
+        scores = payload.get("scores", []) if isinstance(payload, dict) else []
+
+        score_map = {str(label): float(score) for label, score in zip(labels, scores)}
+        ordered_scores = [score_map.get(label, 0.0) for label in self.intent_labels]
+        return self._rank_intent_scores(ordered_scores)
+
+    def _rank_intent_scores(self, scores: Sequence[float]) -> Tuple[str, List[Dict[str, float]]]:
+        if not scores:
+            return self._intent_default_response()
+        arr = np.asarray(scores, dtype=np.float32) if hasattr(np, "asarray") else list(scores)
+        arr_list = list(arr)
+        if hasattr(np, "argsort"):
+            indices = list(np.argsort(arr)[::-1])
+        else:
+            indices = [idx for idx, _ in sorted(enumerate(arr_list), key=lambda item: item[1], reverse=True)]
+        top_label = self.intent_labels[indices[0]] if indices else self.intent_labels[0]
+        top3 = []
+        for idx in indices[:3]:
+            top3.append({"label": self.intent_labels[idx], "score": float(arr_list[idx])})
+        return top_label, top3
 
 
 __all__ = __all__ + ("EmotionIntentAnalyzer",)
