@@ -8,6 +8,8 @@ from pathlib import Path
 
 import pytest
 
+pytest.importorskip("fastapi")
+
 MODULE_PATH = Path(__file__).resolve().parent.parent / "connector" / "app.py"
 SPEC = importlib.util.spec_from_file_location("connector_app", MODULE_PATH)
 assert SPEC and SPEC.loader

@@ -27,6 +27,13 @@ if SRC.exists():
         # Prepend so local code wins over any installed package
         sys.path.insert(0, src_str)
 
+# Also ensure the repository root is importable so legacy shims like
+# ``audio_pipeline_core.py`` remain discoverable when DiaRemot is run via
+# ``python -m`` from arbitrary working directories.
+root_str = str(ROOT)
+if root_str not in sys.path:
+    sys.path.insert(0, root_str)
+
 # Prefer offline/local behaviour by default; can be overridden by user env
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
 os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")

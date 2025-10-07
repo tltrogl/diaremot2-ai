@@ -9,31 +9,79 @@ def pytest_configure() -> None:
     if "numpy" not in sys.modules:
         np = types.ModuleType("numpy")
 
+        class _Array(list):  # type: ignore[type-arg]
+            def __array__(self):  # pragma: no cover - compatibility hook
+                return self
+
+            def astype(self, dtype=None):
+                if dtype is None:
+                    converter = float
+                elif callable(dtype):
+                    converter = dtype
+                else:
+                    converter = float
+                return _Array(converter(x) for x in self)
+
+            @property
+            def size(self) -> int:
+                return len(self)
+
+            def __getitem__(self, item):
+                result = super().__getitem__(item)
+                if isinstance(item, slice):
+                    return _Array(result)
+                return result
+
+            def __mul__(self, other):
+                if isinstance(other, (int, float)):
+                    return _Array(float(x) * float(other) for x in self)
+                return _Array(super().__mul__(other))
+
+            __rmul__ = __mul__
+
+            def __pow__(self, power):
+                if isinstance(power, (int, float)):
+                    return _Array(float(x) ** float(power) for x in self)
+                raise TypeError("stub array only supports numeric powers")
+
         def _to_array(data, dtype=None):  # type: ignore[override]
+            if isinstance(data, _Array):
+                return data.astype(dtype)
             if isinstance(data, list):
-                return data
+                seq = _Array(data)
+                return seq.astype(dtype) if dtype is not None else seq
             if isinstance(data, tuple):
-                return list(data)
+                seq = _Array(data)
+                return seq.astype(dtype) if dtype is not None else seq
             if hasattr(data, "__iter__") and not isinstance(data, (str, bytes)):
-                return list(data)
-            return [data]
+                seq = _Array(list(data))
+                return seq.astype(dtype) if dtype is not None else seq
+            seq = _Array([data])
+            return seq.astype(dtype) if dtype is not None else seq
+
+        def _ones(shape, dtype=None):  # type: ignore[attr-defined]
+            total = shape if isinstance(shape, int) else int(math.prod(shape))
+            return _to_array([1.0] * total, dtype)
+
+        def _zeros(shape, dtype=None):  # type: ignore[attr-defined]
+            total = shape if isinstance(shape, int) else int(math.prod(shape))
+            return _to_array([0.0] * total, dtype)
 
         np.array = _to_array  # type: ignore[attr-defined]
         np.asarray = _to_array  # type: ignore[attr-defined]
-        np.ascontiguousarray = lambda data: data  # type: ignore[attr-defined]
-        np.zeros = lambda shape, dtype=None: [0.0] * (
-            shape if isinstance(shape, int) else int(math.prod(shape))
-        )  # type: ignore[attr-defined]
+        np.ascontiguousarray = lambda data: _to_array(data)  # type: ignore[attr-defined]
+        np.zeros = _zeros  # type: ignore[attr-defined]
+        np.ones = _ones  # type: ignore[attr-defined]
         np.float32 = float  # type: ignore[attr-defined]
         np.sqrt = lambda x: math.sqrt(x)  # type: ignore[attr-defined]
         np.mean = lambda arr: (sum(arr) / len(arr)) if arr else 0.0  # type: ignore[attr-defined]
         np.max = lambda arr: max(arr) if arr else 0.0  # type: ignore[attr-defined]
         np.min = lambda arr: min(arr) if arr else 0.0  # type: ignore[attr-defined]
-        np.clip = lambda arr, a, b: [max(a, min(b, x)) for x in arr]  # type: ignore[attr-defined]
-        np.abs = lambda arr: [abs(x) for x in arr]  # type: ignore[attr-defined]
-        np.log = lambda arr: [math.log(x) for x in arr]  # type: ignore[attr-defined]
-        np.exp = lambda arr: [math.exp(x) for x in arr]  # type: ignore[attr-defined]
-        np.ndarray = list  # type: ignore[attr-defined]
+        np.clip = lambda arr, a, b: _Array(max(a, min(b, x)) for x in arr)  # type: ignore[attr-defined]
+        np.abs = lambda arr: _Array(abs(x) for x in arr)  # type: ignore[attr-defined]
+        np.log = lambda arr: _Array(math.log(x) for x in arr)  # type: ignore[attr-defined]
+        np.exp = lambda arr: _Array(math.exp(x) for x in arr)  # type: ignore[attr-defined]
+        np.ndarray = _Array  # type: ignore[attr-defined]
         np.__stub__ = True  # type: ignore[attr-defined]
         sys.modules["numpy"] = np
 
