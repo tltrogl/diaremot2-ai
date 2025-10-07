@@ -281,6 +281,7 @@ python -m diaremot.cli run --input <file> --outdir <dir> --asr-compute-type int8
 # Override orchestrator's VAD tuning
 python -m diaremot.cli run --input <file> --outdir <dir> \
   --vad-threshold 0.30 \
+  --vad-speech-pad-sec 0.20 \
   --ahc-distance-threshold 0.12
 ```
 
@@ -290,7 +291,7 @@ python -m diaremot.cli run --input <file> --outdir <dir> \
 - `--asr-compute-type` — `float32` (default) | `int8` | `int8_float16`
 - `--vad-threshold` — Override orchestrator default (0.35)
 - `--vad-min-speech-sec` — Override default (0.80)
-- `--speech-pad-sec` — Override orchestrator default (0.10)
+- `--vad-speech-pad-sec` — Override orchestrator default (0.10)
 - `--ahc-distance-threshold` — Override orchestrator default (0.15)
 - `--profile` — `default` | `fast` | `accurate` | `offline` | path to JSON
 - `--disable-sed` — Skip sound event detection
@@ -500,7 +501,7 @@ python -m diaremot.cli resume --input <file> --outdir <dir>
 # Use CLI defaults instead of orchestrator overrides
 python -m diaremot.cli run --input <file> --outdir <dir> \
   --vad-threshold 0.30 \
-  --speech-pad-sec 0.20 \
+  --vad-speech-pad-sec 0.20 \
   --ahc-distance-threshold 0.12
 ```
 
