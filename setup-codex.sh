@@ -57,12 +57,39 @@ python -m pip install -r requirements.txt
 
 echo "==> Preparing local caches"
 CACHE_ROOT="$REPO_ROOT/.cache"
-mkdir -p "$CACHE_ROOT/hf" "$CACHE_ROOT/torch" "$CACHE_ROOT/transformers"
-export HF_HOME="$CACHE_ROOT/hf"
-export HUGGINGFACE_HUB_CACHE="$CACHE_ROOT/hf"
-export TRANSFORMERS_CACHE="$CACHE_ROOT/transformers"
-export TORCH_HOME="$CACHE_ROOT/torch"
-export XDG_CACHE_HOME="$CACHE_ROOT"
+mkdir -p "$CACHE_ROOT"
+
+prefer_dir() {
+  local primary="$1" fallback="$2" label="$3"
+  if mkdir -p "$primary" 2>/dev/null; then
+    printf '%s\n' "$primary"
+    return 0
+  fi
+  echo "WARN: unable to initialise $label at $primary; using $fallback" >&2
+  mkdir -p "$fallback"
+  printf '%s\n' "$fallback"
+}
+
+HF_HOME="${HF_HOME:-$(prefer_dir /srv/.cache/hf "$CACHE_ROOT/hf" 'HF cache')}"
+HUGGINGFACE_HUB_CACHE="${HUGGINGFACE_HUB_CACHE:-$HF_HOME}"
+TRANSFORMERS_CACHE="${TRANSFORMERS_CACHE:-$(prefer_dir /srv/.cache/transformers "$CACHE_ROOT/transformers" 'Transformers cache')}"
+TORCH_HOME="${TORCH_HOME:-$(prefer_dir /srv/.cache/torch "$CACHE_ROOT/torch" 'Torch cache')}"
+XDG_CACHE_HOME="${XDG_CACHE_HOME:-$CACHE_ROOT}"
+HF_HUB_ENABLE_HF_TRANSFER="${HF_HUB_ENABLE_HF_TRANSFER:-1}"
+TOKENIZERS_PARALLELISM="${TOKENIZERS_PARALLELISM:-false}"
+DIAREMOT_MODEL_DIR="${DIAREMOT_MODEL_DIR:-$(prefer_dir /srv/models "$REPO_ROOT/models" 'model root')}"
+
+mkdir -p "$DIAREMOT_MODEL_DIR" \
+         "$DIAREMOT_MODEL_DIR/asr_ct2" \
+         "$DIAREMOT_MODEL_DIR/diarization" \
+         "$DIAREMOT_MODEL_DIR/sed_panns" \
+         "$DIAREMOT_MODEL_DIR/affect/ser8" \
+         "$DIAREMOT_MODEL_DIR/affect/vad_dim" \
+         "$DIAREMOT_MODEL_DIR/intent" \
+         "$DIAREMOT_MODEL_DIR/text_emotions"
+
+export HF_HOME HUGGINGFACE_HUB_CACHE TRANSFORMERS_CACHE TORCH_HOME XDG_CACHE_HOME
+export HF_HUB_ENABLE_HF_TRANSFER TOKENIZERS_PARALLELISM DIAREMOT_MODEL_DIR
 export CUDA_VISIBLE_DEVICES=""
 export TORCH_DEVICE="cpu"
 export PYTHONPATH="$REPO_ROOT/src:${PYTHONPATH:-}"

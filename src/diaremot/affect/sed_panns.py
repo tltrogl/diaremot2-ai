@@ -26,14 +26,18 @@ MODEL_ROOTS = tuple(iter_model_roots())
 if not MODEL_ROOTS:
     MODEL_ROOTS = (DEFAULT_MODELS_ROOT,)
 
+_PANNS_SUBDIR_CANDIDATES = ("sed_panns", "panns", "panns_cnn14")
 DEFAULT_PANNS_MODEL_DIR = None
 for _root in MODEL_ROOTS:
-    candidate = Path(_root) / "panns"
-    if candidate.exists():
-        DEFAULT_PANNS_MODEL_DIR = candidate
+    for subdir in _PANNS_SUBDIR_CANDIDATES:
+        candidate = Path(_root) / subdir
+        if candidate.exists():
+            DEFAULT_PANNS_MODEL_DIR = candidate
+            break
+    if DEFAULT_PANNS_MODEL_DIR is not None:
         break
 if DEFAULT_PANNS_MODEL_DIR is None:
-    DEFAULT_PANNS_MODEL_DIR = Path(MODEL_ROOTS[0]) / "panns"
+    DEFAULT_PANNS_MODEL_DIR = Path(MODEL_ROOTS[0]) / _PANNS_SUBDIR_CANDIDATES[0]
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +64,12 @@ except Exception:
     _HAVE_PANNS = False
 AudioTagging = None  # type: ignore
 labels = []  # type: ignore
+
+
+_ONNX_FILENAME_CANDIDATES: tuple[tuple[str, str], ...] = (
+    ("cnn14.onnx", "labels.csv"),
+    ("model.onnx", "class_labels_indices.csv"),
+)
 
 
 _NOISE_KEYWORDS = (
@@ -120,11 +130,73 @@ class PANNSEventTagger:
         self._session: onnxruntime.InferenceSession | None = None
         self._labels: list[str] | None = None
         self.available = True
+        self._warned_missing = False
         self._ensure_model()
         if not self.available:
             logger.warning(
                 "PANNs event tagging unavailable: neither ONNX nor PyTorch backend could be initialized"
             )
+
+    def _empty_result(self) -> dict[str, Any]:
+        return {"top": [], "dominant_label": None, "noise_score": 0.0}
+
+    def _emit_missing_warning(self, reason: str) -> None:
+        if self._warned_missing:
+            return
+        self._warned_missing = True
+        logger.warning(
+            "[sed] assets unavailable (%s); emitting empty background tags.",
+            reason,
+        )
+
+    def _gather_candidate_pairs(self, base: Path) -> list[tuple[Path, Path]]:
+        pairs: list[tuple[Path, Path]] = []
+        for model_name, label_name in _ONNX_FILENAME_CANDIDATES:
+            model_path = base / model_name
+            label_path = base / label_name
+            if model_path.exists() and label_path.exists():
+                pairs.append((model_path, label_path))
+        if pairs:
+            return pairs
+        for model_name, label_name in _ONNX_FILENAME_CANDIDATES:
+            try:
+                for model_path in base.rglob(model_name):
+                    label_path = model_path.parent / label_name
+                    if label_path.exists():
+                        pairs.append((model_path, label_path))
+            except Exception:
+                continue
+        return pairs
+
+    def _load_onnx_assets(self, model_path: Path, labels_path: Path) -> bool:
+        try:
+            self._session = create_onnx_session(model_path)
+            with labels_path.open(newline="", encoding="utf-8") as handle:
+                reader = csv.DictReader(handle)
+                labels_local: list[str] = []
+                key: str | None = None
+                if reader.fieldnames:
+                    if "display_name" in reader.fieldnames:
+                        key = "display_name"
+                    else:
+                        key = reader.fieldnames[0]
+                if key is not None:
+                    for row in reader:
+                        labels_local.append(str(row.get(key, "")))
+                else:
+                    handle.seek(0)
+                    labels_local = [line.strip() for line in handle if line.strip()]
+            if not labels_local:
+                raise ValueError("labels file empty")
+            self._labels = labels_local
+            return True
+        except OnnxRuntimeUnavailable as exc:
+            logger.info("Failed loading ONNX model %s: %s", model_path, exc)
+        except Exception as exc:
+            logger.info("Failed loading ONNX model %s: %s", model_path, exc)
+        self._session = None
+        self._labels = None
+        return False
 
     def _ensure_model(self):
         if not self.available:
@@ -134,97 +206,59 @@ class PANNSEventTagger:
                 return
             if not _HAVE_ORT:
                 self.available = False
-            else:
-                # 1) Prefer explicit local directory if provided
-                if self.cfg.model_dir:
-                    mp = self.cfg.model_dir / "model.onnx"
-                    lp = self.cfg.model_dir / "class_labels_indices.csv"
-                    if mp.exists() and lp.exists():
-                        try:
-                            self._session = create_onnx_session(mp)
-                            with lp.open() as f:
-                                reader = csv.DictReader(f)
-                                self._labels = [row.get("display_name", "") for row in reader]
-                            return
-                        except OnnxRuntimeUnavailable as exc:
-                            logger.info(
-                                "Failed loading local ONNX model; switching to fallback: %s",
-                                exc,
-                            )
-                            self._session = None
-                            self._labels = None
-                        except Exception as exc:
-                            logger.info("Failed loading local ONNX model: %s", exc)
-                            self._session = None
-                            self._labels = None
-                # 2) Search common env roots for HF cache-based files
-                if self._session is None or not self._labels:
-                    env_roots = [
-                        os.getenv("DIAREMOT_PANNS_DIR"),
-                        os.getenv("DIAREMOT_HF_HUB_DIR"),
-                        os.getenv("HF_MODELS_HUB"),  # user-provided custom hub path
-                        os.getenv("HF_HOME"),
-                        os.getenv("HUGGINGFACE_HUB_CACHE"),
-                    ]
-                    for root in [Path(p) for p in env_roots if p]:
-                        try:
-                            if not root.exists():
-                                continue
-                            # Prefer the specific repo path if present
-                            repo_dir = root / "models--qiuqiangkong--panns-tagging-onnx"
-                            candidates = []
-                            if repo_dir.exists():
-                                for mp in repo_dir.rglob("model.onnx"):
-                                    lp = mp.parent / "class_labels_indices.csv"
-                                    if lp.exists():
-                                        candidates.append((mp, lp))
-                            else:
-                                # Generic fallback: search under root
-                                for mp in root.rglob("model.onnx"):
-                                    lp = mp.parent / "class_labels_indices.csv"
-                                    if lp.exists():
-                                        candidates.append((mp, lp))
-                            if candidates:
-                                # Pick the first valid pair
-                                mp, lp = candidates[0]
-                                self._session = create_onnx_session(mp)
-                                with lp.open() as f:
-                                    reader = csv.DictReader(f)
-                                    self._labels = [row.get("display_name", "") for row in reader]
-                                return
-                        except OnnxRuntimeUnavailable as exc:
-                            logger.info(
-                                "Failed loading ONNX from env root %s; switching to fallback: %s",
-                                root,
-                                exc,
-                            )
-                            self._session = None
-                            self._labels = None
-                        except Exception as exc:
-                            logger.info("Failed loading ONNX from env root %s: %s", root, exc)
-                if self._session is None or not self._labels:
-                    logger.info(
-                        "PANNs ONNX assets not found locally; skipping remote download fallback"
-                    )
-                    self._session = None
-                    self._labels = None
-            if self._session is None or not self._labels:
-                if _HAVE_PANNS:
-                    self.backend = "pytorch"
-                    self.available = True
-                    self._ensure_model()
-                else:
-                    self.available = False
+                self._emit_missing_warning("onnxruntime unavailable")
+                return
+
+            search_roots: list[Path] = []
+            seen: set[str] = set()
+
+            def _add_candidate(path_like: Any) -> None:
+                if not path_like:
+                    return
+                path = Path(path_like).expanduser()
+                key = str(path)
+                if key in seen:
+                    return
+                seen.add(key)
+                search_roots.append(path)
+
+            _add_candidate(self.cfg.model_dir)
+            _add_candidate(DEFAULT_PANNS_MODEL_DIR)
+            for root in MODEL_ROOTS:
+                _add_candidate(Path(root) / "sed_panns")
+                _add_candidate(Path(root) / "panns")
+
+            env_roots = [
+                os.getenv("DIAREMOT_PANNS_DIR"),
+                os.getenv("DIAREMOT_MODEL_DIR"),
+                os.getenv("HF_HOME"),
+                os.getenv("HUGGINGFACE_HUB_CACHE"),
+                os.getenv("TRANSFORMERS_CACHE"),
+            ]
+            for root in [Path(p).expanduser() for p in env_roots if p]:
+                _add_candidate(root)
+                if root.name != "models--qiuqiangkong--panns-tagging-onnx":
+                    _add_candidate(root / "models--qiuqiangkong--panns-tagging-onnx")
+
+            for base in search_roots:
+                if not base.exists():
+                    continue
+                for model_path, labels_path in self._gather_candidate_pairs(base):
+                    if self._load_onnx_assets(model_path, labels_path):
+                        self.available = True
+                        return
+
+            self.available = False
+            self._emit_missing_warning(
+                "cnn14 ONNX assets not found under "
+                + ", ".join(str(path) for path in search_roots)
+            )
         elif self.backend == "pytorch":
             if self._tagger is not None:
                 return
             if not _HAVE_PANNS:
-                if _HAVE_ORT:
-                    self.backend = "onnx"
-                    self.available = True
-                    self._ensure_model()
-                else:
-                    self.available = False
+                self.available = False
+                self._emit_missing_warning("panns_inference unavailable")
                 return
             # Ensure labels exist in HOME/panns_data to avoid wget in panns_inference
             try:
@@ -232,11 +266,15 @@ class PANNSEventTagger:
                 home_panns.mkdir(parents=True, exist_ok=True)
                 src_labels = None
                 if self.cfg.model_dir:
-                    cand = self.cfg.model_dir / "class_labels_indices.csv"
-                    if cand.exists():
-                        src_labels = cand
-                if src_labels and not (home_panns / "class_labels_indices.csv").exists():
-                    (home_panns / "class_labels_indices.csv").write_bytes(src_labels.read_bytes())
+                    for _, label_name in _ONNX_FILENAME_CANDIDATES:
+                        cand = Path(self.cfg.model_dir) / label_name
+                        if cand.exists():
+                            src_labels = cand
+                            break
+                if src_labels:
+                    target = home_panns / Path(src_labels).name
+                    if not target.exists():
+                        target.write_bytes(Path(src_labels).read_bytes())
             except Exception:
                 pass
 
@@ -283,14 +321,15 @@ class PANNSEventTagger:
             except Exception as exc:
                 logger.info("Failed initializing PyTorch backend: %s", exc)
                 self._tagger = None
-                if _HAVE_ORT:
-                    self.backend = "onnx"
-                    self.available = True
-                    self._ensure_model()
-                else:
-                    self.available = False
+
+            if self._tagger is None:
+                self.available = False
+                self._emit_missing_warning("PyTorch checkpoint unavailable")
+            else:
+                self.available = True
         else:
             self.available = False
+            self._emit_missing_warning(f"unsupported backend '{self.backend}'")
 
     def _resample_to_32k(self, audio: np.ndarray, sr: int) -> tuple[np.ndarray, int]:
         if sr == 32000:
@@ -313,16 +352,16 @@ class PANNSEventTagger:
         y = np.interp(x_new, x_old, audio).astype(np.float32)
         return y, 32000
 
-    def tag(self, audio_16k_mono: np.ndarray, sr: int) -> dict[str, Any] | None:
+    def tag(self, audio_16k_mono: np.ndarray, sr: int) -> dict[str, Any]:
         if not self.available:
-            return None
+            return self._empty_result()
         if audio_16k_mono is None or audio_16k_mono.size == 0:
-            return None
+            return self._empty_result()
         if (len(audio_16k_mono) / max(1, sr)) < self.cfg.min_duration_sec:
-            return None
+            return self._empty_result()
         self._ensure_model()
         if not self.available:
-            return None
+            return self._empty_result()
 
         # Subsample/limit audio duration to keep SED fast on long files
         y_in = audio_16k_mono
@@ -348,28 +387,32 @@ class PANNSEventTagger:
 
         if self.backend == "onnx":
             if self._session is None or not self._labels:
-                return None
+                self._emit_missing_warning("onnx session unavailable at inference")
+                return self._empty_result()
             try:
                 inp = self._session.get_inputs()[0].name
                 clip = self._session.run(None, {inp: y[np.newaxis, :]})[0][0]
-            except Exception:
-                return None
+            except Exception as exc:
+                logger.info("ONNX SED inference failed: %s", exc)
+                return self._empty_result()
             map_labels = self._labels
         else:
             if self._tagger is None:
-                return None
+                self._emit_missing_warning("panns_inference tagger unavailable")
+                return self._empty_result()
             try:
                 # panns_inference expects shape [B, T] at 32 kHz and returns
                 # (clipwise_output[B,527], embedding[B,2048]) as numpy arrays
                 cw, _emb = self._tagger.inference(y[np.newaxis, :])  # type: ignore
                 clip = np.asarray(cw[0], dtype=np.float32)
-            except Exception:
-                return None
+            except Exception as exc:
+                logger.info("PyTorch SED inference failed: %s", exc)
+                return self._empty_result()
             # Prefer labels from the tagger; fallback to imported default
             map_labels = getattr(self._tagger, "labels", labels) or []  # type: ignore
 
         if clip.size == 0:
-            return None
+            return self._empty_result()
         # If labels are missing or mismatched, synthesize generic labels
         if not map_labels or len(map_labels) != clip.size:
             try:

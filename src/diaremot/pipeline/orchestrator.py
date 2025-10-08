@@ -553,6 +553,7 @@ class AudioAnalysisPipelineV2:
         self, wav: np.ndarray, sr: int, segs: list[dict[str, Any]]
     ) -> dict[int, dict[str, Any]]:
         """Extract paralinguistic features with fallback"""
+        wav = np.asarray(wav, dtype=np.float32)
         results: dict[int, dict[str, Any]] = {}
 
         def _safe_float(value: Any) -> float | None:
@@ -632,8 +633,13 @@ class AudioAnalysisPipelineV2:
 
             i0 = int(start * sr)
             i1 = int(end * sr)
-            clip = wav[max(0, i0) : max(0, i1)]
-            loud = float(np.sqrt(np.mean(clip.astype(np.float32) ** 2))) if clip.size > 0 else 0.0
+            clip_slice = wav[max(0, i0) : max(0, i1)]
+            if hasattr(clip_slice, "astype"):
+                clip_arr = clip_slice.astype(np.float32, copy=False)
+            else:
+                clip_arr = np.asarray(clip_slice, dtype=np.float32)
+            clip_size = clip_arr.size if hasattr(clip_arr, "size") else len(clip_arr)
+            loud = float(np.sqrt(np.mean(clip_arr**2))) if clip_size > 0 else 0.0
 
             results[i] = {
                 "wpm": float(wpm),

@@ -4,7 +4,6 @@ import types
 
 import numpy as np
 import pytest
-
 from diaremot.pipeline.logging_utils import StageGuard
 from diaremot.pipeline.orchestrator import AudioAnalysisPipelineV2
 from diaremot.pipeline.outputs import default_affect
@@ -86,12 +85,42 @@ def test_pipeline_init_recovers_missing_affect(tmp_path, monkeypatch):
 @pytest.fixture
 def stub_pipeline(tmp_path, monkeypatch):
     def _stub_init(self, cfg):
+        from dataclasses import dataclass
+
         class _StubPreprocessor:
             def process_file(self, *_args, **_kwargs):
-                return (
-                    np.zeros(16000, dtype=np.float32),
-                    16000,
-                    types.SimpleNamespace(snr_db=25.0),
+                audio = np.zeros(16000, dtype=np.float32)
+                health = types.SimpleNamespace(
+                    snr_db=25.0,
+                    clipping_detected=False,
+                    silence_ratio=0.0,
+                    rms_db=-25.0,
+                    est_lufs=-23.0,
+                    dynamic_range_db=30.0,
+                    floor_clipping_ratio=0.0,
+                    is_chunked=False,
+                    chunk_info=None,
+                )
+
+                @dataclass
+                class _FakePreprocessResult:
+                    audio: np.ndarray
+                    sample_rate: int
+                    health: object
+                    duration_s: float
+                    is_chunked: bool = False
+                    chunk_details: dict | None = None
+
+                    def __iter__(self):
+                        yield self.audio
+                        yield self.sample_rate
+                        yield self.health
+
+                return _FakePreprocessResult(
+                    audio=audio,
+                    sample_rate=16000,
+                    health=health,
+                    duration_s=float(len(audio) / 16000.0),
                 )
 
         class _StubDiarizer:
@@ -153,6 +182,34 @@ def stub_pipeline(tmp_path, monkeypatch):
         from diaremot.pipeline.auto_tuner import AutoTuner
 
         self.auto_tuner = AutoTuner()
+
+        def _fake_extract_paraling(_self, _wav, _sr, segs):
+            metrics: dict[int, dict[str, float]] = {}
+            for idx, seg in enumerate(segs):
+                start = float(seg.get("start_time", seg.get("start", 0.0)))
+                end = float(seg.get("end_time", seg.get("end", start)))
+                duration = max(1e-3, end - start)
+                text = seg.get("text") or ""
+                words = max(1, len(text.split()))
+                metrics[idx] = {
+                    "wpm": float(words / duration * 60.0),
+                    "duration_s": duration,
+                    "words": words,
+                    "pause_count": 0,
+                    "pause_time_s": 0.0,
+                    "pause_ratio": 0.0,
+                    "f0_mean_hz": 120.0,
+                    "f0_std_hz": 5.0,
+                    "loudness_rms": -25.0,
+                    "disfluency_count": 0,
+                    "vq_jitter_pct": 0.0,
+                    "vq_shimmer_db": 0.0,
+                    "vq_hnr_db": 20.0,
+                    "vq_cpps_db": 10.0,
+                }
+            return metrics
+
+        self._extract_paraling = _fake_extract_paraling.__get__(self, AudioAnalysisPipelineV2)
         self.stats.models.update(
             {
                 "preprocessor": "StubPreprocessor",

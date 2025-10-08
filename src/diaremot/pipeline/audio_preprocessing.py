@@ -37,7 +37,7 @@ class PreprocessConfig:
 
     # Auto-chunking for long audio files
     auto_chunk_enabled: bool = True
-    chunk_threshold_minutes: float = 30.0  # Split audio longer than this
+    chunk_threshold_minutes: float = 60.0  # Split audio longer than this
     chunk_size_minutes: float = 20.0  # Each chunk duration
     chunk_overlap_seconds: float = 30.0  # Overlap between chunks
     chunk_temp_dir: str | None = None  # Use system temp if None
@@ -99,6 +99,28 @@ class AudioHealth:
     floor_clipping_ratio: float
     is_chunked: bool = False
     chunk_info: dict | None = None
+
+
+@dataclass
+class PreprocessResult:
+    """Structured result emitted by :class:`AudioPreprocessor`."""
+
+    audio: np.ndarray
+    sample_rate: int
+    health: AudioHealth | None
+    duration_s: float
+    is_chunked: bool = False
+    chunk_details: dict | None = None
+
+    def to_tuple(self) -> tuple[np.ndarray, int, AudioHealth | None]:
+        """Return the legacy tuple representation (audio, sr, health)."""
+
+        return self.audio, self.sample_rate, self.health
+
+    def __iter__(self):
+        """Allow unpacking ``PreprocessResult`` like the historical tuple."""
+
+        yield from (self.audio, self.sample_rate, self.health)
 
 
 @dataclass
@@ -705,26 +727,30 @@ class AudioPreprocessor:
     def __init__(self, config: PreprocessConfig | None = None):
         self.config = config or PreprocessConfig()
 
-    def process_file(self, path: str) -> tuple[np.ndarray, int, AudioHealth | None]:
-        # Check if file needs chunking
+    def process_file(self, path: str) -> PreprocessResult:
+        """Load ``path`` and run the preprocessing chain."""
+
         duration, info = _probe_audio_metadata(path)
         threshold_seconds = self.config.chunk_threshold_minutes * 60.0
 
-        if self.config.auto_chunk_enabled and duration > threshold_seconds:
-            logger.info(f"Long audio detected ({duration / 60:.1f}min), using auto-chunking")
+        if self.config.auto_chunk_enabled and duration >= threshold_seconds:
+            logger.info(
+                "Long audio detected (%.1fmin), auto-chunking into ~%d min windows",
+                duration / 60.0,
+                int(self.config.chunk_size_minutes),
+            )
             return self._process_file_chunked(path, duration, info)
-        else:
-            logger.info(f"Processing audio normally ({duration / 60:.1f}min)")
-            y, sr = _safe_load_audio(path, target_sr=self.config.target_sr, mono=self.config.mono)
-            return self.process_array(y, sr)
+
+        logger.info(f"Processing audio normally ({duration / 60:.1f}min)")
+        y, sr = _safe_load_audio(path, target_sr=self.config.target_sr, mono=self.config.mono)
+        return self.process_array(y, sr)
 
     def _process_file_chunked(
         self,
         path: str,
         duration: float,
         info: sf.Info | None,
-    ) -> tuple[np.ndarray, int, AudioHealth | None]:
-        # Create chunks
+    ) -> PreprocessResult:
         chunks_info = _create_audio_chunks(
             path,
             self.config,
@@ -737,54 +763,59 @@ class AudioPreprocessor:
             y, sr = _safe_load_audio(path, target_sr=self.config.target_sr, mono=self.config.mono)
             return self.process_array(y, sr)
 
-        processed_chunks = []
-        chunk_healths = []
+        processed_chunks: list[tuple[np.ndarray, ChunkInfo]] = []
+        chunk_healths: list[AudioHealth] = []
 
         try:
-            # Process each chunk
             for chunk_info in chunks_info:
                 logger.info(f"Processing chunk {chunk_info.chunk_id}/{len(chunks_info) - 1}")
-
-                # Load and process chunk
                 y_chunk, sr = _safe_load_audio(
                     chunk_info.temp_path,
                     target_sr=self.config.target_sr,
                     mono=self.config.mono,
                 )
+                chunk_result = self.process_array(y_chunk, sr)
+                processed_chunks.append((chunk_result.audio, chunk_info))
+                if chunk_result.health:
+                    chunk_healths.append(chunk_result.health)
 
-                y_processed, sr_processed, health = self.process_array(y_chunk, sr)
-
-                processed_chunks.append((y_processed, chunk_info))
-                if health:
-                    chunk_healths.append(health)
-
-            # Merge processed chunks
             merged_audio = _merge_chunked_audio(processed_chunks, self.config.target_sr)
 
-            # Calculate combined health metrics
-            combined_health = self._combine_chunk_health(chunk_healths, len(chunks_info))
-            combined_health.is_chunked = True
-            combined_health.chunk_info = {
+            chunk_meta = {
                 "num_chunks": len(chunks_info),
                 "chunk_duration_minutes": self.config.chunk_size_minutes,
                 "total_duration_minutes": len(merged_audio) / self.config.target_sr / 60.0,
                 "overlap_seconds": self.config.chunk_overlap_seconds,
             }
 
+            combined_health = self._combine_chunk_health(chunk_healths, len(chunks_info))
+            if combined_health:
+                combined_health.is_chunked = True
+                combined_health.chunk_info = chunk_meta
+
+            duration_s = len(merged_audio) / self.config.target_sr if self.config.target_sr else 0.0
+
             logger.info(
                 f"Chunked processing complete: {len(merged_audio) / self.config.target_sr:.1f}s total"
             )
 
-            return merged_audio, self.config.target_sr, combined_health
-
+            return PreprocessResult(
+                audio=merged_audio.astype(np.float32),
+                sample_rate=self.config.target_sr,
+                health=combined_health,
+                duration_s=float(duration_s),
+                is_chunked=True,
+                chunk_details=chunk_meta,
+            )
         finally:
-            # Clean up temporary files
             _cleanup_chunks(chunks_info)
 
     def _combine_chunk_health(
         self, chunk_healths: list[AudioHealth], num_chunks: int
-    ) -> AudioHealth:
+    ) -> AudioHealth | None:
         if not chunk_healths:
+            if num_chunks <= 0:
+                return None
             return AudioHealth(
                 snr_db=0.0,
                 clipping_detected=False,
@@ -796,7 +827,6 @@ class AudioPreprocessor:
                 is_chunked=True,
             )
 
-        # Average most metrics, take worst-case for others
         avg_snr = float(np.mean([h.snr_db for h in chunk_healths]))
         any_clipping = any(h.clipping_detected for h in chunk_healths)
         avg_silence = float(np.mean([h.silence_ratio for h in chunk_healths]))
@@ -816,31 +846,60 @@ class AudioPreprocessor:
             is_chunked=True,
         )
 
-    def process_array(self, y: np.ndarray, sr: int) -> tuple[np.ndarray, int, AudioHealth | None]:
+    def process_array(self, y: np.ndarray, sr: int) -> PreprocessResult:
         if y is None or len(y) == 0:
-            return np.zeros(1, dtype=np.float32), sr, None
+            empty = np.zeros(1, dtype=np.float32)
+            return PreprocessResult(
+                audio=empty,
+                sample_rate=sr,
+                health=None,
+                duration_s=0.0,
+                is_chunked=False,
+            )
+
         y = y.astype(np.float32, copy=False)
 
-        # 1) High-pass
-        y = _butter_highpass(y, sr, self.config.hpf_hz, self.config.hpf_order)
+        y_hp = self._apply_highpass(y, sr)
+        speech_mask = self._run_vad(y_hp, sr)
+        y_denoised, floor_ratio = self._apply_denoise(y_hp, sr, speech_mask)
 
-        # 2) VAD
-        speech_mask = (
-            _simple_vad(
-                y,
-                sr,
-                self.config.frame_ms,
-                self.config.hop_ms,
-                floor_pct=self.config.vad_floor_percentile,
-                rel_db=self.config.vad_rel_db,
-            )
-            if self.config.use_vad
-            else None
+        n_fft, hop = _frame_params(sr, self.config.frame_ms, self.config.hop_ms)
+        y_boosted = self._apply_upward_gain(y_denoised, sr, n_fft, hop)
+        y_compressed = self._apply_compression(y_boosted, sr, n_fft, hop)
+        y_loud = self._apply_loudness(y_compressed, sr)
+        y_final = self._apply_safety_limit(y_loud)
+
+        health = self._build_health(y_final, sr, floor_ratio)
+        duration_s = len(y_final) / sr if sr else 0.0
+
+        return PreprocessResult(
+            audio=y_final,
+            sample_rate=sr,
+            health=health,
+            duration_s=float(duration_s),
+            is_chunked=False,
         )
 
-        # 3) Denoise
+    def _apply_highpass(self, y: np.ndarray, sr: int) -> np.ndarray:
+        return _butter_highpass(y, sr, self.config.hpf_hz, self.config.hpf_order)
+
+    def _run_vad(self, y: np.ndarray, sr: int) -> np.ndarray | None:
+        if not self.config.use_vad:
+            return None
+        return _simple_vad(
+            y,
+            sr,
+            self.config.frame_ms,
+            self.config.hop_ms,
+            floor_pct=self.config.vad_floor_percentile,
+            rel_db=self.config.vad_rel_db,
+        )
+
+    def _apply_denoise(
+        self, y: np.ndarray, sr: int, speech_mask: np.ndarray | None
+    ) -> tuple[np.ndarray, float]:
         if self.config.denoise == "spectral_sub_soft":
-            y_d, floor_ratio = _spectral_subtract_soft_vad(
+            return _spectral_subtract_soft_vad(
                 y,
                 sr,
                 speech_mask,
@@ -854,21 +913,18 @@ class AudioPreprocessor:
                 hop_ms=self.config.hop_ms,
                 backoff_thresh=self.config.high_clip_backoff,
             )
-        else:
-            y_d, floor_ratio = y, 0.0
+        return y, 0.0
 
-        # 4) Gated upward gain (per-frame), smoothed (hann/exp), mapped to samples
-        n_fft, hop = _frame_params(sr, self.config.frame_ms, self.config.hop_ms)
-        S2 = librosa.stft(y_d, n_fft=n_fft, hop_length=hop, window="hann")
-        mag2 = np.abs(S2)
-        frame_rms = np.sqrt(np.mean(mag2**2, axis=0) + 1e-12)
+    def _apply_upward_gain(self, y: np.ndarray, sr: int, n_fft: int, hop: int) -> np.ndarray:
+        S = librosa.stft(y, n_fft=n_fft, hop_length=hop, window="hann")
+        mag = np.abs(S)
+        frame_rms = np.sqrt(np.mean(mag**2, axis=0) + 1e-12)
         frame_db = 20 * np.log10(frame_rms + 1e-12)
 
+        gain_db = np.zeros_like(frame_db)
         gate_db = float(self.config.gate_db)
         target_db = float(self.config.target_db)
         max_boost = float(self.config.max_boost_db)
-
-        gain_db = np.zeros_like(frame_db)
         needs_boost = (frame_db > gate_db) & (frame_db < target_db)
         gain_db[needs_boost] = np.minimum(target_db - frame_db[needs_boost], max_boost)
 
@@ -879,17 +935,17 @@ class AudioPreprocessor:
             gain_db_sm = _exp_smooth(gain_db, alpha=float(self.config.exp_smooth_alpha))
 
         gain_lin = np.power(10.0, gain_db_sm / 20.0)
-        env = _interp_per_sample(gain_lin, hop, len(y_d))
-        y_boost = y_d * env.astype(np.float32)
+        env = _interp_per_sample(gain_lin, hop, len(y))
+        return y * env.astype(np.float32)
 
-        # 5) Compression (transparent)
+    def _apply_compression(self, y: np.ndarray, sr: int, n_fft: int, hop: int) -> np.ndarray:
+        S = librosa.stft(y, n_fft=n_fft, hop_length=hop, window="hann")
+        mag = np.abs(S)
+        lvl_db = 20 * np.log10(np.sqrt(np.mean(mag**2, axis=0)) + 1e-12)
+
         thr = float(self.config.comp_thresh_db)
         ratio = float(self.config.comp_ratio)
         knee = float(self.config.comp_knee_db)
-
-        S3 = librosa.stft(y_boost, n_fft=n_fft, hop_length=hop, window="hann")
-        mag3 = np.abs(S3)
-        lvl_db = 20 * np.log10(np.sqrt(np.mean(mag3**2, axis=0)) + 1e-12)
 
         over = lvl_db - thr
         comp_gain_db = np.zeros_like(over)
@@ -901,60 +957,50 @@ class AudioPreprocessor:
             elif o < upper:
                 t = (o - lower) / (knee + 1e-12)
                 desired = thr + o / ratio
-                comp_gain_db[i] = desired - (thr + o)
-                comp_gain_db[i] *= t  # knee smoothing
+                comp_gain_db[i] = (desired - (thr + o)) * t
             else:
                 comp_gain_db[i] = (thr + o / ratio) - (thr + o)
 
         comp_gain_lin = np.power(10.0, comp_gain_db / 20.0)
-        comp_env = _interp_per_sample(comp_gain_lin, hop, len(y_boost))
-        y_comp = y_boost * comp_env.astype(np.float32)
+        comp_env = _interp_per_sample(comp_gain_lin, hop, len(y))
+        return y * comp_env.astype(np.float32)
 
-        # 6) Loudness normalization
-        current_lufs = _estimate_loudness_lufs_approx(y_comp, sr)
-        if self.config.loudness_mode == "asr":
-            target_lufs = self.config.lufs_target_asr
-        else:
-            target_lufs = self.config.lufs_target_broadcast
-
-        loudness_gain_db = target_lufs - current_lufs
-        loudness_gain_db = np.clip(loudness_gain_db, -12.0, 12.0)  # Safety limits
+    def _apply_loudness(self, y: np.ndarray, sr: int) -> np.ndarray:
+        current_lufs = _estimate_loudness_lufs_approx(y, sr)
+        target_lufs = (
+            self.config.lufs_target_asr
+            if self.config.loudness_mode == "asr"
+            else self.config.lufs_target_broadcast
+        )
+        loudness_gain_db = np.clip(target_lufs - current_lufs, -12.0, 12.0)
         loudness_gain_lin = 10.0 ** (loudness_gain_db / 20.0)
-        y_norm = y_comp * float(loudness_gain_lin)
+        return y * float(loudness_gain_lin)
 
-        # 7) Final safety limiting
-        peak = np.max(np.abs(y_norm))
+    def _apply_safety_limit(self, y: np.ndarray) -> np.ndarray:
+        if y.size == 0:
+            return y.astype(np.float32)
+        peak = float(np.max(np.abs(y)))
         if peak > 0.95:
             safety_gain = 0.95 / peak
-            y_norm = y_norm * safety_gain
+            y = y * safety_gain
             logger.warning(f"Applied safety limiting: {20 * np.log10(safety_gain):.1f} dB")
+        return y.astype(np.float32)
 
-        # 8) Quality metrics
-        y_final = y_norm.astype(np.float32)
+    def _build_health(self, y: np.ndarray, sr: int, floor_ratio: float) -> AudioHealth:
+        signal_power = float(np.mean(y**2)) if y.size else 0.0
+        noise_estimate = float(np.percentile(y**2, 10)) if y.size else 0.0
+        snr_db = 10 * np.log10(signal_power / max(noise_estimate, 1e-12)) if signal_power > 0 else 0.0
 
-        # SNR estimation
-        signal_power = np.mean(y_final**2)
-        noise_estimate = np.percentile(y_final**2, 10)  # Bottom 10% as noise estimate
-        snr_db = (
-            10 * np.log10(signal_power / max(noise_estimate, 1e-12)) if signal_power > 0 else 0.0
-        )
-
-        # Silence detection
         silence_thresh = 10.0 ** (self.config.silence_db / 20.0)
-        silence_frames = np.sum(np.abs(y_final) < silence_thresh)
-        silence_ratio = silence_frames / len(y_final) if len(y_final) > 0 else 1.0
+        silence_frames = float(np.sum(np.abs(y) < silence_thresh)) if y.size else 0.0
+        silence_ratio = silence_frames / float(len(y)) if len(y) > 0 else 1.0
 
-        # Clipping detection with oversampling
-        clipping_detected = _oversampled_clip_detect(y_final, self.config.oversample_factor)
+        clipping_detected = _oversampled_clip_detect(y, self.config.oversample_factor)
+        dynamic_range_db = _dynamic_range_db(y)
+        rms_db = _rms_db(y)
+        est_lufs = _estimate_loudness_lufs_approx(y, sr)
 
-        # Dynamic range
-        dynamic_range_db = _dynamic_range_db(y_final)
-
-        # RMS and estimated LUFS
-        rms_db = _rms_db(y_final)
-        est_lufs = _estimate_loudness_lufs_approx(y_final, sr)
-
-        health = AudioHealth(
+        return AudioHealth(
             snr_db=float(snr_db),
             clipping_detected=bool(clipping_detected),
             silence_ratio=float(silence_ratio),
@@ -963,8 +1009,6 @@ class AudioPreprocessor:
             dynamic_range_db=float(dynamic_range_db),
             floor_clipping_ratio=float(floor_ratio),
         )
-
-        return y_final, sr, health
 
 
 # Example usage and testing
@@ -1007,29 +1051,29 @@ if __name__ == "__main__":
     start_time = time.time()
 
     try:
-        y_processed, sr_processed, health = preprocessor.process_file(args.input)
+        result = preprocessor.process_file(args.input)
 
         # Save output
-        sf.write(args.output, y_processed, sr_processed)
+        sf.write(args.output, result.audio, result.sample_rate)
 
         elapsed = time.time() - start_time
-        duration = len(y_processed) / sr_processed
+        duration = result.duration_s
 
         print(f"✓ Processing complete in {elapsed:.1f}s")
         print(f"  Output: {args.output}")
         print(f"  Duration: {duration:.1f}s")
-        print(f"  Sample rate: {sr_processed} Hz")
+        print(f"  Sample rate: {result.sample_rate} Hz")
 
-        if health:
+        if result.health:
             print("  Audio Health:")
-            print(f"    SNR: {health.snr_db:.1f} dB")
-            print(f"    RMS: {health.rms_db:.1f} dB")
-            print(f"    Est. LUFS: {health.est_lufs:.1f}")
-            print(f"    Dynamic range: {health.dynamic_range_db:.1f} dB")
-            print(f"    Silence ratio: {health.silence_ratio:.1%}")
-            print(f"    Clipping detected: {health.clipping_detected}")
-            if health.is_chunked:
-                print(f"    Processed in chunks: {health.chunk_info['num_chunks']}")
+            print(f"    SNR: {result.health.snr_db:.1f} dB")
+            print(f"    RMS: {result.health.rms_db:.1f} dB")
+            print(f"    Est. LUFS: {result.health.est_lufs:.1f}")
+            print(f"    Dynamic range: {result.health.dynamic_range_db:.1f} dB")
+            print(f"    Silence ratio: {result.health.silence_ratio:.1%}")
+            print(f"    Clipping detected: {result.health.clipping_detected}")
+            if result.health.is_chunked and result.health.chunk_info:
+                print(f"    Processed in chunks: {result.health.chunk_info['num_chunks']}")
 
     except Exception as e:
         print(f"✗ Processing failed: {e}")

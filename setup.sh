@@ -58,15 +58,51 @@ fi
 # ---- Local caches + required env vars (defaults) ----
 echo "==> Preparing local caches and env vars"
 CACHE_ROOT="${CACHE_ROOT:-$REPO_ROOT/.cache}"
-mkdir -p "$CACHE_ROOT" "$CACHE_ROOT/hf" "$CACHE_ROOT/torch" "$CACHE_ROOT/transformers"
+mkdir -p "$CACHE_ROOT"
 
-export HF_HOME="${HF_HOME:-$CACHE_ROOT/hf}"
-export HUGGINGFACE_HUB_CACHE="${HUGGINGFACE_HUB_CACHE:-$CACHE_ROOT/hf}"
-export TRANSFORMERS_CACHE="${TRANSFORMERS_CACHE:-$CACHE_ROOT/transformers}"
-export TORCH_HOME="${TORCH_HOME:-$CACHE_ROOT/torch}"
-export XDG_CACHE_HOME="${XDG_CACHE_HOME:-$CACHE_ROOT}"
+prefer_dir() {
+  local primary="$1" fallback="$2" label="$3"
+  if [[ -z "$primary" ]]; then
+    mkdir -p "$fallback"
+    printf '%s\n' "$fallback"
+    return 0
+  fi
+  if mkdir -p "$primary" 2>/dev/null; then
+    printf '%s\n' "$primary"
+    return 0
+  fi
+  echo "WARN: unable to initialise $label at $primary; using $fallback" >&2
+  mkdir -p "$fallback"
+  printf '%s\n' "$fallback"
+}
+
+case "${OS:-${OSTYPE:-}}" in
+  Windows_NT|MSYS*|MINGW*|CYGWIN*)
+    CANONICAL_MODEL_ROOT="D:/models"
+    CANONICAL_HF_HOME="D:/hf_cache"
+    CANONICAL_TRANSFORMERS="D:/hf_cache/transformers"
+    CANONICAL_TORCH="D:/hf_cache/torch"
+    ;;
+  *)
+    CANONICAL_MODEL_ROOT="/srv/models"
+    CANONICAL_HF_HOME="/srv/.cache/hf"
+    CANONICAL_TRANSFORMERS="/srv/.cache/transformers"
+    CANONICAL_TORCH="/srv/.cache/torch"
+    ;;
+esac
+
+HF_HOME="${HF_HOME:-$(prefer_dir "$CANONICAL_HF_HOME" "$CACHE_ROOT/hf" 'HF cache')}"
+HUGGINGFACE_HUB_CACHE="${HUGGINGFACE_HUB_CACHE:-$HF_HOME}"
+TRANSFORMERS_CACHE="${TRANSFORMERS_CACHE:-$(prefer_dir "$CANONICAL_TRANSFORMERS" "$CACHE_ROOT/transformers" 'Transformers cache')}"
+TORCH_HOME="${TORCH_HOME:-$(prefer_dir "$CANONICAL_TORCH" "$CACHE_ROOT/torch" 'Torch cache')}"
+XDG_CACHE_HOME="${XDG_CACHE_HOME:-$CACHE_ROOT}"
+HF_HUB_ENABLE_HF_TRANSFER="${HF_HUB_ENABLE_HF_TRANSFER:-1}"
+TOKENIZERS_PARALLELISM="${TOKENIZERS_PARALLELISM:-false}"
+
+export HF_HOME HUGGINGFACE_HUB_CACHE TRANSFORMERS_CACHE TORCH_HOME XDG_CACHE_HOME
+export HF_HUB_ENABLE_HF_TRANSFER TOKENIZERS_PARALLELISM
 export PYTHONPATH="$REPO_ROOT/src:${PYTHONPATH:-}"
-export CUDA_VISIBLE_DEVICES=""   # CPU‑only
+export CUDA_VISIBLE_DEVICES=""
 export TORCH_DEVICE="cpu"
 
 # Threads defaults per AGENTS.md (cap to 4)
@@ -75,23 +111,38 @@ _cpu_n=$(( _cpu_n > 4 ? 4 : _cpu_n ))
 export OMP_NUM_THREADS="${OMP_NUM_THREADS:-${_cpu_n}}"
 export MKL_NUM_THREADS="${MKL_NUM_THREADS:-${_cpu_n}}"
 export NUMEXPR_MAX_THREADS="${NUMEXPR_MAX_THREADS:-${_cpu_n}}"
-export TOKENIZERS_PARALLELISM="${TOKENIZERS_PARALLELISM:-false}"
 
 # ---- Models: stage into $DIAREMOT_MODEL_DIR (no silent downloads) ----
-export DIAREMOT_MODEL_DIR="${DIAREMOT_MODEL_DIR:-$REPO_ROOT/models}"
+DIAREMOT_MODEL_DIR="${DIAREMOT_MODEL_DIR:-$(prefer_dir "$CANONICAL_MODEL_ROOT" "$REPO_ROOT/models" 'model root')}"
+export DIAREMOT_MODEL_DIR
 mkdir -p "$DIAREMOT_MODEL_DIR"
+mkdir -p \
+  "$DIAREMOT_MODEL_DIR/asr_ct2" \
+  "$DIAREMOT_MODEL_DIR/diarization" \
+  "$DIAREMOT_MODEL_DIR/sed_panns" \
+  "$DIAREMOT_MODEL_DIR/affect/ser8" \
+  "$DIAREMOT_MODEL_DIR/affect/vad_dim" \
+  "$DIAREMOT_MODEL_DIR/intent" \
+  "$DIAREMOT_MODEL_DIR/text_emotions"
 
-need_model_copy=1
+need_model_copy=0
 for must in \
-  panns_cnn14.onnx \
-  audioset_labels.csv \
-  silero_vad.onnx \
-  ecapa_tdnn.onnx \
-  ser_8class.onnx \
-  vad_model.onnx \
-  roberta-base-go_emotions.onnx \
-  bart-large-mnli.onnx; do
-  if [[ -f "$DIAREMOT_MODEL_DIR/$must" ]]; then continue; else need_model_copy=0; break; fi
+  asr_ct2/config.json \
+  asr_ct2/model.bin \
+  asr_ct2/tokenizer.json \
+  diarization/ecapa_tdnn.onnx \
+  sed_panns/cnn14.onnx \
+  sed_panns/labels.csv \
+  affect/ser8/model.onnx \
+  affect/vad_dim/model.onnx \
+  intent/model.onnx \
+  intent/tokenizer.json \
+  text_emotions/model.onnx \
+  text_emotions/tokenizer.json; do
+  if [[ ! -f "$DIAREMOT_MODEL_DIR/$must" ]]; then
+    need_model_copy=1
+    break
+  fi
 done
 
 # Portable sha256 helper

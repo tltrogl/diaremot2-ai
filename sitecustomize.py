@@ -37,16 +37,27 @@ os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 
 # If a common local model root exists (Windows path from your setup), set it.
 try:
-    default_models = Path(r"D:\\diaremot\\diaremot2-1\\models")
+    default_models = Path(r"D:\\models")
     if default_models.exists():
         os.environ.setdefault("DIAREMOT_MODEL_DIR", str(default_models))
+        os.environ.setdefault("HF_HOME", r"D:\\hf_cache")
+        os.environ.setdefault("HUGGINGFACE_HUB_CACHE", r"D:\\hf_cache")
+        os.environ.setdefault("TRANSFORMERS_CACHE", r"D:\\hf_cache\\transformers")
+        os.environ.setdefault("TORCH_HOME", r"D:\\hf_cache\\torch")
+        os.environ.setdefault("HF_HUB_ENABLE_HF_TRANSFER", "1")
         # Convenience explicit paths if present
-        goem = default_models / "goemotions-onnx"
-        bart = default_models / "bart"
+        goem = default_models / "text_emotions"
+        bart = default_models / "intent"
+        ser8 = default_models / "affect" / "ser8"
+        vad_dim = default_models / "affect" / "vad_dim"
         if goem.exists():
             os.environ.setdefault("DIAREMOT_TEXT_MODEL_DIR", str(goem))
         if bart.exists():
             os.environ.setdefault("DIAREMOT_INTENT_MODEL_DIR", str(bart))
+        if ser8.exists():
+            os.environ.setdefault("AFFECT_SER_MODEL_DIR", str(ser8))
+        if vad_dim.exists():
+            os.environ.setdefault("AFFECT_VAD_DIM_MODEL_DIR", str(vad_dim))
 except Exception:
     pass
 <<<<<<< HEAD
