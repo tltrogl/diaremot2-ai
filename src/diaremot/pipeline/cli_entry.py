@@ -127,6 +127,12 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         help="Enable spectral subtraction noise reduction",
     )
     parser.add_argument(
+        "--enable-sed",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Enable background sound event detection (use --no-enable-sed to skip)",
+    )
+    parser.add_argument(
         "--chunk-enabled",
         action=argparse.BooleanOptionalAction,
         default=True,
@@ -261,6 +267,7 @@ def _args_to_config(args: argparse.Namespace, *, ignore_tx_cache: bool) -> dict[
         "temperature": args.temperature,
         "no_speech_threshold": args.no_speech_threshold,
         "noise_reduction": bool(args.noise_reduction),
+        "enable_sed": bool(args.enable_sed),
         "auto_chunk_enabled": bool(args.chunk_enabled),
         "chunk_threshold_minutes": float(args.chunk_threshold_minutes),
         "chunk_size_minutes": float(args.chunk_size_minutes),

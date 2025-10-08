@@ -429,18 +429,28 @@ class AudioAnalysisPipelineV2:
                 }
             )
 
-            # Background SED / noise tagger (always attempt; handles missing models gracefully)
+            # Background SED / noise tagger (always attempt unless disabled; handles missing models gracefully)
+            sed_enabled = bool(cfg.get("enable_sed", True))
             self.sed_tagger = None
-            try:
-                if PANNSEventTagger is not None:
-                    self.sed_tagger = PANNSEventTagger(SEDConfig() if SEDConfig else None)
-            except Exception as exc:
-                self.sed_tagger = None
-                self.corelog.warn(
-                    "[sed] initialization failed: %s. Background tagging will emit empty results.",
-                    exc,
+            if sed_enabled:
+                try:
+                    if PANNSEventTagger is not None:
+                        self.sed_tagger = PANNSEventTagger(
+                            SEDConfig() if SEDConfig else None
+                        )
+                except Exception as exc:
+                    self.sed_tagger = None
+                    self.corelog.warn(
+                        "[sed] initialization failed: %s. Background tagging will emit empty results.",
+                        exc,
+                    )
+            else:
+                self.corelog.info(
+                    "[sed] background sound event detection disabled; tagger will not be initialised."
                 )
-            if self.sed_tagger is None or not getattr(self.sed_tagger, "available", False):
+            if sed_enabled and (
+                self.sed_tagger is None or not getattr(self.sed_tagger, "available", False)
+            ):
                 self.stats.issues.append(
                     "background_sed assets unavailable; emitting empty tag summary"
                 )
@@ -463,6 +473,7 @@ class AudioAnalysisPipelineV2:
             self.stats.config_snapshot = {
                 "target_sr": self.pp_conf.target_sr,
                 "noise_reduction": cfg.get("noise_reduction", True),
+                "enable_sed": sed_enabled,
                 "registry_path": self.diar_conf.registry_path,
                 "ahc_distance_threshold": self.diar_conf.ahc_distance_threshold,
                 "whisper_model": str(cfg.get("whisper_model", DEFAULT_WHISPER_MODEL)),
