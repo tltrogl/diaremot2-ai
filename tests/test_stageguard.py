@@ -175,19 +175,33 @@ def _install_audio_pipeline_stubs() -> None:
 
     def _preprocess_builder():
         module = types.ModuleType("diaremot.pipeline.audio_preprocessing")
+        from dataclasses import dataclass
+
+        import numpy as _np
 
         class _PreprocessConfig:
             def __init__(self, **kwargs):
                 self.__dict__.update(kwargs)
+
+        @dataclass
+        class _PreprocessResult:
+            audio: _np.ndarray
+            sample_rate: int
+            health: None = None
+            duration_s: float = 0.0
+            is_chunked: bool = False
+            chunk_details: dict | None = None
 
         class _AudioPreprocessor:
             def __init__(self, config):
                 self.config = config
 
             def process_file(self, *args, **kwargs):
-                return ([], 16000, None)
+                audio = _np.zeros(1, dtype=_np.float32)
+                return _PreprocessResult(audio=audio, sample_rate=16000)
 
         module.PreprocessConfig = _PreprocessConfig
+        module.PreprocessResult = _PreprocessResult
         module.AudioPreprocessor = _AudioPreprocessor
         return module
 
@@ -230,6 +244,9 @@ def _install_audio_pipeline_stubs() -> None:
                 self.kwargs = kwargs
 
             def create_checkpoint(self, *args, **kwargs):
+                return None
+
+            def seed_file_hash(self, *args, **kwargs):
                 return None
 
         module.ProcessingStage = _ProcessingStage
@@ -380,10 +397,25 @@ def test_process_audio_file_handles_missing_paraling(tmp_path, monkeypatch):
     def _stub_init(self, cfg):
         class _StubPreprocessor:
             def process_file(self, *_args, **_kwargs):
-                return (
-                    np.zeros(16000, dtype=np.float32),
-                    16000,
-                    types.SimpleNamespace(snr_db=25.0),
+                audio = np.zeros(16000, dtype=np.float32)
+                health = types.SimpleNamespace(
+                    snr_db=25.0,
+                    clipping_detected=False,
+                    silence_ratio=0.0,
+                    rms_db=-25.0,
+                    est_lufs=-23.0,
+                    dynamic_range_db=30.0,
+                    floor_clipping_ratio=0.0,
+                    is_chunked=False,
+                    chunk_info=None,
+                )
+                return types.SimpleNamespace(
+                    audio=audio,
+                    sample_rate=16000,
+                    health=health,
+                    duration_s=float(len(audio) / 16000.0),
+                    is_chunked=False,
+                    chunk_details=None,
                 )
 
         class _StubDiarizer:
