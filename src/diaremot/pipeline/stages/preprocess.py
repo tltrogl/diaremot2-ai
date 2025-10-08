@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import numpy as np
+
 from ..logging_utils import StageGuard, _fmt_hms
 from ..pipeline_checkpoint_system import ProcessingStage
 from .base import PipelineState
@@ -18,17 +20,17 @@ def run_preprocess(
     if not hasattr(pipeline, "pre") or pipeline.pre is None:
         raise RuntimeError("Preprocessor component unavailable; initialization failed")
 
-    y, sr, health = pipeline.pre.process_file(state.input_audio_path)
-    state.y = y
-    state.sr = sr
-    state.health = health
-    state.duration_s = float(len(y) / sr) if sr else 0.0
+    result = pipeline.pre.process_file(state.input_audio_path)
+    state.y = np.asarray(result.audio, dtype=np.float32)
+    state.sr = result.sample_rate
+    state.health = result.health
+    state.duration_s = float(result.duration_s)
     pipeline.corelog.info(f"[preprocess] file duration {_fmt_hms(state.duration_s)}")
     pipeline.corelog.event(
         "preprocess",
         "metrics",
         duration_s=state.duration_s,
-        snr_db=float(getattr(health, "snr_db", 0.0)) if health else None,
+        snr_db=float(getattr(result.health, "snr_db", 0.0)) if result.health else None,
     )
     guard.done(duration_s=state.duration_s)
 
