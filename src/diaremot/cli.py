@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 import json
+import array
+import math
+import shutil
+import subprocess
 from functools import lru_cache
 from importlib import import_module
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 import typer
 
@@ -14,6 +18,9 @@ from .pipeline.logging_utils import _make_json_safe
 from .pipeline.runtime_env import DEFAULT_WHISPER_MODEL
 
 app = typer.Typer(help="High level CLI wrapper for the DiaRemot audio pipeline.")
+
+# Ensure Optional is available when annotations are evaluated by inspect on Python 3.11.
+globals()["Optional"] = Optional
 
 
 @lru_cache
@@ -24,7 +31,7 @@ def _core():
         return import_module("audio_pipeline_core")
 
 
-def core_build_config(overrides: dict[str, Any] | None = None) -> dict[str, Any]:
+def core_build_config(overrides: Optional[dict[str, Any]] = None) -> dict[str, Any]:
     return _core().build_pipeline_config(overrides)
 
 
@@ -63,7 +70,7 @@ BUILTIN_PROFILES: dict[str, dict[str, Any]] = {
 }
 
 
-def _load_profile(profile: str | None) -> dict[str, Any]:
+def _load_profile(profile: Optional[str]) -> dict[str, Any]:
     if not profile:
         return {}
 
@@ -86,7 +93,7 @@ def _load_profile(profile: str | None) -> dict[str, Any]:
     return data
 
 
-def _normalise_path(value: Path | None) -> str | None:
+def _normalise_path(value: Optional[Path]) -> Optional[str]:
     if value is None:
         return None
     return str(value.expanduser().resolve())
@@ -169,7 +176,7 @@ def _common_options(**kwargs: Any) -> dict[str, Any]:
         "temperature": kwargs.get("temperature"),
         "no_speech_threshold": kwargs.get("no_speech_threshold"),
         "noise_reduction": kwargs.get("noise_reduction"),
-        "enable_sed": kwargs.get("sed_enabled"),
+        "enable_sed": kwargs.get("enable_sed"),
         "auto_chunk_enabled": kwargs.get("chunk_enabled"),
         "chunk_threshold_minutes": kwargs.get("chunk_threshold_minutes"),
         "chunk_size_minutes": kwargs.get("chunk_size_minutes"),
@@ -202,11 +209,81 @@ def _common_options(**kwargs: Any) -> dict[str, Any]:
     return overrides
 
 
+def _assemble_config(
+    profile: Optional[str], cli_overrides: dict[str, Any]
+) -> dict[str, Any]:
+    profile_overrides = _load_profile(profile)
+    merged = _merge_configs(profile_overrides, _common_options(**cli_overrides))
+    return core_build_config(merged)
+
+
+def _generate_sample_audio(
+    target: Path,
+    duration: float,
+    sample_rate: int,
+    ffmpeg_bin: Optional[str] = None,
+) -> str:
+    """Generate a sine-wave sample clip for smoke testing."""
+
+    if duration <= 0:
+        raise typer.BadParameter("duration must be positive")
+
+    if sample_rate <= 0:
+        raise typer.BadParameter("sample rate must be positive")
+
+    target.parent.mkdir(parents=True, exist_ok=True)
+
+    resolved_ffmpeg = ffmpeg_bin or shutil.which("ffmpeg")
+    if resolved_ffmpeg:
+        command = [
+            resolved_ffmpeg,
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            f"sine=frequency=440:sample_rate={sample_rate}:duration={duration}",
+            "-ac",
+            "1",
+            str(target),
+        ]
+        try:
+            subprocess.run(
+                command,
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            return "ffmpeg"
+        except (FileNotFoundError, subprocess.CalledProcessError):
+            pass
+
+    total_samples = int(duration * sample_rate)
+    if total_samples <= 0:
+        raise typer.BadParameter("duration/sample-rate combination produced no audio")
+
+    sine = array.array("h")
+    amplitude = 32767
+    angular = 2 * math.pi * 440
+    for index in range(total_samples):
+        value = int(amplitude * math.sin(angular * (index / sample_rate)))
+        sine.append(value)
+
+    import wave
+
+    with wave.open(str(target), "wb") as wav_file:
+        wav_file.setnchannels(1)
+        wav_file.setsampwidth(2)
+        wav_file.setframerate(sample_rate)
+        wav_file.writeframes(sine.tobytes())
+
+    return "python"
+
+
 @app.command()
 def run(
     input: Path = typer.Option(..., "--input", "-i", help="Path to input audio file."),
     outdir: Path = typer.Option(..., "--outdir", "-o", help="Directory to write outputs."),
-    profile: str | None = typer.Option(
+    profile: Optional[str] = typer.Option(
         None,
         "--profile",
         help=f"Configuration profile to load ({', '.join(BUILTIN_PROFILES)} or path to JSON).",
@@ -217,14 +294,14 @@ def run(
     ahc_distance_threshold: float = typer.Option(
         0.12, help="Agglomerative clustering distance threshold."
     ),
-    speaker_limit: int | None = typer.Option(None, help="Maximum number of speakers to keep."),
+    speaker_limit: Optional[int] = typer.Option(None, help="Maximum number of speakers to keep."),
     whisper_model: str = typer.Option(
         str(DEFAULT_WHISPER_MODEL), help="Whisper/Faster-Whisper model identifier."
     ),
     asr_backend: str = typer.Option("faster", help="ASR backend", show_default=True),
     asr_compute_type: str = typer.Option("float32", help="CT2 compute type for faster-whisper."),
     asr_cpu_threads: int = typer.Option(1, help="CPU threads for ASR backend."),
-    language: str | None = typer.Option(None, help="Override ASR language"),
+    language: Optional[str] = typer.Option(None, help="Override ASR language"),
     language_mode: str = typer.Option("auto", help="Language detection mode"),
     ignore_tx_cache: bool = typer.Option(
         False,
@@ -245,16 +322,16 @@ def run(
         is_flag=True,
     ),
     affect_backend: str = typer.Option("onnx", help="Affect backend (auto/torch/onnx)."),
-    affect_text_model_dir: Path | None = typer.Option(
+    affect_text_model_dir: Optional[Path] = typer.Option(
         None, help="Path to GoEmotions model directory."
     ),
-    affect_intent_model_dir: Path | None = typer.Option(
+    affect_intent_model_dir: Optional[Path] = typer.Option(
         None, help="Path to intent model directory."
     ),
-    affect_ser_model_dir: Path | None = typer.Option(
+    affect_ser_model_dir: Optional[Path] = typer.Option(
         None, help="Path to speech emotion model directory."
     ),
-    affect_vad_model_dir: Path | None = typer.Option(
+    affect_vad_model_dir: Optional[Path] = typer.Option(
         None, help="Path to valence/arousal/dominance model directory."
     ),
     beam_size: int = typer.Option(1, help="Beam size for ASR decoding."),
@@ -308,51 +385,48 @@ def run(
         is_flag=True,
     ),
 ):
-    cli_overrides = _common_options(
-        registry_path=_normalise_path(registry_path),
-        ahc_distance_threshold=ahc_distance_threshold,
-        speaker_limit=speaker_limit,
-        whisper_model=whisper_model,
-        asr_backend=asr_backend,
-        asr_compute_type=asr_compute_type,
-        asr_cpu_threads=asr_cpu_threads,
-        language=language,
-        language_mode=language_mode,
-        ignore_tx_cache=ignore_tx_cache,
-        quiet=quiet,
-        disable_affect=disable_affect,
-        affect_backend=affect_backend,
-        affect_text_model_dir=_normalise_path(affect_text_model_dir),
-        affect_intent_model_dir=_normalise_path(affect_intent_model_dir),
-        affect_ser_model_dir=_normalise_path(affect_ser_model_dir),
-        affect_vad_model_dir=_normalise_path(affect_vad_model_dir),
-        beam_size=beam_size,
-        temperature=temperature,
-        no_speech_threshold=no_speech_threshold,
-        noise_reduction=noise_reduction,
-        enable_sed=not disable_sed,
-        chunk_enabled=chunk_enabled,
-        chunk_threshold_minutes=chunk_threshold_minutes,
-        chunk_size_minutes=chunk_size_minutes,
-        chunk_overlap_seconds=chunk_overlap_seconds,
-        vad_threshold=vad_threshold,
-        vad_min_speech_sec=vad_min_speech_sec,
-        vad_min_silence_sec=vad_min_silence_sec,
-        vad_speech_pad_sec=vad_speech_pad_sec,
-        vad_backend=vad_backend,
-        sed_enabled=enable_sed,
-        disable_energy_vad_fallback=disable_energy_vad_fallback,
-        energy_gate_db=energy_gate_db,
-        energy_hop_sec=energy_hop_sec,
-        asr_window_sec=asr_window_sec,
-        asr_segment_timeout=asr_segment_timeout,
-        asr_batch_timeout=asr_batch_timeout,
-        cpu_diarizer=cpu_diarizer,
-    )
+    run_overrides: dict[str, Any] = {
+        "registry_path": _normalise_path(registry_path),
+        "ahc_distance_threshold": ahc_distance_threshold,
+        "speaker_limit": speaker_limit,
+        "whisper_model": whisper_model,
+        "asr_backend": asr_backend,
+        "asr_compute_type": asr_compute_type,
+        "asr_cpu_threads": asr_cpu_threads,
+        "language": language,
+        "language_mode": language_mode,
+        "ignore_tx_cache": ignore_tx_cache,
+        "quiet": quiet,
+        "disable_affect": disable_affect,
+        "affect_backend": affect_backend,
+        "affect_text_model_dir": _normalise_path(affect_text_model_dir),
+        "affect_intent_model_dir": _normalise_path(affect_intent_model_dir),
+        "affect_ser_model_dir": _normalise_path(affect_ser_model_dir),
+        "affect_vad_model_dir": _normalise_path(affect_vad_model_dir),
+        "beam_size": beam_size,
+        "temperature": temperature,
+        "no_speech_threshold": no_speech_threshold,
+        "noise_reduction": noise_reduction,
+        "chunk_enabled": chunk_enabled,
+        "chunk_threshold_minutes": chunk_threshold_minutes,
+        "chunk_size_minutes": chunk_size_minutes,
+        "chunk_overlap_seconds": chunk_overlap_seconds,
+        "vad_threshold": vad_threshold,
+        "vad_min_speech_sec": vad_min_speech_sec,
+        "vad_min_silence_sec": vad_min_silence_sec,
+        "vad_speech_pad_sec": vad_speech_pad_sec,
+        "vad_backend": vad_backend,
+        "enable_sed": enable_sed,
+        "disable_energy_vad_fallback": disable_energy_vad_fallback,
+        "energy_gate_db": energy_gate_db,
+        "energy_hop_sec": energy_hop_sec,
+        "asr_window_sec": asr_window_sec,
+        "asr_segment_timeout": asr_segment_timeout,
+        "asr_batch_timeout": asr_batch_timeout,
+        "cpu_diarizer": cpu_diarizer,
+    }
 
-    profile_overrides = _load_profile(profile)
-    merged = _merge_configs(profile_overrides, cli_overrides)
-    config = core_build_config(merged)
+    config = _assemble_config(profile, run_overrides)
 
     _validate_assets(input, outdir, config)
 
@@ -368,12 +442,95 @@ def run(
 
 
 @app.command()
+def smoke(
+    outdir: Path = typer.Option(
+        ..., "--outdir", "-o", help="Directory to write smoke test outputs."
+    ),
+    profile: Optional[str] = typer.Option(
+        None,
+        "--profile",
+        help=f"Optional configuration profile ({', '.join(BUILTIN_PROFILES)} or path).",
+    ),
+    duration: float = typer.Option(3.0, help="Duration of generated sample audio in seconds."),
+    sample_rate: int = typer.Option(16000, help="Sample rate for generated audio."),
+    disable_affect: bool = typer.Option(
+        True,
+        "--disable-affect/--enable-affect",
+        help="Disable affect stages for a faster smoke test run.",
+    ),
+    ffmpeg_bin: Optional[Path] = typer.Option(
+        None,
+        "--ffmpeg-bin",
+        help="Explicit ffmpeg binary to synthesise the audio (defaults to PATH lookup).",
+    ),
+    keep_audio: bool = typer.Option(
+        False,
+        "--keep-audio",
+        help="Retain the generated sample WAV after the run completes.",
+        is_flag=True,
+    ),
+):
+    """Generate a demo audio file and execute the pipeline against it."""
+
+    outdir = outdir.expanduser().resolve()
+    outdir.mkdir(parents=True, exist_ok=True)
+
+    sample_path = outdir / "diaremot_smoke_input.wav"
+    ffmpeg_override = _normalise_path(ffmpeg_bin)
+
+    try:
+        _generate_sample_audio(
+            sample_path,
+            duration=duration,
+            sample_rate=sample_rate,
+            ffmpeg_bin=ffmpeg_override,
+        )
+    except typer.BadParameter:
+        if not keep_audio and sample_path.exists():
+            sample_path.unlink()
+        raise
+
+    smoke_overrides: dict[str, Any] = {
+        "registry_path": _normalise_path(Path("speaker_registry.json")),
+        "disable_affect": disable_affect,
+        "affect_backend": "onnx",
+        "enable_sed": True,
+        "noise_reduction": False,
+        "chunk_enabled": None,
+        "chunk_threshold_minutes": None,
+        "chunk_size_minutes": None,
+        "chunk_overlap_seconds": None,
+        "vad_backend": "auto",
+    }
+
+    config = _assemble_config(profile, smoke_overrides)
+
+    _validate_assets(sample_path, outdir, config)
+
+    try:
+        manifest = core_run_pipeline(
+            str(sample_path), str(outdir), config=config, clear_cache=True
+        )
+    except Exception as exc:  # pragma: no cover - runtime failure
+        typer.secho(f"Smoke test failed: {exc}", fg=typer.colors.RED)
+        raise typer.Exit(code=1) from exc
+    finally:
+        if not keep_audio:
+            try:
+                sample_path.unlink()
+            except FileNotFoundError:  # pragma: no cover - defensive cleanup
+                pass
+
+    typer.echo(json.dumps(_make_json_safe(manifest), indent=2))
+
+
+@app.command()
 def resume(
     input: Path = typer.Option(..., "--input", "-i", help="Original input audio file."),
     outdir: Path = typer.Option(
         ..., "--outdir", "-o", help="Output directory used in the previous run."
     ),
-    profile: str | None = typer.Option(
+    profile: Optional[str] = typer.Option(
         None,
         "--profile",
         help=f"Configuration profile to load ({', '.join(BUILTIN_PROFILES)} or path to JSON).",
@@ -384,14 +541,14 @@ def resume(
     ahc_distance_threshold: float = typer.Option(
         0.12, help="Agglomerative clustering distance threshold."
     ),
-    speaker_limit: int | None = typer.Option(None, help="Maximum number of speakers to keep."),
+    speaker_limit: Optional[int] = typer.Option(None, help="Maximum number of speakers to keep."),
     whisper_model: str = typer.Option(
         str(DEFAULT_WHISPER_MODEL), help="Whisper/Faster-Whisper model identifier."
     ),
     asr_backend: str = typer.Option("faster", help="ASR backend", show_default=True),
     asr_compute_type: str = typer.Option("float32", help="CT2 compute type for faster-whisper."),
     asr_cpu_threads: int = typer.Option(1, help="CPU threads for ASR backend."),
-    language: str | None = typer.Option(None, help="Override ASR language"),
+    language: Optional[str] = typer.Option(None, help="Override ASR language"),
     language_mode: str = typer.Option("auto", help="Language detection mode"),
     quiet: bool = typer.Option(
         False,
@@ -406,16 +563,16 @@ def resume(
         is_flag=True,
     ),
     affect_backend: str = typer.Option("onnx", help="Affect backend (auto/torch/onnx)."),
-    affect_text_model_dir: Path | None = typer.Option(
+    affect_text_model_dir: Optional[Path] = typer.Option(
         None, help="Path to GoEmotions model directory."
     ),
-    affect_intent_model_dir: Path | None = typer.Option(
+    affect_intent_model_dir: Optional[Path] = typer.Option(
         None, help="Path to intent model directory."
     ),
-    affect_ser_model_dir: Path | None = typer.Option(
+    affect_ser_model_dir: Optional[Path] = typer.Option(
         None, help="Path to speech emotion model directory."
     ),
-    affect_vad_model_dir: Path | None = typer.Option(
+    affect_vad_model_dir: Optional[Path] = typer.Option(
         None, help="Path to valence/arousal/dominance model directory."
     ),
     beam_size: int = typer.Option(1, help="Beam size for ASR decoding."),
@@ -463,51 +620,48 @@ def resume(
         is_flag=True,
     ),
 ):
-    cli_overrides = _common_options(
-        registry_path=_normalise_path(registry_path),
-        ahc_distance_threshold=ahc_distance_threshold,
-        speaker_limit=speaker_limit,
-        whisper_model=whisper_model,
-        asr_backend=asr_backend,
-        asr_compute_type=asr_compute_type,
-        asr_cpu_threads=asr_cpu_threads,
-        language=language,
-        language_mode=language_mode,
-        ignore_tx_cache=False,
-        quiet=quiet,
-        disable_affect=disable_affect,
-        affect_backend=affect_backend,
-        affect_text_model_dir=_normalise_path(affect_text_model_dir),
-        affect_intent_model_dir=_normalise_path(affect_intent_model_dir),
-        affect_ser_model_dir=_normalise_path(affect_ser_model_dir),
-        affect_vad_model_dir=_normalise_path(affect_vad_model_dir),
-        beam_size=beam_size,
-        temperature=temperature,
-        no_speech_threshold=no_speech_threshold,
-        noise_reduction=noise_reduction,
-        enable_sed=not disable_sed,
-        chunk_enabled=chunk_enabled,
-        chunk_threshold_minutes=chunk_threshold_minutes,
-        chunk_size_minutes=chunk_size_minutes,
-        chunk_overlap_seconds=chunk_overlap_seconds,
-        vad_threshold=vad_threshold,
-        vad_min_speech_sec=vad_min_speech_sec,
-        vad_min_silence_sec=vad_min_silence_sec,
-        vad_speech_pad_sec=vad_speech_pad_sec,
-        vad_backend=vad_backend,
-        sed_enabled=enable_sed,
-        disable_energy_vad_fallback=disable_energy_vad_fallback,
-        energy_gate_db=energy_gate_db,
-        energy_hop_sec=energy_hop_sec,
-        asr_window_sec=asr_window_sec,
-        asr_segment_timeout=asr_segment_timeout,
-        asr_batch_timeout=asr_batch_timeout,
-        cpu_diarizer=cpu_diarizer,
-    )
+    resume_overrides: dict[str, Any] = {
+        "registry_path": _normalise_path(registry_path),
+        "ahc_distance_threshold": ahc_distance_threshold,
+        "speaker_limit": speaker_limit,
+        "whisper_model": whisper_model,
+        "asr_backend": asr_backend,
+        "asr_compute_type": asr_compute_type,
+        "asr_cpu_threads": asr_cpu_threads,
+        "language": language,
+        "language_mode": language_mode,
+        "ignore_tx_cache": False,
+        "quiet": quiet,
+        "disable_affect": disable_affect,
+        "affect_backend": affect_backend,
+        "affect_text_model_dir": _normalise_path(affect_text_model_dir),
+        "affect_intent_model_dir": _normalise_path(affect_intent_model_dir),
+        "affect_ser_model_dir": _normalise_path(affect_ser_model_dir),
+        "affect_vad_model_dir": _normalise_path(affect_vad_model_dir),
+        "beam_size": beam_size,
+        "temperature": temperature,
+        "no_speech_threshold": no_speech_threshold,
+        "noise_reduction": noise_reduction,
+        "chunk_enabled": chunk_enabled,
+        "chunk_threshold_minutes": chunk_threshold_minutes,
+        "chunk_size_minutes": chunk_size_minutes,
+        "chunk_overlap_seconds": chunk_overlap_seconds,
+        "vad_threshold": vad_threshold,
+        "vad_min_speech_sec": vad_min_speech_sec,
+        "vad_min_silence_sec": vad_min_silence_sec,
+        "vad_speech_pad_sec": vad_speech_pad_sec,
+        "vad_backend": vad_backend,
+        "enable_sed": enable_sed,
+        "disable_energy_vad_fallback": disable_energy_vad_fallback,
+        "energy_gate_db": energy_gate_db,
+        "energy_hop_sec": energy_hop_sec,
+        "asr_window_sec": asr_window_sec,
+        "asr_segment_timeout": asr_segment_timeout,
+        "asr_batch_timeout": asr_batch_timeout,
+        "cpu_diarizer": cpu_diarizer,
+    }
 
-    profile_overrides = _load_profile(profile)
-    merged = _merge_configs(profile_overrides, cli_overrides)
-    config = core_build_config(merged)
+    config = _assemble_config(profile, resume_overrides)
 
     _validate_assets(input, outdir, config)
 

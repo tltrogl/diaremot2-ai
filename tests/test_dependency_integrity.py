@@ -32,6 +32,7 @@ IMPORT_NAME_TO_DEP = {
     "packaging": "packaging",
     "panns_inference": "panns-inference",
     "parselmouth": "praat-parselmouth",
+    "pydub": "pydub",
     "reportlab": "reportlab",
     "scipy": "scipy",
     "sklearn": "scikit-learn",

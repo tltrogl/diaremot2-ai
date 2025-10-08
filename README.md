@@ -138,6 +138,12 @@ chmod +x ./setup.sh
 
 7) Smoke Test
 ```
+python -m diaremot.cli smoke --outdir ./outputs/smoke
+```
+
+This command synthesises a short demo clip (preferring `ffmpeg` when available) and runs the full pipeline with conservative defaults. To process your own audio, supply it directly:
+
+```
 python -m diaremot.cli run \
   --input data/sample.wav \
   --outdir ./outputs \
@@ -152,8 +158,6 @@ Notes
 python -m diaremot.pipeline.audio_pipeline_core --verify_deps --strict_dependency_versions
 ```
 
-<<<<<<< HEAD
-=======
 ## Adaptive VAD Overrides (Orchestrator vs CLI)
 
 The orchestrator tightens diarization defaults when the CLI does **not** specify overrides. This reduces micro-segments in noisy recordings but can be relaxed via flags:
@@ -176,8 +180,6 @@ python -m diaremot.cli run --input data/sample.wav --outdir outputs/ \
 ```
 
 All values verified in `src/diaremot/pipeline/orchestrator.py::_init_components` (strict overrides applied only when a value is absent from the merged config).
-
->>>>>>> 7b611bc33ae14a4cd702cb5f9355008663373325
 Troubleshooting
 - Torch `_C` import errors: ensure you used the venv created here; the code lazily imports heavy backends now.
 - Librosa lazy_loader error: the code imports `librosa` module and uses `librosa.func` style, which avoids the issue. Ensure you’re on the pinned versions from `requirements.txt`.
