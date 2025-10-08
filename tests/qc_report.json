@@ -1,0 +1,100 @@
+{
+  "run_id": "20251008-001046-6cf6c7",
+  "file_id": "sample.wav",
+  "schema_version": "2.0.0",
+  "stage_timings_ms": {
+    "dependency_check": 3255.3141117095947,
+    "preprocess": 21.49057388305664
+  },
+  "stage_counts": {
+    "dependency_check": {
+      "unhealthy": 4
+    }
+  },
+  "warnings": [
+    "dep:ctranslate2: name '_C' is not defined",
+    "dep:faster_whisper: invalid syntax (__init__.py, line 1)",
+    "dep:pandas: invalid syntax (__init__.py, line 1)",
+    "dep:transformers: cannot import name 'get_full_repo_name' from 'huggingface_hub' (D:\\diaremot\\diaremot2-ai\\.cock\\Lib\\site-packages\\huggingface_hub\\__init__.py)",
+    "preprocess: AttributeError: module 'librosa' has no attribute 'resample'"
+  ],
+  "errors": [
+    "preprocess: AttributeError: module 'librosa' has no attribute 'resample'"
+  ],
+  "failures": [
+    {
+      "stage": "preprocess",
+      "error": "AttributeError: module 'librosa' has no attribute 'resample'",
+      "elapsed_ms": 21.49057388305664,
+      "suggestion": "Verify audio codec support (try converting to WAV 16kHz mono)."
+    }
+  ],
+  "models": {},
+  "config_snapshot": {
+    "dependency_ok": false,
+    "dependency_summary": {
+      "numpy": {
+        "required_min": "1.24",
+        "status": "ok",
+        "version": "1.24.4"
+      },
+      "scipy": {
+        "required_min": "1.10",
+        "status": "ok",
+        "version": "1.10.1"
+      },
+      "librosa": {
+        "required_min": "0.10",
+        "status": "ok",
+        "version": "0.10.2.post1"
+      },
+      "soundfile": {
+        "required_min": "0.12",
+        "status": "ok",
+        "version": "0.12.1"
+      },
+      "ctranslate2": {
+        "required_min": "4.0",
+        "status": "error",
+        "issue": "name '_C' is not defined"
+      },
+      "faster_whisper": {
+        "required_min": "1.0",
+        "status": "error",
+        "issue": "invalid syntax (__init__.py, line 1)"
+      },
+      "pandas": {
+        "required_min": "2.0",
+        "status": "error",
+        "issue": "invalid syntax (__init__.py, line 1)"
+      },
+      "onnxruntime": {
+        "required_min": "1.16",
+        "status": "ok",
+        "version": "1.17.1"
+      },
+      "transformers": {
+        "required_min": "4.30",
+        "status": "error",
+        "issue": "cannot import name 'get_full_repo_name' from 'huggingface_hub' (D:\\diaremot\\diaremot2-ai\\.cock\\Lib\\site-packages\\huggingface_hub\\__init__.py)"
+      }
+    },
+    "preprocess_failed": true
+  },
+  "audio_health": {
+    "snr_db": null,
+    "silence_ratio": null,
+    "clipping_detected": null,
+    "dynamic_range_db": null
+  },
+  "counts": {
+    "turns": 0,
+    "segments": 0
+  },
+  "voice_quality_summary": {
+    "vq_jitter_pct_avg": null,
+    "vq_shimmer_db_avg": null,
+    "vq_hnr_db_avg": null,
+    "vq_cpps_db_avg": null
+  }
+}

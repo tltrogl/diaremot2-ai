@@ -6,12 +6,12 @@ import json
 from functools import lru_cache
 from importlib import import_module
 from pathlib import Path
-from .pipeline.runtime_env import DEFAULT_WHISPER_MODEL
-from typing import Any, Optional
+from typing import Any
 
 import typer
 
 from .pipeline.logging_utils import _make_json_safe
+from .pipeline.runtime_env import DEFAULT_WHISPER_MODEL
 
 app = typer.Typer(help="High level CLI wrapper for the DiaRemot audio pipeline.")
 
@@ -24,7 +24,7 @@ def _core():
         return import_module("audio_pipeline_core")
 
 
-def core_build_config(overrides: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+def core_build_config(overrides: dict[str, Any] | None = None) -> dict[str, Any]:
     return _core().build_pipeline_config(overrides)
 
 
@@ -63,7 +63,7 @@ BUILTIN_PROFILES: dict[str, dict[str, Any]] = {
 }
 
 
-def _load_profile(profile: Optional[str]) -> dict[str, Any]:
+def _load_profile(profile: str | None) -> dict[str, Any]:
     if not profile:
         return {}
 
@@ -86,7 +86,7 @@ def _load_profile(profile: Optional[str]) -> dict[str, Any]:
     return data
 
 
-def _normalise_path(value: Optional[Path]) -> Optional[str]:
+def _normalise_path(value: Path | None) -> str | None:
     if value is None:
         return None
     return str(value.expanduser().resolve())
@@ -206,7 +206,7 @@ def _common_options(**kwargs: Any) -> dict[str, Any]:
 def run(
     input: Path = typer.Option(..., "--input", "-i", help="Path to input audio file."),
     outdir: Path = typer.Option(..., "--outdir", "-o", help="Directory to write outputs."),
-    profile: Optional[str] = typer.Option(
+    profile: str | None = typer.Option(
         None,
         "--profile",
         help=f"Configuration profile to load ({', '.join(BUILTIN_PROFILES)} or path to JSON).",
@@ -217,13 +217,13 @@ def run(
     ahc_distance_threshold: float = typer.Option(
         0.12, help="Agglomerative clustering distance threshold."
     ),
-    speaker_limit: Optional[int] = typer.Option(None, help="Maximum number of speakers to keep."),
+    speaker_limit: int | None = typer.Option(None, help="Maximum number of speakers to keep."),
     whisper_model: str = typer.Option(str(DEFAULT_WHISPER_MODEL), help="Whisper/Faster-Whisper model identifier."
     ),
     asr_backend: str = typer.Option("faster", help="ASR backend", show_default=True),
     asr_compute_type: str = typer.Option("float32", help="CT2 compute type for faster-whisper."),
     asr_cpu_threads: int = typer.Option(1, help="CPU threads for ASR backend."),
-    language: Optional[str] = typer.Option(None, help="Override ASR language"),
+    language: str | None = typer.Option(None, help="Override ASR language"),
     language_mode: str = typer.Option("auto", help="Language detection mode"),
     ignore_tx_cache: bool = typer.Option(
         False,
@@ -244,16 +244,16 @@ def run(
         is_flag=True,
     ),
     affect_backend: str = typer.Option("onnx", help="Affect backend (auto/torch/onnx)."),
-    affect_text_model_dir: Optional[Path] = typer.Option(
+    affect_text_model_dir: Path | None = typer.Option(
         None, help="Path to GoEmotions model directory."
     ),
-    affect_intent_model_dir: Optional[Path] = typer.Option(
+    affect_intent_model_dir: Path | None = typer.Option(
         None, help="Path to intent model directory."
     ),
-    affect_ser_model_dir: Optional[Path] = typer.Option(
+    affect_ser_model_dir: Path | None = typer.Option(
         None, help="Path to speech emotion model directory."
     ),
-    affect_vad_model_dir: Optional[Path] = typer.Option(
+    affect_vad_model_dir: Path | None = typer.Option(
         None, help="Path to valence/arousal/dominance model directory."
     ),
     beam_size: int = typer.Option(1, help="Beam size for ASR decoding."),
@@ -271,7 +271,7 @@ def run(
         help="Disable background sound event tagging.",
         is_flag=True,
     ),
-    chunk_enabled: Optional[bool] = typer.Option(
+    chunk_enabled: bool | None = typer.Option(
         None,
         "--chunk-enabled",
         help="Set automatic chunking of long files (true/false).",
@@ -372,7 +372,7 @@ def resume(
     outdir: Path = typer.Option(
         ..., "--outdir", "-o", help="Output directory used in the previous run."
     ),
-    profile: Optional[str] = typer.Option(
+    profile: str | None = typer.Option(
         None,
         "--profile",
         help=f"Configuration profile to load ({', '.join(BUILTIN_PROFILES)} or path to JSON).",
@@ -383,13 +383,13 @@ def resume(
     ahc_distance_threshold: float = typer.Option(
         0.12, help="Agglomerative clustering distance threshold."
     ),
-    speaker_limit: Optional[int] = typer.Option(None, help="Maximum number of speakers to keep."),
+    speaker_limit: int | None = typer.Option(None, help="Maximum number of speakers to keep."),
     whisper_model: str = typer.Option(str(DEFAULT_WHISPER_MODEL), help="Whisper/Faster-Whisper model identifier."
     ),
     asr_backend: str = typer.Option("faster", help="ASR backend", show_default=True),
     asr_compute_type: str = typer.Option("float32", help="CT2 compute type for faster-whisper."),
     asr_cpu_threads: int = typer.Option(1, help="CPU threads for ASR backend."),
-    language: Optional[str] = typer.Option(None, help="Override ASR language"),
+    language: str | None = typer.Option(None, help="Override ASR language"),
     language_mode: str = typer.Option("auto", help="Language detection mode"),
     quiet: bool = typer.Option(
         False,
@@ -404,16 +404,16 @@ def resume(
         is_flag=True,
     ),
     affect_backend: str = typer.Option("onnx", help="Affect backend (auto/torch/onnx)."),
-    affect_text_model_dir: Optional[Path] = typer.Option(
+    affect_text_model_dir: Path | None = typer.Option(
         None, help="Path to GoEmotions model directory."
     ),
-    affect_intent_model_dir: Optional[Path] = typer.Option(
+    affect_intent_model_dir: Path | None = typer.Option(
         None, help="Path to intent model directory."
     ),
-    affect_ser_model_dir: Optional[Path] = typer.Option(
+    affect_ser_model_dir: Path | None = typer.Option(
         None, help="Path to speech emotion model directory."
     ),
-    affect_vad_model_dir: Optional[Path] = typer.Option(
+    affect_vad_model_dir: Path | None = typer.Option(
         None, help="Path to valence/arousal/dominance model directory."
     ),
     beam_size: int = typer.Option(1, help="Beam size for ASR decoding."),
@@ -431,7 +431,7 @@ def resume(
         help="Disable background sound event tagging.",
         is_flag=True,
     ),
-    chunk_enabled: Optional[bool] = typer.Option(
+    chunk_enabled: bool | None = typer.Option(
         None,
         "--chunk-enabled",
         help="Set automatic chunking of long files (true/false).",

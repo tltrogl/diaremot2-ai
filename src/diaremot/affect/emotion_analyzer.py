@@ -1,110 +1,173 @@
-# emotion_analyzer.py - CPU-only, production-hardened
-# Fixes & upgrades:
-#   * Dynamic VAD index mapping (read id2label/label2id; no brittle ordering)
-#   * Parallel inference for SER/Text/Intent (ThreadPoolExecutor) on CPU
-#   * Unified .analyze(wav, sr, text) -> schema-stable dict (matches core expectations)
-#   * SER confidence calibration via entropy + top-margin heuristics
-#   * Input validation, robust fallbacks, consistent 8-class + 28-class outputs
-#   * Cross-modal "affect_hint" uses valence/arousal proxies (soft, not brittle)
+"""Emotion analysis utilities (ONNX-first, HF fallback).
 
-# Models (CPU):
-#   - VAD (dimensional): audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim -> Valence/Arousal/Dominance
-#   - SER (8-class audio): Dpngtm/wav2vec2-emotion-recognition
-#   - Text emotions (28): SamLowe/roberta-base-go_emotions (multi-label)
-#   - Intent (14+1): facebook/bart-large-mnli (zero-shot) over standardized labels
-
-# Notes:
-#   - All models are lazily loaded on first use to reduce memory footprint.
-#   - If any model import/inference fails, we fall back to light, CPU-cheap heuristics.
-#   - Output schema follows the pipeline spec used by audio_pipeline_core.AudioAnalysisPipelineV2
+This module adheres to DiaRemot's ONNX-preferred architecture and CPU-only
+constraint. It provides text emotion (GoEmotions 28), audio SER (8-class), and
+V/A/D estimates, returning fields consumed by Stage 7.
+"""
 
 from __future__ import annotations
 
-<<<<<<< HEAD
-=======
-from __future__ import annotations
-
 import json
-import json
->>>>>>> 7b611bc33ae14a4cd702cb5f9355008663373325
 import logging
 import math
 import os
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
-<<<<<<< HEAD
-=======
-from typing import Callable, Dict, Iterable, List, Optional, Sequence, Tuple
->>>>>>> 7b611bc33ae14a4cd702cb5f9355008663373325
+from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
-# Optional heavy deps are imported lazily inside methods.
-# librosa is cheap enough; used for fallbacks and basic features.
-import librosa
 import numpy as np
 
-<<<<<<< HEAD
-from ..io.onnx_utils import create_onnx_session, ensure_onnx_model
-from ..utils.model_paths import iter_model_roots, iter_model_subpaths
-from .intent_defaults import INTENT_LABELS_DEFAULT
-=======
 from .ser_dpngtm import SERDpngtm
 from .intent_defaults import INTENT_LABELS_DEFAULT
 from ..io.onnx_utils import create_onnx_session
+from ..pipeline.runtime_env import DEFAULT_MODELS_ROOT
 
 # Preprocessing: strictly librosa/scipy/numpy
 try:
     import librosa  # type: ignore
 except ImportError:  # pragma: no cover - handled gracefully at runtime
     librosa = None  # type: ignore
->>>>>>> 7b611bc33ae14a4cd702cb5f9355008663373325
 
 logger = logging.getLogger(__name__)
-if not logger.handlers:
-    h = logging.StreamHandler()
-    h.setLevel(logging.INFO)
-    h.setFormatter(logging.Formatter("[%(levelname)s] %(message)s"))
-    logger.addHandler(h)
-logger.setLevel(logging.INFO)
-
-# If a local model directory exists (DIAREMOT_MODEL_DIR or the known default),
-# prefer offline mode to ensure we load local ONNX exports instead of trying
-# to fetch from Hugging Face hub. This prevents unintended network lookups and
-# guarantees model resolution uses the local model root.
-try:
-    _model_root = os.environ.get("DIAREMOT_MODEL_DIR")
-    if not _model_root:
-        for candidate in iter_model_roots():
-            if candidate.exists():
-                _model_root = str(candidate)
-                break
-    if _model_root and Path(_model_root).expanduser().exists():
-        os.environ.setdefault("HF_HUB_OFFLINE", "1")
-        os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
-        logger.info("HF hub forced offline; using local model root: %s", _model_root)
-except Exception:
-    # Never raise during import; best-effort only
-    pass
-
-INTENT_HYPOTHESIS_TEMPLATE = "This example is about {}."
 
 
-# --------------------------
-# Label spaces / constants
-# --------------------------
+def _softmax(x: np.ndarray) -> np.ndarray:
+    x = np.asarray(x, dtype=np.float32)
+    if x.size == 0:
+        return np.asarray([], dtype=np.float32)
+    x = x - np.max(x)
+    e = np.exp(x)
+    denom = np.sum(e)
+    if denom <= 0:
+        return np.asarray([], dtype=np.float32)
+    return e / denom
 
-SER_LABELS_8 = [
-    "angry",
-    "happy",
-    "sad",
-    "neutral",
-    "fearful",
-    "surprised",
-    "disgusted",
-    "calm",
-]
 
-GOEMOTIONS_LABELS = [
+def _topk_distribution(
+    scores: Mapping[str, float], *, k: int = 5
+) -> list[dict[str, float]]:
+    items = [
+        (str(label), float(score))
+        for label, score in scores.items()
+        if isinstance(score, (int, float)) and math.isfinite(float(score))
+    ]
+    items.sort(key=lambda item: item[1], reverse=True)
+    limited = items[: max(0, min(k, len(items)))]
+    return [
+        {"label": label, "score": float(score)}
+        for label, score in limited
+    ]
+
+
+def _json(obj: Any) -> str:
+    return json.dumps(obj, ensure_ascii=False, separators=(",", ":"))
+
+
+def _sr_target() -> int:
+    # Keep consistent with PreprocessConfig.target_sr in AGENTS.md
+    return 16000
+
+
+def _ensure_16k_mono(y: np.ndarray, sr: int) -> np.ndarray:
+    arr = np.asarray(y, dtype=np.float32)
+    if arr.ndim > 1:
+        arr = np.mean(arr, axis=-1)
+    target_sr = _sr_target()
+    if librosa is not None and sr != target_sr:
+        arr = librosa.resample(arr, orig_sr=sr, target_sr=target_sr)
+    return arr.astype(np.float32)
+
+
+def _trim_max_len(y: np.ndarray, *, sr: int, max_seconds: float = 20.0) -> np.ndarray:
+    if max_seconds <= 0:
+        return y
+    limit = int(max_seconds * sr)
+    if limit <= 0 or y.size <= limit:
+        return y
+    return np.asarray(y[:limit], dtype=np.float32)
+
+
+def _entropy(probs: Sequence[float]) -> float:
+    arr = np.asarray([float(p) for p in probs if float(p) > 0.0], dtype=np.float64)
+    if arr.size == 0:
+        return 0.0
+    return float(-np.sum(arr * np.log(arr)))
+
+
+def _norm_entropy(probs: Mapping[str, float]) -> float:
+    values = [float(v) for v in probs.values() if float(v) > 0.0]
+    if not values:
+        return 0.0
+    ent = _entropy(values)
+    max_ent = math.log(len(values)) if len(values) > 1 else 0.0
+    if max_ent <= 0.0:
+        return 0.0
+    return float(ent / max_ent)
+
+
+def _top_margin(scores: Mapping[str, float]) -> float:
+    values = [float(v) for v in scores.values() if math.isfinite(float(v))]
+    if not values:
+        return 0.0
+    if len(values) == 1:
+        return float(values[0])
+    arr = np.asarray(values, dtype=np.float32)
+    idx = np.argpartition(arr, -2)[-2:]
+    top_two = arr[idx]
+    return float(np.max(top_two) - np.min(top_two))
+
+
+def _canonical_label(label: str, labels: Sequence[str]) -> str:
+    if not label:
+        return labels[0] if labels else ""
+    lower = label.lower()
+    for candidate in labels:
+        if candidate.lower() == lower:
+            return candidate
+    return labels[0] if labels else label
+
+
+def _normalize_scores(scores: Mapping[str, float], labels: Sequence[str]) -> dict[str, float]:
+    base: dict[str, float] = {label: 0.0 for label in labels}
+    for key, value in scores.items():
+        try:
+            score = float(value)
+        except (TypeError, ValueError):
+            continue
+        if not math.isfinite(score) or score < 0.0:
+            continue
+        canonical = _canonical_label(str(key), labels)
+        base[canonical] = score
+    total = float(sum(base.values()))
+    if total > 0.0:
+        return {label: float(score / total) for label, score in base.items()}
+    if labels:
+        base[labels[0]] = 1.0
+    return base
+
+
+def _ser_low_confidence(scores: Mapping[str, float]) -> bool:
+    if not scores:
+        return True
+    values = [float(v) for v in scores.values() if math.isfinite(float(v))]
+    if not values:
+        return True
+    top_score = max(values)
+    margin = _top_margin(scores)
+    entropy = _norm_entropy({k: float(v) for k, v in scores.items()})
+    return top_score < 0.55 or margin < 0.18 or entropy > 0.85
+
+
+def _normalize_intent_label(label: str) -> str:
+    clean = (label or "status_update").strip().lower().replace(" ", "_")
+    if clean == "status_update":
+        clean = "status"
+    clean = clean.replace("_", "-")
+    return clean or "status"
+
+
+# GoEmotions 28 labels (SamLowe/roberta-base-go_emotions)
+GOEMOTIONS_LABELS: List[str] = [
     "admiration",
     "amusement",
     "anger",
@@ -135,55 +198,63 @@ GOEMOTIONS_LABELS = [
     "neutral",
 ]
 
-GOEMOTIONS_POSITIVE = {
-    "admiration",
-    "amusement",
-    "approval",
-    "caring",
-    "desire",
-    "excitement",
-    "gratitude",
-    "joy",
-    "love",
-    "optimism",
-    "pride",
-    "relief",
-}
-GOEMOTIONS_NEGATIVE = {
-    "anger",
-    "annoyance",
-    "disappointment",
-    "disapproval",
-    "disgust",
-    "embarrassment",
-    "fear",
-    "grief",
-    "nervousness",
-    "remorse",
-    "sadness",
-}
-GOEMOTIONS_AMBIGUOUS = {"confusion", "curiosity", "realization", "surprise"}
 
-# --------------------------
-# Helpers
-# --------------------------
+# Default 8-class SER labels (common mapping; can be overridden by model-specific labels)
+SER8_LABELS: List[str] = [
+    "neutral",
+    "calm",
+    "happy",
+    "sad",
+    "angry",
+    "fearful",
+    "disgust",
+    "surprised",
+]
 
 DEFAULT_INTENT_MODEL = "facebook/bart-large-mnli"
 
 
-def _softmax(x: np.ndarray) -> np.ndarray:
-    x = np.asarray(x, dtype=np.float64)
-    x = x - np.max(x)
-    e = np.exp(x)
-    s = e.sum() or 1.0
-    return (e / s).astype(np.float64)
+def _resolve_model_dir() -> Path:
+    d = os.environ.get("DIAREMOT_MODEL_DIR")
+    if d:
+        return Path(d).expanduser()
+    return Path(DEFAULT_MODELS_ROOT)
 
 
-<<<<<<< HEAD
-def _entropy(probs: dict[str, float]) -> float:
-    p = np.clip(np.array(list(probs.values()), dtype=np.float64), 1e-12, 1.0)
-    return float(-np.sum(p * np.log(p)))
-=======
+def _resolve_component_dir(
+    cli_value: Optional[str], env_key: str, *default_subpath: str
+) -> Path:
+    candidates: list[Path] = []
+    if cli_value:
+        candidates.append(Path(cli_value).expanduser())
+    env_value = os.getenv(env_key)
+    if env_value:
+        candidates.append(Path(env_value).expanduser())
+    model_root = _resolve_model_dir()
+    if default_subpath:
+        candidates.append(model_root.joinpath(*default_subpath))
+    else:
+        candidates.append(model_root)
+
+    seen: set[str] = set()
+    for candidate in candidates:
+        key = str(candidate)
+        if key in seen:
+            continue
+        seen.add(key)
+        if candidate.exists():
+            return candidate
+    return candidates[0]
+
+
+def _select_first_existing(directory: Path, names: Sequence[str]) -> Path:
+    for name in names:
+        candidate = directory / name
+        if candidate.exists():
+            return candidate
+    return directory / names[0]
+
+
 def _normalize_backend(value: Optional[str]) -> str:
     if not value:
         return "auto"
@@ -224,6 +295,7 @@ def _intent_candidate_dirs(explicit: Optional[str]) -> Iterable[Path]:
     if model_root:
         root = Path(model_root).expanduser()
         _add(root)
+        _add(root / "intent")
         _add(root / "bart")
         _add(root / "bart-large-mnli")
         _add(root / "facebook" / "bart-large-mnli")
@@ -274,124 +346,664 @@ def _ort_session(path: str):
     # DiaRemot is CPU-only per AGENTS.md. Do not use GPU providers.
     providers = ["CPUExecutionProvider"]
     return ort.InferenceSession(path, sess_options=sess_options, providers=providers)
->>>>>>> 7b611bc33ae14a4cd702cb5f9355008663373325
 
 
-def _norm_entropy(probs: dict[str, float]) -> float:
-    H = _entropy(probs)
-    Hmax = math.log(len(probs)) if probs else 1.0
-    return float(H / max(1e-9, Hmax))
+def _maybe_import_transformers_pipeline():
+    try:
+        from transformers import pipeline  # type: ignore
 
-
-def _top_margin(probs: dict[str, float]) -> float:
-    vals = sorted(probs.values(), reverse=True)
-    if len(vals) < 2:
-        return 1.0
-    return float(vals[0] - vals[1])
-
-
-def _normalize_scores(scores: dict[str, float]) -> dict[str, float]:
-    """Normalize a mapping of scores, guarding against bad inputs."""
-
-    if not scores:
-        return {}
-
-    clean: dict[str, float] = {}
-    for label, value in scores.items():
-        try:
-            numeric = float(value)
-        except (TypeError, ValueError):
-            numeric = 0.0
-        if not math.isfinite(numeric) or numeric < 0.0:
-            numeric = 0.0
-        clean[label] = numeric
-
-    total = sum(clean.values())
-    if total <= 0.0:
-        uniform = 1.0 / len(clean)
-        return {label: uniform for label in clean}
-
-    inv_total = 1.0 / total
-    return {label: value * inv_total for label, value in clean.items()}
-
-
-def _topk_distribution(dist: dict[str, float], k: int) -> list[dict[str, float]]:
-    if k <= 0 or not dist:
-        return []
-    ordered = sorted(dist.items(), key=lambda kv: (-kv[1], kv[0]))
-    return [{"label": label, "score": float(score)} for label, score in ordered[:k]]
-
-
-def _ensure_16k_mono(audio: np.ndarray, sr: int) -> tuple[np.ndarray, int]:
-    if audio is None or not isinstance(audio, np.ndarray) or audio.size == 0:
-        return np.zeros(0, dtype=np.float32), 16000
-    x = audio.astype(np.float32, copy=False)
-    if sr != 16000:
-        try:
-            x = librosa.resample(x, orig_sr=sr, target_sr=16000)
-            sr = 16000
-        except Exception:
-            pass
-    if x.ndim > 1:
-        x = np.mean(x, axis=0).astype(np.float32)
-    return x, sr
-
-
-def _trim_max_len(audio: np.ndarray, sr: int, max_sec: float = 30.0) -> np.ndarray:
-    nmax = int(max_sec * sr)
-    return audio[:nmax] if audio.size > nmax else audio
-
-
-def _text_tokens(text: str) -> list[str]:
-    if not text:
-        return []
-    out, buf = [], []
-    for ch in text:
-        if ch.isalnum() or ch in ["'", "-"]:
-            buf.append(ch.lower())
-        else:
-            if buf:
-                out.append("".join(buf))
-                buf = []
-    if buf:
-        out.append("".join(buf))
-    return out
-
-
-# --------------------------
-# Dataclass (internal use)
-# --------------------------
+        return pipeline
+    except Exception:
+        return None
 
 
 @dataclass
-class EmotionAnalysisResult:
+class EmotionOutputs:
+    """Serialized affect outputs for storage layers (CSV/JSON)."""
+
+    # Numeric affect (if available)
+    valence: float = 0.0
+    arousal: float = 0.0
+    dominance: float = 0.0
+
+    # Audio SER
+    emotion_top: str = "neutral"
+    emotion_scores_json: str = _json({})
+    low_confidence_ser: bool = True
+
+    # Text emotions (GoEmotions)
+    text_emotions_top5_json: str = _json([])
+    text_emotions_full_json: str = _json({})
+
+    # Intent & hint
+    intent_top: str = "status_update"
+    intent_top3_json: str = _json([])
+    affect_hint: str = "neutral-status"
+
+    @classmethod
+    def from_affect(cls, payload: Mapping[str, Any]) -> "EmotionOutputs":
+        def _safe_float(value: Any) -> float:
+            try:
+                num = float(value)
+            except (TypeError, ValueError):
+                return 0.0
+            if not math.isfinite(num):
+                return 0.0
+            return float(num)
+
+        vad = payload.get("vad", {}) if isinstance(payload, Mapping) else {}
+        ser = payload.get("speech_emotion", {}) if isinstance(payload, Mapping) else {}
+        text = payload.get("text_emotions", {}) if isinstance(payload, Mapping) else {}
+        intent = payload.get("intent", {}) if isinstance(payload, Mapping) else {}
+        return cls(
+            valence=_safe_float(vad.get("valence", 0.0)),
+            arousal=_safe_float(vad.get("arousal", 0.0)),
+            dominance=_safe_float(vad.get("dominance", 0.0)),
+            emotion_top=str(ser.get("top", "neutral")),
+            emotion_scores_json=_json(ser.get("scores_8class", {})),
+            low_confidence_ser=bool(ser.get("low_confidence_ser", False)),
+            text_emotions_top5_json=_json(text.get("top5", [])),
+            text_emotions_full_json=_json(text.get("full_28class", {})),
+            intent_top=str(intent.get("top", "status_update")),
+            intent_top3_json=_json(intent.get("top3", [])),
+            affect_hint=str(payload.get("affect_hint", "neutral-status")),
+        )
+
+    def to_affect(self) -> dict[str, Any]:
+        def _loads(data: str, default: Any) -> Any:
+            try:
+                return json.loads(data)
+            except (TypeError, json.JSONDecodeError):
+                return default
+
+        return {
+            "vad": {
+                "valence": self.valence,
+                "arousal": self.arousal,
+                "dominance": self.dominance,
+            },
+            "speech_emotion": {
+                "top": self.emotion_top,
+                "scores_8class": _loads(self.emotion_scores_json, {}),
+                "low_confidence_ser": bool(self.low_confidence_ser),
+            },
+            "text_emotions": {
+                "top5": _loads(self.text_emotions_top5_json, []),
+                "full_28class": _loads(self.text_emotions_full_json, {}),
+            },
+            "intent": {
+                "top": self.intent_top,
+                "top3": _loads(self.intent_top3_json, []),
+            },
+            "affect_hint": self.affect_hint,
+        }
+
+
+@dataclass
+class TextEmotionResult:
+    top5: list[dict[str, float]]
+    full: dict[str, float]
+
+
+@dataclass
+class SpeechEmotionResult:
+    top: str
+    scores: dict[str, float]
+    low_confidence: bool
+
+
+@dataclass
+class VadEmotionResult:
     valence: float
     arousal: float
     dominance: float
-    ser_top: str
-    ser_probs: dict[str, float]
-    text_full: dict[str, float]
-    text_top5: list[dict[str, float]]
-    intent_top: str
-    intent_top3: list[dict[str, float]]
-    flags: dict[str, bool]
-    affect_hint: str
 
 
-# --------------------------
-# Analyzer
-# --------------------------
+@dataclass
+class IntentResult:
+    top: str
+    top3: list[dict[str, float]]
 
 
-_HF_MODEL_WEIGHT_PATTERNS = (
-    "pytorch_model.bin",
-    "pytorch_model.bin.index.json",
-    "pytorch_model-*.bin",
-    "model.safetensors",
-    "model-*.safetensors",
-    "tf_model.h5",
-    "model.ckpt.index",
-    "flax_model.msgpack",
+def _default_text_result() -> TextEmotionResult:
+    base = {label: 0.0 for label in GOEMOTIONS_LABELS}
+    base["neutral"] = 1.0
+    return TextEmotionResult(
+        top5=[{"label": "neutral", "score": 1.0}],
+        full=base,
+    )
+
+
+def _default_speech_result() -> SpeechEmotionResult:
+    base = {label: 0.0 for label in SER8_LABELS}
+    base["neutral"] = 1.0
+    return SpeechEmotionResult(top="neutral", scores=base, low_confidence=True)
+
+
+def _default_vad_result() -> VadEmotionResult:
+    return VadEmotionResult(valence=0.0, arousal=0.0, dominance=0.0)
+
+
+def _default_intent_result() -> IntentResult:
+    return IntentResult(
+        top="status_update",
+        top3=[
+            {"label": "status_update", "score": 1.0},
+            {"label": "small_talk", "score": 0.0},
+            {"label": "opinion", "score": 0.0},
+        ],
+    )
+
+
+class OnnxTextEmotion:
+    def __init__(
+        self,
+        model_path: str,
+        labels: List[str] = GOEMOTIONS_LABELS,
+        *,
+        tokenizer_source: Optional[str | os.PathLike[str]] = None,
+        disable_downloads: bool = False,
+    ):
+        self.labels = labels
+        self.sess = _ort_session(model_path)
+        self.tokenizer = self._load_tokenizer(
+            model_path,
+            tokenizer_source=tokenizer_source,
+            disable_downloads=disable_downloads,
+        )
+
+    def _load_tokenizer(
+        self,
+        model_path: str,
+        *,
+        tokenizer_source: Optional[str | os.PathLike[str]],
+        disable_downloads: bool,
+    ):
+        from transformers import AutoTokenizer  # type: ignore
+
+        candidates: list[tuple[str, dict[str, object]]] = []
+        errors: list[str] = []
+
+        if tokenizer_source:
+            local_dir = Path(tokenizer_source).expanduser()
+        else:
+            local_dir = Path(model_path).expanduser().parent
+
+        local_dir_str = os.fspath(local_dir)
+        candidates.append((local_dir_str, {"local_files_only": True}))
+        if not disable_downloads:
+            candidates.append((local_dir_str, {"local_files_only": False}))
+            candidates.append(("SamLowe/roberta-base-go_emotions", {}))
+
+        for identifier, kwargs in candidates:
+            try:
+                return AutoTokenizer.from_pretrained(identifier, **kwargs)
+            except Exception as exc:  # noqa: BLE001 - HF backend specific
+                errors.append(f"{identifier}: {exc}")
+
+        details = "; ".join(errors)
+        raise RuntimeError(
+            "Unable to load text emotion tokenizer; attempted candidates: " + details
+        )
+
+    def __call__(self, text: str) -> Dict[str, float]:
+        enc = self.tokenizer(
+            text,
+            return_tensors="np",
+            truncation=True,
+            padding="max_length",
+            max_length=128,
+        )
+        inputs = {self.sess.get_inputs()[0].name: enc["input_ids"].astype(np.int64)}
+        # Handle attention_mask if present
+        if len(self.sess.get_inputs()) > 1 and "attention_mask" in enc:
+            inputs[self.sess.get_inputs()[1].name] = enc["attention_mask"].astype(np.int64)
+        # Optional token_type_ids
+        if len(self.sess.get_inputs()) > 2 and "token_type_ids" in enc:
+            inputs[self.sess.get_inputs()[2].name] = enc["token_type_ids"].astype(np.int64)
+
+        out = self.sess.run(None, inputs)
+        logits = out[0]
+        if logits.ndim == 2:
+            logits = logits[0]
+        probs = _softmax(logits.astype(np.float32))
+        return {self.labels[i]: float(probs[i]) for i in range(len(self.labels))}
+
+
+class HfTextEmotionFallback:
+    def __init__(self):
+        pipeline = _maybe_import_transformers_pipeline()
+        if pipeline is None:
+            raise RuntimeError("transformers pipeline() unavailable for fallback")
+        self.pipe = pipeline(
+            task="text-classification",
+            model="SamLowe/roberta-base-go_emotions",
+            top_k=None,
+            truncation=True,
+        )
+
+    def __call__(self, text: str) -> Dict[str, float]:
+        out = self.pipe(text)[0]
+        # HF returns list of dicts with 'label' and 'score'
+        full = {d["label"].lower(): float(d["score"]) for d in out}
+        # Ensure all 28 labels exist
+        for lab in GOEMOTIONS_LABELS:
+            full.setdefault(lab, 0.0)
+        arr = np.array([full[lab] for lab in GOEMOTIONS_LABELS], dtype=np.float32)
+        arr = arr / (arr.sum() + 1e-8)
+        return {lab: float(arr[i]) for i, lab in enumerate(GOEMOTIONS_LABELS)}
+
+
+class TorchAudioEmotion:
+    """Torch/HF-backed SER implementation (primary backend)."""
+
+    def __init__(
+        self,
+        labels: List[str] = SER8_LABELS,
+        *,
+        model_dir: Optional[str] = None,
+        disable_downloads: bool = False,
+    ) -> None:
+        self.labels = list(labels)
+        allow_downloads = not disable_downloads
+        self._backend = SERDpngtm(
+            model_dir=model_dir,
+            allow_downloads=allow_downloads,
+        )
+
+    def _prepare(self, y: np.ndarray, sr: int) -> np.ndarray:
+        y16k = _ensure_16k_mono(y, sr)
+        return _trim_max_len(y16k, sr=_sr_target(), max_seconds=20.0)
+
+    def __call__(self, y: np.ndarray, sr: int) -> Tuple[str, Dict[str, float]]:
+        y16k = self._prepare(y, sr)
+        top_raw, raw_scores = self._backend.predict_16k_f32(y16k)
+        scores = _normalize_scores(raw_scores, self.labels)
+        top_label = _canonical_label(top_raw, self.labels)
+        if top_label not in scores or scores[top_label] <= 0.0:
+            top_label = max(scores.items(), key=lambda item: item[1])[0]
+        return top_label, scores
+
+
+class OnnxAudioEmotion:
+    def __init__(self, model_path: str, labels: List[str] = SER8_LABELS):
+        self.labels = labels
+        self.sess = _ort_session(model_path)
+
+    @staticmethod
+    def _ensure_mono_16k(y: np.ndarray, sr: int) -> np.ndarray:
+        if y.ndim > 1:
+            y = np.mean(y, axis=-1)
+        target_sr = _sr_target()
+        if librosa is not None and sr != target_sr:
+            y = librosa.resample(y, orig_sr=sr, target_sr=target_sr)
+        return y.astype(np.float32)
+
+    def _as_waveform_input(self, y: np.ndarray) -> Dict[str, np.ndarray]:
+        # Try to feed as [1, 1, T]
+        inp_name = self.sess.get_inputs()[0].name
+        return {inp_name: y[None, None, :]}
+
+    def _as_mel_input(self, y: np.ndarray) -> Optional[Dict[str, np.ndarray]]:
+        if librosa is None:
+            return None
+        sr = _sr_target()
+        mel = librosa.feature.melspectrogram(y=y, sr=sr, n_fft=1024, hop_length=256, n_mels=64)
+        mel_db = librosa.power_to_db(mel, ref=np.max)
+        mel_db = (mel_db - np.mean(mel_db)) / (np.std(mel_db) + 1e-6)
+        x = mel_db.astype(np.float32)[None, None, :, :]  # [1,1,64,frames]
+        inp_name = self.sess.get_inputs()[0].name
+        return {inp_name: x}
+
+    def __call__(self, y: np.ndarray, sr: int) -> Tuple[str, Dict[str, float]]:
+        y = _ensure_16k_mono(y, sr)
+        y = _trim_max_len(y, sr=_sr_target(), max_seconds=20.0)
+        # Try raw waveform first
+        inputs = self._as_waveform_input(y)
+        try:
+            out = self.sess.run(None, inputs)
+        except Exception:  # noqa: BLE001 - onnxruntime errors vary by build
+            # Try mel fallback shape
+            mel_inputs = self._as_mel_input(y)
+            if mel_inputs is None:
+                raise
+            out = self.sess.run(None, mel_inputs)
+
+        logits = out[0]
+        if logits.ndim == 2:
+            logits = logits[0]
+        probs = _softmax(logits.astype(np.float32))
+        full = {self.labels[i]: float(probs[i]) for i in range(len(self.labels))}
+        scores = _normalize_scores(full, self.labels)
+        top_label = max(scores.items(), key=lambda kv: kv[1])[0]
+        return top_label, scores
+
+
+class OnnxVADEmotion:
+    def __init__(self, model_path: str):
+        self.sess = _ort_session(model_path)
+
+    def __call__(self, y: np.ndarray, sr: int) -> Tuple[float, float, float]:
+        # Keep simple; feed pooled features or raw waveform
+        if y.ndim > 1:
+            y = np.mean(y, axis=1)
+        target_sr = _sr_target()
+        if librosa is not None and sr != target_sr:
+            y = librosa.resample(y, orig_sr=sr, target_sr=target_sr)
+        x = y.astype(np.float32)[None, None, :]
+        inp_name = self.sess.get_inputs()[0].name
+        out = self.sess.run(None, {inp_name: x})
+        arr = np.array(out[0]).astype(np.float32).ravel()
+        # Expect [3] -> V, A, D; clip to [-1,1]
+        if arr.size >= 3:
+            v, a, d = arr[:3]
+        else:
+            v = a = d = 0.0
+        v = float(np.clip(v, -1.0, 1.0))
+        a = float(np.clip(a, -1.0, 1.0))
+        d = float(np.clip(d, -1.0, 1.0))
+        return v, a, d
+
+
+class EmotionAnalyzer:
+    """
+    Emotion analyzer favouring ONNX for text/VAD with Torch SER primary fallback.
+
+    Produces fields required by Stage 7 (affect_and_assemble):
+    - valence, arousal, dominance
+    - emotion_top, emotion_scores_json, low_confidence_ser
+    - text_emotions_top5_json, text_emotions_full_json
+    - intent_top, intent_top3_json, affect_hint
+    """
+
+    def __init__(
+        self,
+        model_dir: Optional[str] = None,
+        disable_downloads: Optional[bool] = None,
+        *,
+        text_model_dir: Optional[str] = None,
+        ser_model_dir: Optional[str] = None,
+        vad_model_dir: Optional[str] = None,
+    ):
+        base_dir = Path(model_dir).expanduser() if model_dir else _resolve_model_dir()
+        self.model_dir = str(base_dir)
+        self.disable_downloads = bool(disable_downloads or False)
+        self.issues: list[str] = []
+
+        self.text_model_dir = _resolve_component_dir(
+            text_model_dir, "DIAREMOT_TEXT_EMO_MODEL_DIR", "text_emotions"
+        )
+        self.ser_model_dir = _resolve_component_dir(
+            ser_model_dir, "AFFECT_SER_MODEL_DIR", "affect", "ser8"
+        )
+        self.vad_model_dir = _resolve_component_dir(
+            vad_model_dir, "AFFECT_VAD_DIM_MODEL_DIR", "affect", "vad_dim"
+        )
+
+        # Paths
+        self.path_text_onnx = str(
+            _select_first_existing(
+                self.text_model_dir,
+                ("model.onnx", "roberta-base-go_emotions.onnx"),
+            )
+        )
+        self.path_ser8_onnx = str(
+            _select_first_existing(
+                self.ser_model_dir,
+                ("model.onnx", "ser_8class.onnx"),
+            )
+        )
+        self.path_vad_onnx = str(
+            _select_first_existing(
+                self.vad_model_dir,
+                ("model.onnx", "vad_model.onnx"),
+            )
+        )
+
+        # Try ONNX/Torch for each component (lazily initialised)
+        self._text_model: Optional[OnnxTextEmotion] = None
+        self._text_fallback: Optional[HfTextEmotionFallback] = None
+        self._audio_model: Optional[Callable[[np.ndarray, int], Tuple[str, Dict[str, float]]]] = (
+            None
+        )
+        self._vad_model: Optional[OnnxVADEmotion] = None
+
+        # Torch SER location (optional local snapshot)
+        self.path_ser_torch: Optional[str] = os.getenv("DIAREMOT_SER_MODEL_DIR")
+        if not self.path_ser_torch:
+            candidate = base_dir / "dpngtm_ser"
+            if os.path.isdir(candidate):
+                self.path_ser_torch = os.fspath(candidate)
+
+        # Allow explicit override from env (exported ONNX path)
+        env_ser = os.getenv("DIAREMOT_SER_ONNX")
+        if env_ser:
+            self.path_ser8_onnx = env_ser
+
+    # Initialize lazily upon first use to avoid import overhead when unused
+
+    # ---- Lazy initializers ----
+    def _record_issue(self, message: str) -> None:
+        if message not in self.issues:
+            self.issues.append(message)
+
+    def _ensure_text_model(self):
+        if self._text_model is not None or self._text_fallback is not None:
+            return
+        try:
+            self._text_model = OnnxTextEmotion(
+                self.path_text_onnx,
+                tokenizer_source=self.text_model_dir,
+                disable_downloads=self.disable_downloads,
+            )
+        except (FileNotFoundError, RuntimeError) as exc:
+            logger.warning("Text emotion ONNX unavailable: %s", exc)
+            self._record_issue(
+                f"Text emotion ONNX missing under {self.text_model_dir}"
+            )
+            if self.disable_downloads:
+                self._text_fallback = None
+            else:
+                try:
+                    self._text_fallback = HfTextEmotionFallback()
+                    logger.warning("Using HuggingFace fallback for text emotion.")
+                except Exception as fb_exc:  # noqa: BLE001
+                    logger.warning("HF fallback unavailable: %s", fb_exc)
+                    self._text_fallback = None
+                    self._record_issue("Text emotion fallback unavailable; outputs neutral")
+
+    def _ensure_audio_model(self):
+        if self._audio_model is not None:
+            return
+        # Primary: Torch/HF backend
+        try:
+            self._audio_model = TorchAudioEmotion(
+                labels=SER8_LABELS,
+                model_dir=self.path_ser_torch,
+                disable_downloads=self.disable_downloads,
+            )
+            return
+        except RuntimeError as exc:
+            logger.warning("Audio SER torch backend unavailable: %s", exc)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Audio SER torch backend failed to initialise: %s", exc)
+
+        # Fallback: ONNXRuntime
+        try:
+            self._audio_model = OnnxAudioEmotion(self.path_ser8_onnx)
+        except (FileNotFoundError, RuntimeError) as exc:
+            logger.warning("Audio SER ONNX unavailable: %s", exc)
+            self._audio_model = None
+        if self._audio_model is None:
+            self._record_issue(
+                f"Speech emotion model unavailable under {self.ser_model_dir}"
+            )
+
+    def _ensure_vad_model(self):
+        if self._vad_model is not None:
+            return
+        try:
+            self._vad_model = OnnxVADEmotion(self.path_vad_onnx)
+        except (FileNotFoundError, RuntimeError) as exc:
+            logger.warning("V/A/D ONNX unavailable: %s", exc)
+            self._vad_model = None
+            self._record_issue(
+                f"Valence/arousal/dominance model unavailable under {self.vad_model_dir}"
+            )
+
+    # ---- Public API ----
+    def analyze_text(self, text: str) -> TextEmotionResult:
+        clean = (text or "").strip()
+        default_text = _default_text_result()
+        if not clean:
+            return default_text
+        self._ensure_text_model()
+        backend = self._text_model or self._text_fallback
+        if backend is None:
+            self._record_issue("Text emotion model unavailable; using neutral distribution")
+            return default_text
+        try:
+            raw_scores = backend(clean)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Text emotion inference failed: %s", exc)
+            self._record_issue(f"Text emotion inference failed: {exc}")
+            return default_text
+
+        normalized = _normalize_scores(raw_scores, GOEMOTIONS_LABELS)
+        top5 = _topk_distribution(normalized, k=5)
+        if not top5:
+            normalized = dict(default_text.full)
+            top5 = [dict(item) for item in default_text.top5]
+        return TextEmotionResult(top5=top5, full=normalized)
+
+    def analyze_audio(self, y: Optional[np.ndarray], sr: Optional[int]) -> SpeechEmotionResult:
+        if y is None or sr is None:
+            return _default_speech_result()
+        self._ensure_audio_model()
+        if self._audio_model is None:
+            self._record_issue("Speech emotion model unavailable; using neutral distribution")
+            return _default_speech_result()
+        try:
+            top_label, raw_scores = self._audio_model(y, sr)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Audio SER inference failed: %s", exc)
+            self._record_issue(f"Speech emotion inference failed: {exc}")
+            return _default_speech_result()
+
+        normalized = _normalize_scores(raw_scores, SER8_LABELS)
+        top = _canonical_label(top_label, SER8_LABELS)
+        if normalized.get(top, 0.0) <= 0.0:
+            top = max(normalized.items(), key=lambda item: item[1])[0]
+        low_conf = _ser_low_confidence(normalized)
+        return SpeechEmotionResult(top=top, scores=normalized, low_confidence=low_conf)
+
+    def analyze_vad_emotion(self, y: Optional[np.ndarray], sr: Optional[int]) -> VadEmotionResult:
+        if y is None or sr is None:
+            return _default_vad_result()
+        self._ensure_vad_model()
+        if self._vad_model is None:
+            self._record_issue("Valence/arousal/dominance model unavailable; using zeros")
+            return _default_vad_result()
+        try:
+            v, a, d = self._vad_model(y, sr)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("V/A/D inference failed: %s", exc)
+            self._record_issue(f"VAD emotion inference failed: {exc}")
+            return _default_vad_result()
+        return VadEmotionResult(valence=float(v), arousal=float(a), dominance=float(d))
+
+    def _make_affect_hint(self, vad: VadEmotionResult, intent_top: str) -> str:
+        intent = _normalize_intent_label(intent_top)
+        v = float(vad.valence)
+        a = float(vad.arousal)
+        if not math.isfinite(v) or not math.isfinite(a):
+            return f"neutral-{intent}"
+        if a > 0.55 and v < 0.0:
+            return "agitated-negative"
+        if a < 0.30 and v > 0.25:
+            return "calm-positive"
+        if v > 0.50:
+            return f"bright-{intent}"
+        if v < -0.35:
+            return f"low-{intent}"
+        return f"neutral-{intent}"
+
+    def _build_affect_payload(
+        self,
+        *,
+        text_res: TextEmotionResult,
+        speech_res: SpeechEmotionResult,
+        vad_res: VadEmotionResult,
+        intent_res: IntentResult,
+    ) -> dict[str, Any]:
+        from ..pipeline.outputs import default_affect
+
+        payload = default_affect()
+        payload["vad"] = {
+            "valence": vad_res.valence,
+            "arousal": vad_res.arousal,
+            "dominance": vad_res.dominance,
+        }
+        payload["speech_emotion"] = {
+            "top": speech_res.top,
+            "scores_8class": dict(speech_res.scores),
+            "low_confidence_ser": speech_res.low_confidence,
+        }
+        payload["text_emotions"] = {
+            "top5": [dict(item) for item in text_res.top5],
+            "full_28class": dict(text_res.full),
+        }
+        payload["intent"] = {
+            "top": intent_res.top,
+            "top3": [dict(item) for item in intent_res.top3],
+        }
+        payload["affect_hint"] = self._make_affect_hint(vad_res, intent_res.top)
+        return payload
+
+    def _analyze_components(
+        self,
+        *,
+        wav: Optional[np.ndarray],
+        sr: Optional[int],
+        text: str,
+    ) -> Tuple[TextEmotionResult, SpeechEmotionResult, VadEmotionResult]:
+        text_res = self.analyze_text(text)
+        speech_res = self.analyze_audio(wav, sr)
+        vad_res = self.analyze_vad_emotion(wav, sr)
+        return text_res, speech_res, vad_res
+
+    def analyze(
+        self,
+        *,
+        wav: Optional[np.ndarray],
+        sr: Optional[int],
+        text: str,
+    ) -> dict[str, Any]:
+        text_res, speech_res, vad_res = self._analyze_components(
+            wav=wav, sr=sr, text=text
+        )
+        intent_res = _default_intent_result()
+        return self._build_affect_payload(
+            text_res=text_res,
+            speech_res=speech_res,
+            vad_res=vad_res,
+            intent_res=intent_res,
+        )
+
+    def analyze_segment(
+        self, text: str, audio_wave: Optional[np.ndarray], sr: Optional[int]
+    ) -> EmotionOutputs:
+        """Analyze a single segment (text + audio) and serialize for storage."""
+
+        payload = self.analyze(wav=audio_wave, sr=sr, text=text or "")
+        return EmotionOutputs.from_affect(payload)
+
+
+__all__ = (
+    "EmotionAnalyzer",
+    "EmotionOutputs",
+    "GOEMOTIONS_LABELS",
+    "SER8_LABELS",
 )
 
 
@@ -404,12 +1016,20 @@ class EmotionIntentAnalyzer(EmotionAnalyzer):
         intent_labels: Sequence[str] | None = None,
         affect_backend: Optional[str] = None,
         affect_text_model_dir: Optional[str] = None,
+        affect_ser_model_dir: Optional[str] = None,
+        affect_vad_model_dir: Optional[str] = None,
         affect_intent_model_dir: Optional[str] = None,
         analyzer_threads: Optional[int] = None,
         disable_downloads: Optional[bool] = None,
         model_dir: Optional[str] = None,
     ) -> None:
-        super().__init__(model_dir=model_dir, disable_downloads=disable_downloads)
+        super().__init__(
+            model_dir=model_dir,
+            disable_downloads=disable_downloads,
+            text_model_dir=affect_text_model_dir,
+            ser_model_dir=affect_ser_model_dir,
+            vad_model_dir=affect_vad_model_dir,
+        )
 
         self.text_emotion_model = text_emotion_model
         labels = intent_labels or INTENT_LABELS_DEFAULT
@@ -417,10 +1037,9 @@ class EmotionIntentAnalyzer(EmotionAnalyzer):
         self.affect_backend = _normalize_backend(affect_backend)
         self.analyzer_threads = analyzer_threads
 
-        self.affect_text_model_dir = affect_text_model_dir
-        if affect_text_model_dir:
-            text_dir = os.fspath(affect_text_model_dir)
-            self.path_text_onnx = os.path.join(text_dir, "roberta-base-go_emotions.onnx")
+        self.affect_text_model_dir = os.fspath(self.text_model_dir)
+        self.affect_ser_model_dir = os.fspath(self.ser_model_dir)
+        self.affect_vad_model_dir = os.fspath(self.vad_model_dir)
 
         self.affect_intent_model_dir = _resolve_intent_model_dir(affect_intent_model_dir)
 
@@ -459,6 +1078,7 @@ class EmotionIntentAnalyzer(EmotionAnalyzer):
         if not model_dir_str:
             if strict:
                 logger.warning("Intent ONNX backend requested but no model directory is configured")
+            self._record_issue("Intent model directory not configured")
             return False
 
         model_dir = Path(model_dir_str)
@@ -466,6 +1086,7 @@ class EmotionIntentAnalyzer(EmotionAnalyzer):
         if model_path is None:
             if strict:
                 logger.warning("Intent ONNX backend missing model.onnx in %s", model_dir)
+            self._record_issue(f"Intent ONNX model missing under {model_dir}")
             return False
 
         threads = self.analyzer_threads or 1
@@ -474,6 +1095,7 @@ class EmotionIntentAnalyzer(EmotionAnalyzer):
         except Exception as exc:  # pragma: no cover - runtime dependent
             logger.warning("Intent ONNX session unavailable: %s", exc)
             self._intent_session = None
+            self._record_issue(f"Intent ONNX session unavailable: {exc}")
             return False
 
         try:
@@ -481,6 +1103,7 @@ class EmotionIntentAnalyzer(EmotionAnalyzer):
         except ModuleNotFoundError as exc:
             logger.warning("transformers unavailable for intent tokenizer: %s", exc)
             self._intent_session = None
+            self._record_issue("Transformers package missing for intent tokenizer")
             return False
 
         try:
@@ -491,6 +1114,9 @@ class EmotionIntentAnalyzer(EmotionAnalyzer):
             self._intent_session = None
             self._intent_tokenizer = None
             self._intent_config = None
+            self._record_issue(
+                f"Intent tokenizer/config unavailable under {model_dir_str}: {exc}"
+            )
             return False
 
         id2label_raw = getattr(self._intent_config, "id2label", {})
@@ -514,6 +1140,7 @@ class EmotionIntentAnalyzer(EmotionAnalyzer):
             return True
         pipeline = _maybe_import_transformers_pipeline()
         if pipeline is None:
+            self._record_issue("Transformers pipeline unavailable for intent analysis")
             return False
         try:
             self._intent_pipeline = pipeline(
@@ -524,6 +1151,7 @@ class EmotionIntentAnalyzer(EmotionAnalyzer):
         except Exception as exc:  # noqa: BLE001 - HF backend specific
             logger.warning("Intent pipeline unavailable: %s", exc)
             self._intent_pipeline = None
+            self._record_issue(f"Intent transformers pipeline unavailable: {exc}")
             return False
         return True
 
@@ -625,6 +1253,35 @@ class EmotionIntentAnalyzer(EmotionAnalyzer):
                 logger.warning("Intent pipeline inference failed: %s", exc)
 
         return self._intent_default_prediction()
+
+    def analyze(
+        self,
+        *,
+        wav: Optional[np.ndarray],
+        sr: Optional[int],
+        text: str,
+    ) -> dict[str, Any]:
+        text_res, speech_res, vad_res = self._analyze_components(
+            wav=wav, sr=sr, text=text
+        )
+        intent_top, entries = self._infer_intent(text)
+        if not entries:
+            default_intent = _default_intent_result()
+            intent_result = IntentResult(
+                top=default_intent.top,
+                top3=[dict(item) for item in default_intent.top3],
+            )
+        else:
+            intent_result = IntentResult(
+                top=intent_top or entries[0]["label"],
+                top3=[{"label": str(item.get("label", "")), "score": float(item.get("score", 0.0))} for item in entries],
+            )
+        return self._build_affect_payload(
+            text_res=text_res,
+            speech_res=speech_res,
+            vad_res=vad_res,
+            intent_res=intent_result,
+        )
 
 
 __all__ = __all__ + ("EmotionIntentAnalyzer", "create_onnx_session")
