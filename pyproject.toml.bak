@@ -1,0 +1,106 @@
+[build-system]
+requires = ["setuptools>=65", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "diaremot"
+version = "2.1.0"
+description = "DiaRemot CPU-only speech affect and transcription pipeline"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "Proprietary" }
+keywords = ["speech", "diarization", "emotion", "cli"]
+dependencies = [
+    "numpy==1.24.4",
+    "scipy==1.10.1",
+    "librosa==0.10.2.post1",
+    "numba==0.59.1",
+    "llvmlite==0.42.0",
+    "resampy==0.4.2",
+    "soundfile==0.12.1",
+    "av==11.0.0",
+    "torch==2.4.1+cpu",
+    "torchaudio==2.4.1+cpu",
+    "torchvision==0.19.1+cpu",
+    "ctranslate2==4.6.0",
+    "faster-whisper==1.1.0",
+    "openai-whisper==20231117",
+    "transformers==4.38.2",
+    "onnxruntime==1.17.1",
+    "tokenizers==0.15.2",
+    "huggingface_hub==0.24.6",
+    "pandas==2.0.3",
+    "scikit-learn==1.3.2",
+    "audioread==3.0.1",
+    "pydub==0.25.1",
+    "ffmpeg-python==0.2.0",
+    "matplotlib==3.7.5",
+    "seaborn==0.13.2",
+    "reportlab==4.1.0",
+    "praat-parselmouth==0.4.3",
+    "jinja2==3.1.6",
+    "beautifulsoup4==4.12.3",
+    "tqdm==4.66.4",
+    "joblib==1.3.2",
+    "psutil==5.9.8",
+    "packaging==23.2",
+    "panns-inference==0.1.1",
+    "click==8.1.7",
+    "typer==0.9.0",
+]
+
+[project.scripts]
+diaremot = "diaremot.cli:app"
+diaremot-diagnostics = "diaremot.cli:main_diagnostics"
+diaremot-deps-check = "diaremot.tools.deps_check:main"
+
+[tool.setuptools.package-dir]
+"" = "src"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+exclude = [".venv", "dist", "build", "packaging"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "W", "N", "ANN"]
+ignore = ["E203"]
+
+[tool.ruff.lint.per-file-ignores]
+"src/diaremot/affect/emotion_analyzer.py" = [
+    "E501",
+    "I001",
+    "UP006",
+    "UP035",
+    "N806",
+    "ANN101",
+    "ANN202",
+    "ANN204",
+    "ANN001",
+    "ANN002",
+    "B007",
+    "N812",
+]
+"tests/test_emotion_intent_model_path.py" = ["ANN101", "ANN102", "ANN202", "ANN002", "ANN003", "UP037"]
+"tests/test_stageguard.py" = ["ANN001", "ANN002", "ANN003", "ANN101", "ANN102", "ANN201", "ANN202", "ANN204"]
+
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+extend-exclude = '\.venv|dist|build|packaging'
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+warn_unused_configs = true
+pretty = true
+exclude = '(?x)(^\.venv/|^build/|^dist/|^packaging/)'
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]

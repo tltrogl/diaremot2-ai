@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html><head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Summary - sample.wav</title>
+<style>
+body { font: 14px system-ui; margin: 0; background: #f8f9fa; }
+.container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+.header { background: linear-gradient(135deg, #667eea, #764ba2); color: white; padding: 40px; border-radius: 12px; margin-bottom: 30px; }
+.header h1 { margin: 0 0 10px; font-size: 2.5rem; }
+.header .meta { opacity: 0.9; font-size: 1.1rem; }
+.section { background: white; border-radius: 8px; padding: 30px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+.section h2 { margin: 0 0 20px; color: #333; }
+.speakers-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 20px; }
+.speaker-card { border: 1px solid #e0e0e0; border-radius: 8px; padding: 20px; }
+.speaker-name { font-weight: bold; font-size: 1.2rem; margin-bottom: 10px; }
+.duration-bar { height: 6px; background: #e0e0e0; border-radius: 3px; overflow: hidden; margin: 10px 0; }
+.duration-fill { height: 100%; background: linear-gradient(90deg, #667eea, #764ba2); }
+.metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-top: 15px; }
+.metric { display: flex; justify-content: space-between; padding: 8px; background: #f8f9fa; border-radius: 4px; }
+.moments { display: flex; flex-direction: column; gap: 15px; }
+.moment { display: flex; gap: 15px; padding: 15px; background: #f8f9fa; border-radius: 8px; border-left: 4px solid #667eea; }
+.moment-time { font-weight: bold; color: #667eea; min-width: 60px; }
+.moment-content { flex: 1; }
+.transcript { height: clamp(240px, 50vh, 600px); overflow-y: auto; border: 1px solid #e0e0e0; border-radius: 8px; }
+.transcript-row { display: flex; gap: 15px; padding: 10px 15px; border-bottom: 1px solid #f0f0f0; }
+.transcript-time { min-width: 60px; color: #666; font-family: monospace; }
+.transcript-speaker { min-width: 100px; font-weight: bold; }
+.transcript-text { flex: 1; overflow-wrap: anywhere; word-break: break-word; }
+.transcript-row:hover { background: #f8f9fa; }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="header">
+    <h1>Audio Analysis Report</h1>
+    <div class="meta">sample.wav &bull; 0:00 &bull; 0 speakers</div>
+  </div>
+
+  <div class="section">
+    <h2>Executive Summary</h2>
+    <p>Audio length: 0:00</p>
+  </div>
+
+  <div class="section">
+    <h2>Speaker Analysis</h2>
+    <div class="speakers-grid">
+      <p>No speakers identified</p>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2>Voice Quality</h2>
+    <div class="metrics">
+      <div class="metric"><span>Jitter (pct):</span><span>—</span></div>
+      <div class="metric"><span>Shimmer (dB):</span><span>—</span></div>
+      <div class="metric"><span>HNR (dB):</span><span>—</span></div>
+      <div class="metric"><span>CPPS (dB):</span><span>—</span></div>
+    </div>
+  </div>
+
+  
+
+  <div class="section">
+    <h2>Transcript</h2>
+    <div class="transcript">
+      <p>No transcript available</p>
+    </div>
+  </div>
+</div>
+</body>
+</html>

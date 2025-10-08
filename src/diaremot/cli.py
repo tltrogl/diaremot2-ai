@@ -218,7 +218,7 @@ def run(
         Path("speaker_registry.json"), help="Speaker registry path."
     ),
     ahc_distance_threshold: float = typer.Option(
-        0.12, help="Agglomerative clustering distance threshold."
+        0.15, help="Agglomerative clustering distance threshold."
     ),
     speaker_limit: Optional[int] = typer.Option(None, help="Maximum number of speakers to keep."),
     whisper_model: str = typer.Option(
@@ -386,7 +386,7 @@ def resume(
         Path("speaker_registry.json"), help="Speaker registry path."
     ),
     ahc_distance_threshold: float = typer.Option(
-        0.12, help="Agglomerative clustering distance threshold."
+        0.15, help="Agglomerative clustering distance threshold."
     ),
     speaker_limit: Optional[int] = typer.Option(None, help="Maximum number of speakers to keep."),
     whisper_model: str = typer.Option(

@@ -1,10 +1,10 @@
 {
-  "run_id": "20251008-001046-6cf6c7",
+  "run_id": "20251008-045343-c6cb01",
   "file_id": "sample.wav",
   "schema_version": "2.0.0",
   "stage_timings_ms": {
-    "dependency_check": 3255.3141117095947,
-    "preprocess": 21.49057388305664
+    "dependency_check": 1055.1223754882812,
+    "preprocess": 5969.736099243164
   },
   "stage_counts": {
     "dependency_check": {
@@ -16,21 +16,44 @@
     "dep:faster_whisper: invalid syntax (__init__.py, line 1)",
     "dep:pandas: invalid syntax (__init__.py, line 1)",
     "dep:transformers: cannot import name 'get_full_repo_name' from 'huggingface_hub' (D:\\diaremot\\diaremot2-ai\\.cock\\Lib\\site-packages\\huggingface_hub\\__init__.py)",
-    "preprocess: AttributeError: module 'librosa' has no attribute 'resample'"
+    "preprocess: SyntaxError: invalid syntax (__init__.py, line 1)"
   ],
   "errors": [
-    "preprocess: AttributeError: module 'librosa' has no attribute 'resample'"
+    "preprocess: SyntaxError: invalid syntax (__init__.py, line 1)"
   ],
   "failures": [
     {
       "stage": "preprocess",
-      "error": "AttributeError: module 'librosa' has no attribute 'resample'",
-      "elapsed_ms": 21.49057388305664,
+      "error": "SyntaxError: invalid syntax (__init__.py, line 1)",
+      "elapsed_ms": 5969.736099243164,
       "suggestion": "Verify audio codec support (try converting to WAV 16kHz mono)."
     }
   ],
-  "models": {},
+  "models": {
+    "preprocessor": "AudioPreprocessor",
+    "diarizer": "SpeakerDiarizer",
+    "transcriber": "AudioTranscriber",
+    "affect": "EmotionIntentAnalyzer"
+  },
   "config_snapshot": {
+    "target_sr": 16000,
+    "noise_reduction": false,
+    "enable_sed": true,
+    "registry_path": "D:/diaremot/diaremot2-ai/speaker_registry.json",
+    "ahc_distance_threshold": 0.12,
+    "whisper_model": "D:\\models\\tiny.en",
+    "beam_size": 1,
+    "temperature": 0.0,
+    "no_speech_threshold": 0.5,
+    "intent_labels": null,
+    "affect_backend": "onnx",
+    "affect_text_model_dir": null,
+    "affect_ser_model_dir": null,
+    "affect_vad_model_dir": null,
+    "affect_intent_model_dir": null,
+    "affect_analyzer_threads": null,
+    "text_emotion_model": null,
+    "disable_affect": false,
     "dependency_ok": false,
     "dependency_summary": {
       "numpy": {
@@ -46,7 +69,7 @@
       "librosa": {
         "required_min": "0.10",
         "status": "ok",
-        "version": "0.10.2.post1"
+        "version": "0.10.2"
       },
       "soundfile": {
         "required_min": "0.12",

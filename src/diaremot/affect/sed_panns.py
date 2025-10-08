@@ -96,9 +96,9 @@ class SEDConfig:
     min_duration_sec: float = 0.25
     # Prefer a local model directory by default for offline reliability
     model_dir: Path | None = DEFAULT_PANNS_MODEL_DIR
-    # By default, analyze the full audio instead of truncating to a head slice.
-    max_eval_sec: float | None = None
-    eval_strategy: str = "head"  # "head" | "uniform"
+    # Sample 5 minutes uniformly across full duration for representative coverage
+    max_eval_sec: float | None = 300.0
+    eval_strategy: str = "uniform"  # "head" | "uniform"
 
 
 class PANNSEventTagger:

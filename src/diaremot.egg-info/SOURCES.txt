@@ -68,10 +68,14 @@ src/diaremot/utils/model_paths.py
 tests/test_cli.py
 tests/test_dependency_integrity.py
 tests/test_diarization_defaults.py
+tests/test_emotion_imports.py
 tests/test_emotion_intent_model_path.py
+tests/test_emotion_text_tokenizer.py
 tests/test_intent_onnx.py
+tests/test_no_merge_conflicts.py
 tests/test_orchestrator_affect_overrides.py
 tests/test_orchestrator_para_fallback.py
+tests/test_package_exports.py
 tests/test_pipeline_auto_tuner.py
 tests/test_pipeline_checkpoint_manager.py
 tests/test_pipeline_cli_entry_module.py

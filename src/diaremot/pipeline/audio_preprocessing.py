@@ -167,7 +167,8 @@ def _load_uncompressed_with_soundfile(
     if mono and y.ndim > 1:
         y = np.mean(y, axis=1)
     if sr != target_sr:
-        y = librosa.resample(y, orig_sr=sr, target_sr=target_sr, res_type="kaiser_best")
+        import soxr
+        y = soxr.resample(y, sr, target_sr)
         sr = target_sr
     return y.astype(np.float32), sr
 

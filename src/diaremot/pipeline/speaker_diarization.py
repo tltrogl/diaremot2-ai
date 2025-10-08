@@ -130,11 +130,11 @@ def _resolve_state_shape(shape: tuple[Any, ...] | None) -> tuple[int, ...]:
 class DiarizationConfig:
     target_sr: int = 16000
     mono: bool = True
-    # Silero VAD
-    vad_threshold: float = 0.30
-    vad_min_speech_sec: float = 0.8
-    vad_min_silence_sec: float = 0.8
-    speech_pad_sec: float = 0.2
+    # Silero VAD - Two-stage strategy: loose VAD to catch quiet speech
+    vad_threshold: float = 0.22
+    vad_min_speech_sec: float = 0.25
+    vad_min_silence_sec: float = 0.30
+    speech_pad_sec: float = 0.20
     # VAD backend preference: 'auto' | 'torch' | 'onnx'
     vad_backend: str = "torch"
     # Embedding windows

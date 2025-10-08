@@ -1,4 +1,4 @@
-# Ignore Python caches and build artifacts
+de# Ignore Python caches and build artifacts
 __pycache__/
 *.pyc
 *.pyo
