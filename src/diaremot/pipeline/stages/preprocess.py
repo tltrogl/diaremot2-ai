@@ -120,11 +120,23 @@ def run_background_sed(
     pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGuard
 ) -> None:
     empty_result = {"top": [], "dominant_label": None, "noise_score": 0.0}
-    sed_info = empty_result
+    if not bool(pipeline.cfg.get("enable_sed", True)):
+        disabled_result = dict(empty_result)
+        disabled_result["enabled"] = False
+        pipeline.corelog.info(
+            "[sed] background sound event detection disabled via configuration."
+        )
+        pipeline.stats.config_snapshot["background_sed"] = disabled_result
+        state.sed_info = disabled_result
+        guard.done()
+        return
+
+    sed_info = dict(empty_result)
     try:
         tagger = getattr(pipeline, "sed_tagger", None)
         if tagger is not None and state.y.size > 0 and state.sr:
-            sed_info = tagger.tag(state.y, state.sr) or empty_result
+            sed_info = dict(tagger.tag(state.y, state.sr) or empty_result)
+            sed_info["enabled"] = True
             pipeline.corelog.event(
                 "background_sed",
                 "tags",
@@ -135,6 +147,7 @@ def run_background_sed(
             pipeline.corelog.warn(
                 "[sed] tagger unavailable; emitting empty background tag summary."
             )
+            sed_info["enabled"] = True
     except (
         ImportError,
         ModuleNotFoundError,
@@ -146,7 +159,9 @@ def run_background_sed(
             "[sed] tagging skipped: %s. Emitting empty background tag summary.",
             exc,
         )
+        sed_info["enabled"] = True
     finally:
+        sed_info.setdefault("enabled", True)
         pipeline.stats.config_snapshot["background_sed"] = sed_info
         state.sed_info = sed_info
         guard.done()

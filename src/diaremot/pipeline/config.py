@@ -71,6 +71,7 @@ class PipelineConfig:
     temperature: float = 0.0
     no_speech_threshold: float = 0.50
     noise_reduction: bool = False
+    enable_sed: bool = True
     auto_chunk_enabled: bool = True
     chunk_threshold_minutes: float = 60.0
     chunk_size_minutes: float = 20.0
@@ -154,6 +155,13 @@ class PipelineConfig:
         self._validate_positive_float("chunk_threshold_minutes", self.chunk_threshold_minutes)
         self._validate_positive_float("chunk_size_minutes", self.chunk_size_minutes)
         _ensure_numeric_range("chunk_overlap_seconds", self.chunk_overlap_seconds, ge=0.0)
+        if isinstance(self.enable_sed, bool):
+            pass
+        elif isinstance(self.enable_sed, (int, float)):
+            self.enable_sed = bool(self.enable_sed)
+        else:
+            raise ValueError("enable_sed must be a boolean value")
+        self.enable_sed = bool(self.enable_sed)
         _ensure_numeric_range("vad_threshold", self.vad_threshold, ge=0.0, le=1.0)
         _ensure_numeric_range("temperature", self.temperature, ge=0.0, le=1.0)
         _ensure_numeric_range("no_speech_threshold", self.no_speech_threshold, ge=0.0, le=1.0)

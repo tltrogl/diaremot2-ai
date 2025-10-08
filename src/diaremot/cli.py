@@ -218,7 +218,8 @@ def run(
         0.12, help="Agglomerative clustering distance threshold."
     ),
     speaker_limit: int | None = typer.Option(None, help="Maximum number of speakers to keep."),
-    whisper_model: str = typer.Option(str(DEFAULT_WHISPER_MODEL), help="Whisper/Faster-Whisper model identifier."
+    whisper_model: str = typer.Option(
+        str(DEFAULT_WHISPER_MODEL), help="Whisper/Faster-Whisper model identifier."
     ),
     asr_backend: str = typer.Option("faster", help="ASR backend", show_default=True),
     asr_compute_type: str = typer.Option("float32", help="CT2 compute type for faster-whisper."),
@@ -265,13 +266,12 @@ def run(
         help="Enable gentle noise reduction.",
         is_flag=True,
     ),
-    disable_sed: bool = typer.Option(
-        False,
-        "--disable-sed",
-        help="Disable background sound event tagging.",
-        is_flag=True,
+    enable_sed: bool = typer.Option(
+        True,
+        "--enable-sed/--disable-sed",
+        help="Toggle background sound event detection stage.",
     ),
-    chunk_enabled: bool | None = typer.Option(
+    chunk_enabled: Optional[bool] = typer.Option(
         None,
         "--chunk-enabled",
         help="Set automatic chunking of long files (true/false).",
@@ -340,6 +340,7 @@ def run(
         vad_min_silence_sec=vad_min_silence_sec,
         vad_speech_pad_sec=vad_speech_pad_sec,
         vad_backend=vad_backend,
+        enable_sed=enable_sed,
         disable_energy_vad_fallback=disable_energy_vad_fallback,
         energy_gate_db=energy_gate_db,
         energy_hop_sec=energy_hop_sec,
@@ -384,7 +385,8 @@ def resume(
         0.12, help="Agglomerative clustering distance threshold."
     ),
     speaker_limit: int | None = typer.Option(None, help="Maximum number of speakers to keep."),
-    whisper_model: str = typer.Option(str(DEFAULT_WHISPER_MODEL), help="Whisper/Faster-Whisper model identifier."
+    whisper_model: str = typer.Option(
+        str(DEFAULT_WHISPER_MODEL), help="Whisper/Faster-Whisper model identifier."
     ),
     asr_backend: str = typer.Option("faster", help="ASR backend", show_default=True),
     asr_compute_type: str = typer.Option("float32", help="CT2 compute type for faster-whisper."),
@@ -425,13 +427,12 @@ def resume(
         help="Enable gentle noise reduction.",
         is_flag=True,
     ),
-    disable_sed: bool = typer.Option(
-        False,
-        "--disable-sed",
-        help="Disable background sound event tagging.",
-        is_flag=True,
+    enable_sed: bool = typer.Option(
+        True,
+        "--enable-sed/--disable-sed",
+        help="Toggle background sound event detection stage.",
     ),
-    chunk_enabled: bool | None = typer.Option(
+    chunk_enabled: Optional[bool] = typer.Option(
         None,
         "--chunk-enabled",
         help="Set automatic chunking of long files (true/false).",
@@ -494,6 +495,7 @@ def resume(
         vad_min_silence_sec=vad_min_silence_sec,
         vad_speech_pad_sec=vad_speech_pad_sec,
         vad_backend=vad_backend,
+        enable_sed=enable_sed,
         disable_energy_vad_fallback=disable_energy_vad_fallback,
         energy_gate_db=energy_gate_db,
         energy_hop_sec=energy_hop_sec,
@@ -536,6 +538,3 @@ def main_diagnostics() -> None:
 
 if __name__ == "__main__":  # pragma: no cover
     app()
-
-
-
