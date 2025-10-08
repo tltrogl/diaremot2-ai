@@ -6,7 +6,7 @@ import json
 from functools import lru_cache
 from importlib import import_module
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 import typer
 
@@ -14,6 +14,9 @@ from .pipeline.logging_utils import _make_json_safe
 from .pipeline.runtime_env import DEFAULT_WHISPER_MODEL
 
 app = typer.Typer(help="High level CLI wrapper for the DiaRemot audio pipeline.")
+
+# Ensure Optional is available when annotations are evaluated by inspect on Python 3.11.
+globals()["Optional"] = Optional
 
 
 @lru_cache
@@ -24,7 +27,7 @@ def _core():
         return import_module("audio_pipeline_core")
 
 
-def core_build_config(overrides: dict[str, Any] | None = None) -> dict[str, Any]:
+def core_build_config(overrides: Optional[dict[str, Any]] = None) -> dict[str, Any]:
     return _core().build_pipeline_config(overrides)
 
 
@@ -63,7 +66,7 @@ BUILTIN_PROFILES: dict[str, dict[str, Any]] = {
 }
 
 
-def _load_profile(profile: str | None) -> dict[str, Any]:
+def _load_profile(profile: Optional[str]) -> dict[str, Any]:
     if not profile:
         return {}
 
@@ -86,7 +89,7 @@ def _load_profile(profile: str | None) -> dict[str, Any]:
     return data
 
 
-def _normalise_path(value: Path | None) -> str | None:
+def _normalise_path(value: Optional[Path]) -> Optional[str]:
     if value is None:
         return None
     return str(value.expanduser().resolve())
@@ -169,7 +172,7 @@ def _common_options(**kwargs: Any) -> dict[str, Any]:
         "temperature": kwargs.get("temperature"),
         "no_speech_threshold": kwargs.get("no_speech_threshold"),
         "noise_reduction": kwargs.get("noise_reduction"),
-        "enable_sed": kwargs.get("sed_enabled"),
+        "enable_sed": kwargs.get("enable_sed"),
         "auto_chunk_enabled": kwargs.get("chunk_enabled"),
         "chunk_threshold_minutes": kwargs.get("chunk_threshold_minutes"),
         "chunk_size_minutes": kwargs.get("chunk_size_minutes"),
@@ -206,7 +209,7 @@ def _common_options(**kwargs: Any) -> dict[str, Any]:
 def run(
     input: Path = typer.Option(..., "--input", "-i", help="Path to input audio file."),
     outdir: Path = typer.Option(..., "--outdir", "-o", help="Directory to write outputs."),
-    profile: str | None = typer.Option(
+    profile: Optional[str] = typer.Option(
         None,
         "--profile",
         help=f"Configuration profile to load ({', '.join(BUILTIN_PROFILES)} or path to JSON).",
@@ -217,14 +220,14 @@ def run(
     ahc_distance_threshold: float = typer.Option(
         0.12, help="Agglomerative clustering distance threshold."
     ),
-    speaker_limit: int | None = typer.Option(None, help="Maximum number of speakers to keep."),
+    speaker_limit: Optional[int] = typer.Option(None, help="Maximum number of speakers to keep."),
     whisper_model: str = typer.Option(
         str(DEFAULT_WHISPER_MODEL), help="Whisper/Faster-Whisper model identifier."
     ),
     asr_backend: str = typer.Option("faster", help="ASR backend", show_default=True),
     asr_compute_type: str = typer.Option("float32", help="CT2 compute type for faster-whisper."),
     asr_cpu_threads: int = typer.Option(1, help="CPU threads for ASR backend."),
-    language: str | None = typer.Option(None, help="Override ASR language"),
+    language: Optional[str] = typer.Option(None, help="Override ASR language"),
     language_mode: str = typer.Option("auto", help="Language detection mode"),
     ignore_tx_cache: bool = typer.Option(
         False,
@@ -245,16 +248,16 @@ def run(
         is_flag=True,
     ),
     affect_backend: str = typer.Option("onnx", help="Affect backend (auto/torch/onnx)."),
-    affect_text_model_dir: Path | None = typer.Option(
+    affect_text_model_dir: Optional[Path] = typer.Option(
         None, help="Path to GoEmotions model directory."
     ),
-    affect_intent_model_dir: Path | None = typer.Option(
+    affect_intent_model_dir: Optional[Path] = typer.Option(
         None, help="Path to intent model directory."
     ),
-    affect_ser_model_dir: Path | None = typer.Option(
+    affect_ser_model_dir: Optional[Path] = typer.Option(
         None, help="Path to speech emotion model directory."
     ),
-    affect_vad_model_dir: Path | None = typer.Option(
+    affect_vad_model_dir: Optional[Path] = typer.Option(
         None, help="Path to valence/arousal/dominance model directory."
     ),
     beam_size: int = typer.Option(1, help="Beam size for ASR decoding."),
@@ -308,47 +311,48 @@ def run(
         is_flag=True,
     ),
 ):
-    cli_overrides = _common_options(
-        registry_path=_normalise_path(registry_path),
-        ahc_distance_threshold=ahc_distance_threshold,
-        speaker_limit=speaker_limit,
-        whisper_model=whisper_model,
-        asr_backend=asr_backend,
-        asr_compute_type=asr_compute_type,
-        asr_cpu_threads=asr_cpu_threads,
-        language=language,
-        language_mode=language_mode,
-        ignore_tx_cache=ignore_tx_cache,
-        quiet=quiet,
-        disable_affect=disable_affect,
-        affect_backend=affect_backend,
-        affect_text_model_dir=_normalise_path(affect_text_model_dir),
-        affect_intent_model_dir=_normalise_path(affect_intent_model_dir),
-        affect_ser_model_dir=_normalise_path(affect_ser_model_dir),
-        affect_vad_model_dir=_normalise_path(affect_vad_model_dir),
-        beam_size=beam_size,
-        temperature=temperature,
-        no_speech_threshold=no_speech_threshold,
-        noise_reduction=noise_reduction,
-        enable_sed=not disable_sed,
-        chunk_enabled=chunk_enabled,
-        chunk_threshold_minutes=chunk_threshold_minutes,
-        chunk_size_minutes=chunk_size_minutes,
-        chunk_overlap_seconds=chunk_overlap_seconds,
-        vad_threshold=vad_threshold,
-        vad_min_speech_sec=vad_min_speech_sec,
-        vad_min_silence_sec=vad_min_silence_sec,
-        vad_speech_pad_sec=vad_speech_pad_sec,
-        vad_backend=vad_backend,
-        sed_enabled=enable_sed,
-        disable_energy_vad_fallback=disable_energy_vad_fallback,
-        energy_gate_db=energy_gate_db,
-        energy_hop_sec=energy_hop_sec,
-        asr_window_sec=asr_window_sec,
-        asr_segment_timeout=asr_segment_timeout,
-        asr_batch_timeout=asr_batch_timeout,
-        cpu_diarizer=cpu_diarizer,
-    )
+    run_overrides: dict[str, Any] = {
+        "registry_path": _normalise_path(registry_path),
+        "ahc_distance_threshold": ahc_distance_threshold,
+        "speaker_limit": speaker_limit,
+        "whisper_model": whisper_model,
+        "asr_backend": asr_backend,
+        "asr_compute_type": asr_compute_type,
+        "asr_cpu_threads": asr_cpu_threads,
+        "language": language,
+        "language_mode": language_mode,
+        "ignore_tx_cache": ignore_tx_cache,
+        "quiet": quiet,
+        "disable_affect": disable_affect,
+        "affect_backend": affect_backend,
+        "affect_text_model_dir": _normalise_path(affect_text_model_dir),
+        "affect_intent_model_dir": _normalise_path(affect_intent_model_dir),
+        "affect_ser_model_dir": _normalise_path(affect_ser_model_dir),
+        "affect_vad_model_dir": _normalise_path(affect_vad_model_dir),
+        "beam_size": beam_size,
+        "temperature": temperature,
+        "no_speech_threshold": no_speech_threshold,
+        "noise_reduction": noise_reduction,
+        "chunk_enabled": chunk_enabled,
+        "chunk_threshold_minutes": chunk_threshold_minutes,
+        "chunk_size_minutes": chunk_size_minutes,
+        "chunk_overlap_seconds": chunk_overlap_seconds,
+        "vad_threshold": vad_threshold,
+        "vad_min_speech_sec": vad_min_speech_sec,
+        "vad_min_silence_sec": vad_min_silence_sec,
+        "vad_speech_pad_sec": vad_speech_pad_sec,
+        "vad_backend": vad_backend,
+        "enable_sed": enable_sed,
+        "disable_energy_vad_fallback": disable_energy_vad_fallback,
+        "energy_gate_db": energy_gate_db,
+        "energy_hop_sec": energy_hop_sec,
+        "asr_window_sec": asr_window_sec,
+        "asr_segment_timeout": asr_segment_timeout,
+        "asr_batch_timeout": asr_batch_timeout,
+        "cpu_diarizer": cpu_diarizer,
+    }
+
+    cli_overrides = _common_options(**run_overrides)
 
     profile_overrides = _load_profile(profile)
     merged = _merge_configs(profile_overrides, cli_overrides)
@@ -373,7 +377,7 @@ def resume(
     outdir: Path = typer.Option(
         ..., "--outdir", "-o", help="Output directory used in the previous run."
     ),
-    profile: str | None = typer.Option(
+    profile: Optional[str] = typer.Option(
         None,
         "--profile",
         help=f"Configuration profile to load ({', '.join(BUILTIN_PROFILES)} or path to JSON).",
@@ -384,14 +388,14 @@ def resume(
     ahc_distance_threshold: float = typer.Option(
         0.12, help="Agglomerative clustering distance threshold."
     ),
-    speaker_limit: int | None = typer.Option(None, help="Maximum number of speakers to keep."),
+    speaker_limit: Optional[int] = typer.Option(None, help="Maximum number of speakers to keep."),
     whisper_model: str = typer.Option(
         str(DEFAULT_WHISPER_MODEL), help="Whisper/Faster-Whisper model identifier."
     ),
     asr_backend: str = typer.Option("faster", help="ASR backend", show_default=True),
     asr_compute_type: str = typer.Option("float32", help="CT2 compute type for faster-whisper."),
     asr_cpu_threads: int = typer.Option(1, help="CPU threads for ASR backend."),
-    language: str | None = typer.Option(None, help="Override ASR language"),
+    language: Optional[str] = typer.Option(None, help="Override ASR language"),
     language_mode: str = typer.Option("auto", help="Language detection mode"),
     quiet: bool = typer.Option(
         False,
@@ -406,16 +410,16 @@ def resume(
         is_flag=True,
     ),
     affect_backend: str = typer.Option("onnx", help="Affect backend (auto/torch/onnx)."),
-    affect_text_model_dir: Path | None = typer.Option(
+    affect_text_model_dir: Optional[Path] = typer.Option(
         None, help="Path to GoEmotions model directory."
     ),
-    affect_intent_model_dir: Path | None = typer.Option(
+    affect_intent_model_dir: Optional[Path] = typer.Option(
         None, help="Path to intent model directory."
     ),
-    affect_ser_model_dir: Path | None = typer.Option(
+    affect_ser_model_dir: Optional[Path] = typer.Option(
         None, help="Path to speech emotion model directory."
     ),
-    affect_vad_model_dir: Path | None = typer.Option(
+    affect_vad_model_dir: Optional[Path] = typer.Option(
         None, help="Path to valence/arousal/dominance model directory."
     ),
     beam_size: int = typer.Option(1, help="Beam size for ASR decoding."),
@@ -463,47 +467,48 @@ def resume(
         is_flag=True,
     ),
 ):
-    cli_overrides = _common_options(
-        registry_path=_normalise_path(registry_path),
-        ahc_distance_threshold=ahc_distance_threshold,
-        speaker_limit=speaker_limit,
-        whisper_model=whisper_model,
-        asr_backend=asr_backend,
-        asr_compute_type=asr_compute_type,
-        asr_cpu_threads=asr_cpu_threads,
-        language=language,
-        language_mode=language_mode,
-        ignore_tx_cache=False,
-        quiet=quiet,
-        disable_affect=disable_affect,
-        affect_backend=affect_backend,
-        affect_text_model_dir=_normalise_path(affect_text_model_dir),
-        affect_intent_model_dir=_normalise_path(affect_intent_model_dir),
-        affect_ser_model_dir=_normalise_path(affect_ser_model_dir),
-        affect_vad_model_dir=_normalise_path(affect_vad_model_dir),
-        beam_size=beam_size,
-        temperature=temperature,
-        no_speech_threshold=no_speech_threshold,
-        noise_reduction=noise_reduction,
-        enable_sed=not disable_sed,
-        chunk_enabled=chunk_enabled,
-        chunk_threshold_minutes=chunk_threshold_minutes,
-        chunk_size_minutes=chunk_size_minutes,
-        chunk_overlap_seconds=chunk_overlap_seconds,
-        vad_threshold=vad_threshold,
-        vad_min_speech_sec=vad_min_speech_sec,
-        vad_min_silence_sec=vad_min_silence_sec,
-        vad_speech_pad_sec=vad_speech_pad_sec,
-        vad_backend=vad_backend,
-        sed_enabled=enable_sed,
-        disable_energy_vad_fallback=disable_energy_vad_fallback,
-        energy_gate_db=energy_gate_db,
-        energy_hop_sec=energy_hop_sec,
-        asr_window_sec=asr_window_sec,
-        asr_segment_timeout=asr_segment_timeout,
-        asr_batch_timeout=asr_batch_timeout,
-        cpu_diarizer=cpu_diarizer,
-    )
+    resume_overrides: dict[str, Any] = {
+        "registry_path": _normalise_path(registry_path),
+        "ahc_distance_threshold": ahc_distance_threshold,
+        "speaker_limit": speaker_limit,
+        "whisper_model": whisper_model,
+        "asr_backend": asr_backend,
+        "asr_compute_type": asr_compute_type,
+        "asr_cpu_threads": asr_cpu_threads,
+        "language": language,
+        "language_mode": language_mode,
+        "ignore_tx_cache": False,
+        "quiet": quiet,
+        "disable_affect": disable_affect,
+        "affect_backend": affect_backend,
+        "affect_text_model_dir": _normalise_path(affect_text_model_dir),
+        "affect_intent_model_dir": _normalise_path(affect_intent_model_dir),
+        "affect_ser_model_dir": _normalise_path(affect_ser_model_dir),
+        "affect_vad_model_dir": _normalise_path(affect_vad_model_dir),
+        "beam_size": beam_size,
+        "temperature": temperature,
+        "no_speech_threshold": no_speech_threshold,
+        "noise_reduction": noise_reduction,
+        "chunk_enabled": chunk_enabled,
+        "chunk_threshold_minutes": chunk_threshold_minutes,
+        "chunk_size_minutes": chunk_size_minutes,
+        "chunk_overlap_seconds": chunk_overlap_seconds,
+        "vad_threshold": vad_threshold,
+        "vad_min_speech_sec": vad_min_speech_sec,
+        "vad_min_silence_sec": vad_min_silence_sec,
+        "vad_speech_pad_sec": vad_speech_pad_sec,
+        "vad_backend": vad_backend,
+        "enable_sed": enable_sed,
+        "disable_energy_vad_fallback": disable_energy_vad_fallback,
+        "energy_gate_db": energy_gate_db,
+        "energy_hop_sec": energy_hop_sec,
+        "asr_window_sec": asr_window_sec,
+        "asr_segment_timeout": asr_segment_timeout,
+        "asr_batch_timeout": asr_batch_timeout,
+        "cpu_diarizer": cpu_diarizer,
+    }
+
+    cli_overrides = _common_options(**resume_overrides)
 
     profile_overrides = _load_profile(profile)
     merged = _merge_configs(profile_overrides, cli_overrides)
