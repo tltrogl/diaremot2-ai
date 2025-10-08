@@ -80,6 +80,8 @@ Models & Assets
 - Default model directory: `./.cache/models` (via `DIAREMOT_MODEL_DIR`)
 - Use your GitHub Release asset `models.zip` (recommended). Provide its URL and SHA256.
   - Env: `DIAREMOT_AUTO_DOWNLOAD=1`, `DIAREMOT_MODELS_URL=https://github.com/OWNER/REPO/releases/download/TAG/models.zip`, `DIAREMOT_MODELS_SHA256=<hex>`
+  - Codex Cloud + resume default: set `DIAREMOT_MODELS_URL=https://github.com/tltrogl/diaremot2-ai/releases/download/v2.AI/models.zip`
+  - SHA256 for the published bundle: `DIAREMOT_MODELS_SHA256=3cc2115f4ef7cd4f9e43cfcec376bf56ea2a8213cb760ab17b27edbc2cac206c`
 - Expected contents (filenames):
   - `panns_cnn14.onnx`, `audioset_labels.csv`
   - `silero_vad.onnx`, `ecapa_tdnn.onnx`

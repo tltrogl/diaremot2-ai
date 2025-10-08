@@ -1,6 +1,7 @@
 import json
 import sys
 from pathlib import Path
+from typing import Any, Optional
 
 import pytest
 
@@ -114,6 +115,61 @@ def test_cli_validates_affect_backend_paths(
     assert result.exit_code != 0
     assert "affect_text_model_dir" in result.stdout or "affect_text_model_dir" in result.stderr
 
+
+def test_cli_smoke_generates_audio_and_runs_pipeline(
+    monkeypatch: pytest.MonkeyPatch, runner: CliRunner, tmp_path: Path
+) -> None:
+    generated = {}
+
+    def fake_generate(target: Path, duration: float, sample_rate: int, ffmpeg_bin: Optional[str]):
+        generated["target"] = target
+        target.write_bytes(b"WAV")
+        return "python"
+
+    captured_assemble = {}
+
+    def fake_assemble(profile: Optional[str], overrides: dict[str, Any]):
+        captured_assemble["profile"] = profile
+        captured_assemble["overrides"] = overrides
+        return {"config": "value"}
+
+    captured_run = {}
+
+    def fake_run(input_path: str, outdir_path: str, *, config, clear_cache: bool):
+        captured_run["input"] = input_path
+        captured_run["outdir"] = outdir_path
+        captured_run["config"] = config
+        captured_run["clear_cache"] = clear_cache
+        return {"status": "ok"}
+
+    monkeypatch.setattr("diaremot.cli._generate_sample_audio", fake_generate)
+    monkeypatch.setattr("diaremot.cli._assemble_config", fake_assemble)
+    monkeypatch.setattr("diaremot.cli._validate_assets", lambda *args, **kwargs: None)
+    monkeypatch.setattr("diaremot.cli.core_run_pipeline", fake_run)
+
+    result = runner.invoke(
+        app,
+        [
+            "smoke",
+            "--outdir",
+            str(tmp_path),
+            "--keep-audio",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    payload = json.loads(result.stdout)
+    assert payload == {"status": "ok"}
+
+    expected_sample = tmp_path / "diaremot_smoke_input.wav"
+    assert generated["target"] == expected_sample
+    assert captured_assemble["profile"] is None
+    assert captured_assemble["overrides"]["disable_affect"] is True
+    assert captured_run["input"] == str(expected_sample)
+    assert captured_run["outdir"] == str(tmp_path)
+    assert captured_run["config"] == {"config": "value"}
+    assert captured_run["clear_cache"] is True
+    assert expected_sample.exists()
 
 def test_diagnostics_entrypoint_accepts_strict(
     monkeypatch: pytest.MonkeyPatch, runner: CliRunner

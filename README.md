@@ -138,6 +138,12 @@ chmod +x ./setup.sh
 
 7) Smoke Test
 ```
+python -m diaremot.cli smoke --outdir ./outputs/smoke
+```
+
+This command synthesises a short demo clip (preferring `ffmpeg` when available) and runs the full pipeline with conservative defaults. To process your own audio, supply it directly:
+
+```
 python -m diaremot.cli run \
   --input data/sample.wav \
   --outdir ./outputs \
