@@ -168,6 +168,7 @@ def _common_options(**kwargs: Any) -> dict[str, Any]:
         "temperature": kwargs.get("temperature"),
         "no_speech_threshold": kwargs.get("no_speech_threshold"),
         "noise_reduction": kwargs.get("noise_reduction"),
+        "enable_sed": kwargs.get("sed_enabled"),
         "auto_chunk_enabled": kwargs.get("chunk_enabled"),
         "chunk_threshold_minutes": kwargs.get("chunk_threshold_minutes"),
         "chunk_size_minutes": kwargs.get("chunk_size_minutes"),
@@ -263,6 +264,11 @@ def run(
         help="Enable gentle noise reduction.",
         is_flag=True,
     ),
+    enable_sed: bool = typer.Option(
+        True,
+        "--enable-sed/--disable-sed",
+        help="Toggle background sound event detection stage.",
+    ),
     chunk_enabled: Optional[bool] = typer.Option(
         None,
         "--chunk-enabled",
@@ -331,6 +337,7 @@ def run(
         vad_min_silence_sec=vad_min_silence_sec,
         vad_speech_pad_sec=vad_speech_pad_sec,
         vad_backend=vad_backend,
+        sed_enabled=enable_sed,
         disable_energy_vad_fallback=disable_energy_vad_fallback,
         energy_gate_db=energy_gate_db,
         energy_hop_sec=energy_hop_sec,
@@ -416,6 +423,11 @@ def resume(
         help="Enable gentle noise reduction.",
         is_flag=True,
     ),
+    enable_sed: bool = typer.Option(
+        True,
+        "--enable-sed/--disable-sed",
+        help="Toggle background sound event detection stage.",
+    ),
     chunk_enabled: Optional[bool] = typer.Option(
         None,
         "--chunk-enabled",
@@ -478,6 +490,7 @@ def resume(
         vad_min_silence_sec=vad_min_silence_sec,
         vad_speech_pad_sec=vad_speech_pad_sec,
         vad_backend=vad_backend,
+        sed_enabled=enable_sed,
         disable_energy_vad_fallback=disable_energy_vad_fallback,
         energy_gate_db=energy_gate_db,
         energy_hop_sec=energy_hop_sec,
