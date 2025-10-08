@@ -60,11 +60,7 @@ try:
             os.environ.setdefault("AFFECT_VAD_DIM_MODEL_DIR", str(vad_dim))
 except Exception:
     pass
-<<<<<<< HEAD
-=======
 
 _numpy_spec = importlib.util.find_spec("numpy")
 if _numpy_spec is not None:
     importlib.import_module("numpy")
-
->>>>>>> 7b611bc33ae14a4cd702cb5f9355008663373325

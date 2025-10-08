@@ -19,6 +19,9 @@ faster-whisper==1.1.0
 openai-whisper==20231117
 
 # ML/AI
+torch==2.4.1+cpu
+torchaudio==2.4.1+cpu
+torchvision==0.19.1+cpu
 transformers==4.38.2
 huggingface_hub==0.24.6
 onnxruntime==1.17.1

@@ -4,10 +4,6 @@ This module re-exports the public API from ``diaremot.pipeline.audio_pipeline_co
 so that older entrypoints importing ``audio_pipeline_core`` from the repository
 root continue to function. The real implementation lives under ``src/``.
 """
-<<<<<<< HEAD
-
-=======
->>>>>>> 7b611bc33ae14a4cd702cb5f9355008663373325
 from __future__ import annotations
 
 import os
