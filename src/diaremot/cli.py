@@ -3,6 +3,10 @@
 from __future__ import annotations
 
 import json
+import array
+import math
+import shutil
+import subprocess
 from functools import lru_cache
 from importlib import import_module
 from pathlib import Path
@@ -205,6 +209,74 @@ def _common_options(**kwargs: Any) -> dict[str, Any]:
     return overrides
 
 
+def _assemble_config(profile: Optional[str], cli_overrides: dict[str, Any]) -> dict[str, Any]:
+    profile_overrides = _load_profile(profile)
+    merged = _merge_configs(profile_overrides, _common_options(**cli_overrides))
+    return core_build_config(merged)
+
+
+def _generate_sample_audio(
+    target: Path,
+    duration: float,
+    sample_rate: int,
+    ffmpeg_bin: Optional[str] = None,
+) -> str:
+    """Generate a sine-wave sample clip for smoke testing."""
+
+    if duration <= 0:
+        raise typer.BadParameter("duration must be positive")
+
+    if sample_rate <= 0:
+        raise typer.BadParameter("sample rate must be positive")
+
+    target.parent.mkdir(parents=True, exist_ok=True)
+
+    resolved_ffmpeg = ffmpeg_bin or shutil.which("ffmpeg")
+    if resolved_ffmpeg:
+        command = [
+            resolved_ffmpeg,
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            f"sine=frequency=440:sample_rate={sample_rate}:duration={duration}",
+            "-ac",
+            "1",
+            str(target),
+        ]
+        try:
+            subprocess.run(
+                command,
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            return "ffmpeg"
+        except (FileNotFoundError, subprocess.CalledProcessError):
+            pass
+
+    total_samples = int(duration * sample_rate)
+    if total_samples <= 0:
+        raise typer.BadParameter("duration/sample-rate combination produced no audio")
+
+    sine = array.array("h")
+    amplitude = 32767
+    angular = 2 * math.pi * 440
+    for index in range(total_samples):
+        value = int(amplitude * math.sin(angular * (index / sample_rate)))
+        sine.append(value)
+
+    import wave
+
+    with wave.open(str(target), "wb") as wav_file:
+        wav_file.setnchannels(1)
+        wav_file.setsampwidth(2)
+        wav_file.setframerate(sample_rate)
+        wav_file.writeframes(sine.tobytes())
+
+    return "python"
+
+
 @app.command()
 def run(
     input: Path = typer.Option(..., "--input", "-i", help="Path to input audio file."),
@@ -352,11 +424,7 @@ def run(
         "cpu_diarizer": cpu_diarizer,
     }
 
-    cli_overrides = _common_options(**run_overrides)
-
-    profile_overrides = _load_profile(profile)
-    merged = _merge_configs(profile_overrides, cli_overrides)
-    config = core_build_config(merged)
+    config = _assemble_config(profile, run_overrides)
 
     _validate_assets(input, outdir, config)
 
@@ -367,6 +435,87 @@ def run(
     except Exception as exc:  # pragma: no cover - runtime failure
         typer.secho(f"Pipeline execution failed: {exc}", fg=typer.colors.RED)
         raise typer.Exit(code=1) from exc
+
+    typer.echo(json.dumps(_make_json_safe(manifest), indent=2))
+
+
+@app.command()
+def smoke(
+    outdir: Path = typer.Option(
+        ..., "--outdir", "-o", help="Directory to write smoke test outputs."
+    ),
+    profile: Optional[str] = typer.Option(
+        None,
+        "--profile",
+        help=f"Optional configuration profile ({', '.join(BUILTIN_PROFILES)} or path).",
+    ),
+    duration: float = typer.Option(3.0, help="Duration of generated sample audio in seconds."),
+    sample_rate: int = typer.Option(16000, help="Sample rate for generated audio."),
+    disable_affect: bool = typer.Option(
+        True,
+        "--disable-affect/--enable-affect",
+        help="Disable affect stages for a faster smoke test run.",
+    ),
+    ffmpeg_bin: Optional[Path] = typer.Option(
+        None,
+        "--ffmpeg-bin",
+        help="Explicit ffmpeg binary to synthesise the audio (defaults to PATH lookup).",
+    ),
+    keep_audio: bool = typer.Option(
+        False,
+        "--keep-audio",
+        help="Retain the generated sample WAV after the run completes.",
+        is_flag=True,
+    ),
+):
+    """Generate a demo audio file and execute the pipeline against it."""
+
+    outdir = outdir.expanduser().resolve()
+    outdir.mkdir(parents=True, exist_ok=True)
+
+    sample_path = outdir / "diaremot_smoke_input.wav"
+    ffmpeg_override = _normalise_path(ffmpeg_bin)
+
+    try:
+        _generate_sample_audio(
+            sample_path,
+            duration=duration,
+            sample_rate=sample_rate,
+            ffmpeg_bin=ffmpeg_override,
+        )
+    except typer.BadParameter:
+        if not keep_audio and sample_path.exists():
+            sample_path.unlink()
+        raise
+
+    smoke_overrides: dict[str, Any] = {
+        "registry_path": _normalise_path(Path("speaker_registry.json")),
+        "disable_affect": disable_affect,
+        "affect_backend": "onnx",
+        "enable_sed": True,
+        "noise_reduction": False,
+        "chunk_enabled": None,
+        "chunk_threshold_minutes": None,
+        "chunk_size_minutes": None,
+        "chunk_overlap_seconds": None,
+        "vad_backend": "auto",
+    }
+
+    config = _assemble_config(profile, smoke_overrides)
+
+    _validate_assets(sample_path, outdir, config)
+
+    try:
+        manifest = core_run_pipeline(str(sample_path), str(outdir), config=config, clear_cache=True)
+    except Exception as exc:  # pragma: no cover - runtime failure
+        typer.secho(f"Smoke test failed: {exc}", fg=typer.colors.RED)
+        raise typer.Exit(code=1) from exc
+    finally:
+        if not keep_audio:
+            try:
+                sample_path.unlink()
+            except FileNotFoundError:  # pragma: no cover - defensive cleanup
+                pass
 
     typer.echo(json.dumps(_make_json_safe(manifest), indent=2))
 
@@ -508,11 +657,7 @@ def resume(
         "cpu_diarizer": cpu_diarizer,
     }
 
-    cli_overrides = _common_options(**resume_overrides)
-
-    profile_overrides = _load_profile(profile)
-    merged = _merge_configs(profile_overrides, cli_overrides)
-    config = core_build_config(merged)
+    config = _assemble_config(profile, resume_overrides)
 
     _validate_assets(input, outdir, config)
 
