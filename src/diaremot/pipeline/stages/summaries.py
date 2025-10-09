@@ -148,6 +148,7 @@ def run_outputs(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: 
         state.per_speaker_interrupts,
         state.conv_metrics,
         state.duration_s,
+        state.sed_info,
     )
 
     if state.cache_dir:
