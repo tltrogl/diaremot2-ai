@@ -682,6 +682,7 @@ class AudioAnalysisPipelineV2:
         per_speaker_interrupts: dict[str, Any],
         conv_metrics: ConversationMetrics | None,
         duration_s: float,
+        sed_info: dict[str, Any] | None,
     ):
         """Write all output files"""
         # Primary CSV
@@ -784,6 +785,7 @@ class AudioAnalysisPipelineV2:
                     state.per_speaker_interrupts,
                     state.conv_metrics,
                     state.duration_s,
+                    state.sed_info,
                 )
             except Exception as write_error:
                 self.corelog.error(f"Failed to write outputs: {write_error}")
@@ -801,6 +803,21 @@ class AudioAnalysisPipelineV2:
                 str(Path("registry") / "speaker_registry.json"),
             ),
         }
+
+        if state.sed_info:
+            timeline_csv = state.sed_info.get("timeline_csv")
+            if timeline_csv:
+                outputs["events_timeline"] = str(Path(timeline_csv).resolve())
+            timeline_jsonl = state.sed_info.get("timeline_jsonl")
+            if timeline_jsonl:
+                outputs["events_jsonl"] = str(Path(timeline_jsonl).resolve())
+
+        timeline_csv_fallback = outp / "events_timeline.csv"
+        if "events_timeline" not in outputs and timeline_csv_fallback.exists():
+            outputs["events_timeline"] = str(timeline_csv_fallback.resolve())
+        timeline_jsonl_fallback = outp / "events.jsonl"
+        if "events_jsonl" not in outputs and timeline_jsonl_fallback.exists():
+            outputs["events_jsonl"] = str(timeline_jsonl_fallback.resolve())
 
         spk_path = outp / "speakers_summary.csv"
         if spk_path.exists():

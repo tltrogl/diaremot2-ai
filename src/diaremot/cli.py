@@ -99,6 +99,35 @@ def _normalise_path(value: Optional[Path]) -> Optional[str]:
     return str(value.expanduser().resolve())
 
 
+def _parse_min_dur_map(value: Optional[str]) -> Optional[dict[str, float]]:
+    if value is None:
+        return None
+    text = value.strip()
+    if not text:
+        return {}
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        mapping: dict[str, float] = {}
+        parts = [part.strip() for part in text.split(",") if part.strip()]
+        if not parts:
+            return {}
+        for part in parts:
+            if "=" not in part:
+                raise ValueError(
+                    "sed_min_dur must be JSON or comma-separated key=value entries"
+                )
+            key, raw_val = part.split("=", 1)
+            mapping[key.strip()] = float(raw_val)
+        return mapping
+    if not isinstance(data, dict):
+        raise ValueError("sed_min_dur JSON must be an object mapping labels to seconds")
+    result: dict[str, float] = {}
+    for key, val in data.items():
+        result[str(key)] = float(val)
+    return result
+
+
 def _validate_assets(input_path: Path, output_dir: Path, config: dict[str, Any]) -> None:
     errors = []
 
@@ -129,6 +158,15 @@ def _validate_assets(input_path: Path, output_dir: Path, config: dict[str, Any])
         cache_root.expanduser().resolve().mkdir(parents=True, exist_ok=True)
     except Exception as exc:  # pragma: no cover - filesystem failure
         errors.append(f"Unable to prepare cache directory '{cache_root}': {exc}")
+
+    classmap = config.get("sed_classmap_csv")
+    if classmap:
+        try:
+            classmap_path = Path(classmap).expanduser()
+        except TypeError:
+            classmap_path = None
+        if classmap_path is not None and not classmap_path.exists():
+            errors.append(f"SED class map '{classmap_path}' does not exist.")
 
     if errors:
         raise typer.BadParameter("\n".join(errors))
@@ -192,6 +230,18 @@ def _common_options(**kwargs: Any) -> dict[str, Any]:
         "segment_timeout_sec": kwargs.get("asr_segment_timeout"),
         "batch_timeout_sec": kwargs.get("asr_batch_timeout"),
         "cpu_diarizer": kwargs.get("cpu_diarizer"),
+        "sed_window_sec": kwargs.get("sed_window_sec"),
+        "sed_hop_sec": kwargs.get("sed_hop_sec"),
+        "sed_enter": kwargs.get("sed_enter"),
+        "sed_exit": kwargs.get("sed_exit"),
+        "sed_min_dur": kwargs.get("sed_min_dur"),
+        "sed_merge_gap": kwargs.get("sed_merge_gap"),
+        "sed_classmap_csv": kwargs.get("sed_classmap_csv"),
+        "sed_timeline_jsonl": kwargs.get("sed_timeline_jsonl"),
+        "sed_batch_size": kwargs.get("sed_batch_size"),
+        "sed_median_k": kwargs.get("sed_median_k"),
+        "sed_mode": kwargs.get("sed_mode"),
+        "sed_default_min_dur": kwargs.get("sed_default_min_dur"),
     }
 
     backend = kwargs.get("affect_backend")
@@ -205,6 +255,10 @@ def _common_options(**kwargs: Any) -> dict[str, Any]:
     vad_backend = kwargs.get("vad_backend")
     if vad_backend is not None:
         overrides["vad_backend"] = str(vad_backend).lower()
+
+    sed_mode = kwargs.get("sed_mode")
+    if sed_mode is not None:
+        overrides["sed_mode"] = str(sed_mode).lower()
 
     return overrides
 
@@ -346,6 +400,25 @@ def run(
         "--enable-sed/--disable-sed",
         help="Toggle background sound event detection stage.",
     ),
+    sed_mode: str = typer.Option("auto", help="SED mode: global, timeline, or auto."),
+    sed_window_sec: float = typer.Option(1.0, help="Timeline SED window length (seconds)."),
+    sed_hop_sec: float = typer.Option(0.5, help="Timeline SED hop length (seconds)."),
+    sed_enter: float = typer.Option(0.50, help="Timeline SED hysteresis enter threshold."),
+    sed_exit: float = typer.Option(0.35, help="Timeline SED hysteresis exit threshold."),
+    sed_min_dur: Optional[str] = typer.Option(
+        None,
+        help="JSON or comma list mapping collapsed labels to minimum event duration seconds.",
+    ),
+    sed_merge_gap: float = typer.Option(0.20, help="Merge SED events separated by <= gap seconds."),
+    sed_classmap: Optional[Path] = typer.Option(
+        None,
+        help="Optional CSV mapping AudioSet labels to collapsed groups for timeline SED.",
+    ),
+    sed_timeline_jsonl: bool = typer.Option(
+        False,
+        "--sed-write-jsonl/--sed-no-jsonl",
+        help="Write per-frame SED debug JSONL alongside events timeline.",
+    ),
     chunk_enabled: Optional[bool] = typer.Option(
         None,
         "--chunk-enabled",
@@ -415,6 +488,14 @@ def run(
         "vad_speech_pad_sec": vad_speech_pad_sec,
         "vad_backend": vad_backend,
         "enable_sed": enable_sed,
+        "sed_mode": sed_mode,
+        "sed_window_sec": sed_window_sec,
+        "sed_hop_sec": sed_hop_sec,
+        "sed_enter": sed_enter,
+        "sed_exit": sed_exit,
+        "sed_merge_gap": sed_merge_gap,
+        "sed_classmap_csv": _normalise_path(sed_classmap),
+        "sed_timeline_jsonl": sed_timeline_jsonl,
         "disable_energy_vad_fallback": disable_energy_vad_fallback,
         "energy_gate_db": energy_gate_db,
         "energy_hop_sec": energy_hop_sec,
@@ -423,6 +504,14 @@ def run(
         "asr_batch_timeout": asr_batch_timeout,
         "cpu_diarizer": cpu_diarizer,
     }
+
+    if sed_min_dur is not None:
+        try:
+            min_dur_map = _parse_min_dur_map(sed_min_dur)
+        except ValueError as exc:
+            raise typer.BadParameter(str(exc)) from exc
+        if min_dur_map is not None:
+            run_overrides["sed_min_dur"] = min_dur_map
 
     config = _assemble_config(profile, run_overrides)
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+from bisect import bisect_left
 from typing import Any
 
 import numpy as np
@@ -53,6 +54,12 @@ def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGua
         state.segments_final = segments_final
         guard.done(segments=0)
         return
+
+    sed_payload = state.sed_info or {}
+    timeline_events = []
+    if isinstance(sed_payload, dict):
+        timeline_events = sed_payload.get("timeline_events") or []
+    timeline_index = _build_timeline_index(timeline_events)
 
     for idx, seg in enumerate(state.norm_tx):
         start = float(seg.get("start") or 0.0)
@@ -132,21 +139,55 @@ def run(pipeline: AudioAnalysisPipelineV2, state: PipelineState, guard: StageGua
             "error_flags": seg.get("error_flags", ""),
         }
 
-        sed_payload = state.sed_info or {}
+        events_top = []
+        snr_db_sed = None
         if isinstance(sed_payload, dict) and sed_payload:
-            top_events = sed_payload.get("top") or []
-            try:
-                row["events_top3_json"] = json.dumps(top_events, ensure_ascii=False)
-            except (TypeError, ValueError):
-                row["events_top3_json"] = "[]"
+            events_top = sed_payload.get("top") or []
             row["noise_tag"] = sed_payload.get("dominant_label")
             snr_db_sed = _estimate_snr_db_from_noise(sed_payload.get("noise_score"))
-            if snr_db_sed is not None:
-                row["snr_db_sed"] = snr_db_sed
+
+        if timeline_index is not None:
+            overlaps = _intersect_events(start, end, timeline_index)
+            if overlaps:
+                events_top = _topk_by_overlap(overlaps, k=3)
+                snr_from_events = _estimate_snr_from_events(overlaps, max(1e-6, row.get("duration_s", end - start)))
+                if snr_from_events is not None:
+                    snr_db_sed = snr_from_events
+            try:
+                row["events_top3_json"] = json.dumps(events_top[:3], ensure_ascii=False)
+            except (TypeError, ValueError):
+                row["events_top3_json"] = "[]"
+        elif events_top:
+            try:
+                row["events_top3_json"] = json.dumps(events_top[:3], ensure_ascii=False)
+            except (TypeError, ValueError):
+                row["events_top3_json"] = "[]"
+
+        if snr_db_sed is not None:
+            row["snr_db_sed"] = snr_db_sed
 
         segments_final.append(ensure_segment_keys(row))
 
     state.segments_final = segments_final
+
+    if timeline_index is not None and isinstance(state.turns, list):
+        for turn in state.turns:
+            if not isinstance(turn, dict):
+                continue
+            try:
+                start = float(turn.get("start", turn.get("start_time", 0.0)) or 0.0)
+                end = float(turn.get("end", turn.get("end_time", start)) or start)
+            except (TypeError, ValueError):
+                continue
+            overlaps = _intersect_events(start, end, timeline_index)
+            if overlaps:
+                turn["events_top3"] = _topk_by_overlap(overlaps, k=3)
+                snr_turn = _estimate_snr_from_events(overlaps, max(1e-6, end - start))
+                if snr_turn is not None:
+                    turn["snr_db_sed"] = snr_turn
+            elif "events_top3" not in turn:
+                turn["events_top3"] = []
+
     guard.done(segments=len(segments_final))
 
 
@@ -170,3 +211,97 @@ def _coerce_int(value: Any) -> int | None:
             return int(float(value))
         except (TypeError, ValueError):
             return None
+
+
+def _build_timeline_index(events: list[dict[str, Any]] | None) -> dict[str, Any] | None:
+    if not events:
+        return None
+    try:
+        sorted_events = sorted(events, key=lambda ev: float(ev.get("start", 0.0)))
+    except Exception:
+        return None
+    starts = [float(ev.get("start", 0.0)) for ev in sorted_events]
+    return {"events": sorted_events, "starts": starts}
+
+
+def _intersect_events(start: float, end: float, index: dict[str, Any]) -> list[dict[str, Any]]:
+    events = index.get("events") or []
+    starts = index.get("starts") or []
+    if not events or not starts or end <= start:
+        return []
+    overlaps: list[dict[str, Any]] = []
+    idx = max(0, bisect_left(starts, start) - 1)
+    while idx < len(events):
+        event = events[idx]
+        ev_start = float(event.get("start", 0.0))
+        ev_end = float(event.get("end", ev_start))
+        if ev_start >= end:
+            break
+        if ev_end <= start:
+            idx += 1
+            continue
+        overlap_start = max(start, ev_start)
+        overlap_end = min(end, ev_end)
+        overlap = overlap_end - overlap_start
+        if overlap > 0:
+            score = float(event.get("score", 0.0))
+            overlaps.append(
+                {
+                    "label": event.get("label"),
+                    "score": score,
+                    "start": ev_start,
+                    "end": ev_end,
+                    "overlap": overlap,
+                    "weight": overlap * max(0.0, score),
+                }
+            )
+        idx += 1
+    return overlaps
+
+
+def _topk_by_overlap(overlaps: list[dict[str, Any]], *, k: int) -> list[dict[str, Any]]:
+    if not overlaps:
+        return []
+    aggregates: dict[str, dict[str, float | str]] = {}
+    for item in overlaps:
+        label = str(item.get("label", "unknown"))
+        slot = aggregates.setdefault(label, {"label": label, "overlap": 0.0, "weight": 0.0, "score": 0.0})
+        overlap = float(item.get("overlap", 0.0))
+        weight = float(item.get("weight", 0.0))
+        slot["overlap"] = float(slot["overlap"]) + overlap
+        slot["weight"] = float(slot["weight"]) + weight
+    for slot in aggregates.values():
+        overlap = float(slot.get("overlap", 0.0))
+        weight = float(slot.get("weight", 0.0))
+        slot["score"] = (weight / overlap) if overlap > 0 else 0.0
+    ranked = sorted(
+        aggregates.values(),
+        key=lambda item: (float(item.get("weight", 0.0)), float(item.get("score", 0.0))),
+        reverse=True,
+    )
+    return [
+        {
+            "label": entry.get("label"),
+            "score": float(entry.get("score", 0.0)),
+            "overlap": float(entry.get("overlap", 0.0)),
+        }
+        for entry in ranked[:k]
+    ]
+
+
+def _estimate_snr_from_events(overlaps: list[dict[str, Any]], duration: float) -> float | None:
+    if not overlaps or duration <= 0:
+        return None
+    total_overlap = sum(float(item.get("overlap", 0.0)) for item in overlaps)
+    total_weight = sum(float(item.get("weight", 0.0)) for item in overlaps)
+    if total_overlap <= 0:
+        return None
+    density = min(1.0, total_overlap / duration)
+    weighted = min(1.0, total_weight / duration)
+    composite = min(1.0, 0.5 * density + 0.5 * weighted)
+    snr = 35.0 - 35.0 * composite
+    if snr < -5.0:
+        return -5.0
+    if snr > 35.0:
+        return 35.0
+    return snr

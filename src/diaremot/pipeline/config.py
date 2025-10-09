@@ -99,6 +99,18 @@ class PipelineConfig:
     run_id: str | None = None
     text_emotion_model: str | None = None
     intent_labels: list[str] | None = None
+    sed_mode: str = "auto"
+    sed_window_sec: float = 1.0
+    sed_hop_sec: float = 0.5
+    sed_enter: float = 0.50
+    sed_exit: float = 0.35
+    sed_min_dur: dict[str, float] = dataclass_field(default_factory=dict)
+    sed_merge_gap: float = 0.20
+    sed_classmap_csv: Path | None = None
+    sed_median_k: int = 5
+    sed_timeline_jsonl: bool = False
+    sed_batch_size: int = 256
+    sed_default_min_dur: float = 0.30
 
     def __post_init__(self) -> None:  # noqa: D401 - dataclass validation helper
         """Validate and normalise configuration fields."""
@@ -115,6 +127,7 @@ class PipelineConfig:
         self.affect_vad_model_dir = _coerce_optional_path(
             getattr(self, "affect_vad_model_dir", None)
         )
+        self.sed_classmap_csv = _coerce_optional_path(self.sed_classmap_csv)
 
         if isinstance(self.cache_roots, (str, Path)):
             self.cache_roots = [Path(self.cache_roots)]
@@ -178,6 +191,34 @@ class PipelineConfig:
             raise ValueError("chunk_overlap_seconds must be smaller than chunk_size_minutes * 60")
         if self.chunk_threshold_minutes < self.chunk_size_minutes:
             raise ValueError("chunk_threshold_minutes must be >= chunk_size_minutes")
+
+        self.sed_mode = self._lower_choice("sed_mode", self.sed_mode, {"auto", "global", "timeline"})
+        _ensure_numeric_range("sed_window_sec", self.sed_window_sec, gt=0.0)
+        _ensure_numeric_range("sed_hop_sec", self.sed_hop_sec, gt=0.0)
+        _ensure_numeric_range("sed_enter", self.sed_enter, ge=0.0, le=1.0)
+        _ensure_numeric_range("sed_exit", self.sed_exit, ge=0.0, le=1.0)
+        if self.sed_enter < self.sed_exit:
+            raise ValueError("sed_enter must be >= sed_exit")
+        _ensure_numeric_range("sed_merge_gap", self.sed_merge_gap, ge=0.0)
+        _ensure_numeric_range("sed_default_min_dur", self.sed_default_min_dur, ge=0.0)
+        self.sed_median_k = int(self.sed_median_k or 1)
+        self._validate_positive_int("sed_median_k", self.sed_median_k)
+        if self.sed_median_k % 2 == 0:
+            self.sed_median_k += 1
+        self.sed_batch_size = int(self.sed_batch_size or 1)
+        self._validate_positive_int("sed_batch_size", self.sed_batch_size)
+        if not isinstance(self.sed_min_dur, dict):
+            raise ValueError("sed_min_dur must be a mapping of label to duration")
+        cleaned_min_dur: dict[str, float] = {}
+        for key, value in self.sed_min_dur.items():
+            try:
+                duration = float(value)
+            except (TypeError, ValueError) as exc:  # pragma: no cover - validation path
+                raise ValueError(f"Invalid sed_min_dur value for {key!r}: {value}") from exc
+            if duration < 0:
+                raise ValueError(f"sed_min_dur for {key!r} must be >= 0")
+            cleaned_min_dur[str(key).lower()] = duration
+        self.sed_min_dur = cleaned_min_dur
 
     @staticmethod
     def _lower_choice(name: str, value: Any, allowed: set[str] | None) -> str:
