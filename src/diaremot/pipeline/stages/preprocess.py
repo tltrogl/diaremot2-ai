@@ -161,7 +161,62 @@ def run_background_sed(
         )
         sed_info["enabled"] = True
     finally:
+        tl_cfg = {
+            "mode": str(pipeline.cfg.get("sed_mode", "auto")).lower(),
+            "window_sec": float(pipeline.cfg.get("sed_window_sec", 1.0)),
+            "hop_sec": float(pipeline.cfg.get("sed_hop_sec", 0.5)),
+            "enter": float(pipeline.cfg.get("sed_enter", 0.5)),
+            "exit": float(pipeline.cfg.get("sed_exit", 0.35)),
+            "min_dur": pipeline.cfg.get("sed_min_dur", {}),
+            "default_min_dur": float(pipeline.cfg.get("sed_default_min_dur", 0.30)),
+            "merge_gap": float(pipeline.cfg.get("sed_merge_gap", 0.20)),
+            "classmap_csv": pipeline.cfg.get("sed_classmap_csv"),
+            "write_jsonl": bool(pipeline.cfg.get("sed_timeline_jsonl", False)),
+            "median_k": int(pipeline.cfg.get("sed_median_k", 5)),
+            "batch_size": int(pipeline.cfg.get("sed_batch_size", 256)),
+        }
+
+        run_timeline = False
+        noise_score = float(sed_info.get("noise_score", 0.0) or 0.0)
+        if tl_cfg["mode"] == "timeline":
+            run_timeline = True
+        elif tl_cfg["mode"] == "auto":
+            run_timeline = noise_score >= 0.30
+
+        if run_timeline and state.out_dir is not None:
+            try:
+                from ...affect.sed_timeline import run_sed_timeline
+
+                model_paths = getattr(tagger, "model_paths", None)
+                labels = getattr(tagger, "labels", None)
+                file_id = pipeline.stats.file_id or Path(state.input_audio_path).name
+                artifacts = run_sed_timeline(
+                    state.y,
+                    sr=state.sr,
+                    cfg=tl_cfg,
+                    out_dir=state.out_dir,
+                    file_id=file_id,
+                    model_paths=model_paths,
+                    labels=labels,
+                )
+                if artifacts is not None:
+                    sed_info["timeline_csv"] = str(artifacts.csv)
+                    sed_info["timeline_jsonl"] = str(artifacts.jsonl) if artifacts.jsonl else None
+                    sed_info["timeline_events"] = artifacts.events
+                    sed_info["timeline_mode"] = tl_cfg["mode"]
+                    if getattr(artifacts, "mode", None):
+                        sed_info["timeline_inference_mode"] = artifacts.mode
+            except Exception as exc:  # pragma: no cover - runtime dependent
+                pipeline.corelog.warn(
+                    "[sed.timeline] generation failed: %s. Falling back to global tags only.",
+                    exc,
+                )
+
         sed_info.setdefault("enabled", True)
-        pipeline.stats.config_snapshot["background_sed"] = sed_info
+        snapshot = dict(sed_info)
+        events = snapshot.pop("timeline_events", None)
+        if events is not None:
+            snapshot["timeline_event_count"] = len(events)
+        pipeline.stats.config_snapshot["background_sed"] = snapshot
         state.sed_info = sed_info
         guard.done()

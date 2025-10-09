@@ -68,6 +68,7 @@ labels = []  # type: ignore
 
 _ONNX_FILENAME_CANDIDATES: tuple[tuple[str, str], ...] = (
     ("cnn14.onnx", "labels.csv"),
+    ("panns_cnn14.onnx", "audioset_labels.csv"),
     ("model.onnx", "class_labels_indices.csv"),
 )
 
@@ -129,6 +130,7 @@ class PANNSEventTagger:
         self._tagger: AudioTagging | None = None  # type: ignore
         self._session: onnxruntime.InferenceSession | None = None
         self._labels: list[str] | None = None
+        self.model_paths: tuple[Path, Path] | None = None
         self.available = True
         self._warned_missing = False
         self._ensure_model()
@@ -189,6 +191,7 @@ class PANNSEventTagger:
             if not labels_local:
                 raise ValueError("labels file empty")
             self._labels = labels_local
+            self.model_paths = (model_path, labels_path)
             return True
         except OnnxRuntimeUnavailable as exc:
             logger.info("Failed loading ONNX model %s: %s", model_path, exc)
@@ -196,6 +199,7 @@ class PANNSEventTagger:
             logger.info("Failed loading ONNX model %s: %s", model_path, exc)
         self._session = None
         self._labels = None
+        self.model_paths = None
         return False
 
     def _ensure_model(self):
@@ -434,3 +438,9 @@ class PANNSEventTagger:
             "dominant_label": top[0]["label"] if top else None,
             "noise_score": float(noise_score),
         }
+
+    @property
+    def labels(self) -> list[str] | None:
+        if self._labels is None:
+            return None
+        return list(self._labels)
