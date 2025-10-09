@@ -1,12 +1,10 @@
 This file is for the agent. Execute deterministic instructions exactly as written. If a prerequisite is missing or a contract below would be violated, stop and return a failure report with the minimal relevant logs.
 Agents read AGENTS.md to learn build/test/style rules and context. Think of it as a README for agents. 
-GitHub
-+1
 
 0) Operating Mode
 
 
-Network: Internet ON. Models are fetched from the release below; subsequent verification runs offline-safe.
+Network: Internet ON. Models are fetched from the release below; subsequent verification runs offline-safe. Also use the internet as a resource when you are unsure of how to implement something.
 
 Execution: CPU-only (no CUDA paths).
 
@@ -25,13 +23,6 @@ Inference policy: ONNX-first; cleanly log any fallback (PyTorch/Transformers/YAM
 9 conversation_analysis
 10 speaker_rollups
 11 outputs
-
-
-Rules:
-
-Exactly 11 stages; order is fixed.
-
-Stages run by default (SED can be disabled via flag).
 
 auto_tune.py is internal to diarization and not an extra stage.
 
@@ -57,34 +48,22 @@ Primary CSV: diarized_transcript_with_emotion.csv (39 columns, fixed order).
 Other defaults: segments.jsonl, speakers_summary.csv, events_timeline.csv, summary.html, qc_report.json, etc.
 
 1.3 Model Map (preferred ONNX; CPU-friendly)
-Function	Preferred model / tech	Notes / refs
 VAD	Silero VAD (ONNX)	Well-known CPU VAD; ONNX variants exist. 
-GitHub
-+1
 
-Speaker embeds	ECAPA-TDNN (ONNX if present)	Standard embeddings for AHC clustering. 
-Hugging Face
-+1
+Speaker embeds	ECAPA-TDNN (ONNX if present)	Standard embeddings for AHC clustering.
 
 SED	PANNs CNN14 (ONNX) → AudioSet→~20 groups	CNN14 summary + paper. 
-GitHub
-+1
 
 ASR	Faster-Whisper on CTranslate2	Fast CPU inference; int8 optional; float32 default here. 
-GitHub
-+1
 
 Tone (V/A/D)	wav2vec2-based (per brief)	—
 SER (8-class)	wav2vec2 emotion model	—
 Text emotions	RoBERTa GoEmotions (28)	
-Hugging Face
-
 Intent	BART-large-MNLI (zero-shot)	
-Hugging Face
 
 Runtime	ONNX Runtime CPU EP	CPU EP is default provider. 
 ONNX Runtime
-+1
+
 1.4 Directory Map (logical anchors)
 
 Stages registry: src/diaremot/pipeline/stages/__init__.py (defines PIPELINE_STAGES)
@@ -101,7 +80,6 @@ Fetch and verify the model bundle from GitHub release v2.AI:
 
 Source: tltrogl/diaremot2-ai → Release v2.AI → asset models.zip
 (release notes: “Add models.zip for Codex setup”). 
-GitHub
 
 Expected SHA-256: 3cc2115f4ef7cd4f9e43cfcec376bf56ea2a8213cb760ab17b27edbc2cac206c
 
@@ -198,18 +176,11 @@ ASR: Faster-Whisper tiny.en via CTranslate2; float32 default in the main pipelin
 GitHub
 
 SED: PANNs CNN14 ONNX; 1.0 s frames / 0.5 s hop; median 3–5; hysteresis enter ≥0.50 / exit ≤0.35; min_dur=0.30 s; merge_gap≤0.20 s. 
-GitHub
-+1
 
 Diarization: Silero VAD (ONNX) → ECAPA-TDNN embeddings → AHC; typical defaults vad_threshold≈0.35, vad_min_speech_sec=0.80, vad_min_silence_sec=0.80, vad_speech_pad_sec=0.10, ahc_distance_threshold≈0.15; post rules: collar≈0.25 s, min_turn_sec=1.50, max_gap_to_merge_sec=1.00. 
-GitHub
-+1
-
 Paralinguistics: Praat-Parselmouth voice metrics; on failure, write placeholders (schema must remain intact).
 
 NLP: GoEmotions (28) and BART-MNLI intent; keep JSON distributions. 
-Hugging Face
-+1
 
 5) CLI Surfaces (for smoke / automation)
 
@@ -259,31 +230,22 @@ One-paragraph diagnosis
 References (for maintainers; safe to keep at bottom)
 
 AGENTS.md concept/spec (repo + site). Agents read this file to learn environment/setup/tests. 
-GitHub
-+1
+
 
 Release (models.zip) — tltrogl/diaremot2-ai v2.AI with asset for Codex setup. 
-GitHub
 
 ONNX Runtime EPs (CPU) — CPU EP is the default; we stay CPU-only. 
 ONNX Runtime
 
 Faster-Whisper / CTranslate2 — CPU-optimized Whisper inference. 
-GitHub
 
 Silero VAD (ONNX variants exist). 
-GitHub
-+1
 
 ECAPA-TDNN embeddings (speaker verification). 
 Hugging Face
 
 PANNs CNN14 (AudioSet-trained SED). 
-GitHub
-+1
 
 GoEmotions (RoBERTa base). 
-Hugging Face
 
-BART-large-MNLI (zero-shot intent via NLI). 
-Hugging Face
+FacebookAI/roberta-large-mnli 
