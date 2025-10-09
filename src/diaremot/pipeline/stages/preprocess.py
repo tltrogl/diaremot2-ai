@@ -204,8 +204,6 @@ def run_background_sed(
                     sed_info["timeline_jsonl"] = str(artifacts.jsonl) if artifacts.jsonl else None
                     sed_info["timeline_events"] = artifacts.events
                     sed_info["timeline_mode"] = tl_cfg["mode"]
-                    if getattr(artifacts, "mode", None):
-                        sed_info["timeline_inference_mode"] = artifacts.mode
             except Exception as exc:  # pragma: no cover - runtime dependent
                 pipeline.corelog.warn(
                     "[sed.timeline] generation failed: %s. Falling back to global tags only.",

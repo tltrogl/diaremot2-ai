@@ -44,7 +44,18 @@ try:
         os.environ.setdefault("HUGGINGFACE_HUB_CACHE", r"D:\\hf_cache")
         os.environ.setdefault("TRANSFORMERS_CACHE", r"D:\\hf_cache\\transformers")
         os.environ.setdefault("TORCH_HOME", r"D:\\hf_cache\\torch")
-        os.environ.setdefault("HF_HUB_ENABLE_HF_TRANSFER", "1")
+        # Enable fast HF downloads only if the optional plugin is available
+        try:
+            import importlib.util as _util  # local import to avoid global side effects
+
+            if _util.find_spec("hf_transfer") is not None:
+                os.environ.setdefault("HF_HUB_ENABLE_HF_TRANSFER", "1")
+            else:
+                # Ensure we do not force-enable it when the package is absent
+                os.environ.pop("HF_HUB_ENABLE_HF_TRANSFER", None)
+        except Exception:
+            # Be conservative: do not force-enable if detection fails
+            os.environ.pop("HF_HUB_ENABLE_HF_TRANSFER", None)
         # Convenience explicit paths if present
         goem = default_models / "text_emotions"
         bart = default_models / "intent"

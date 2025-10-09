@@ -7,7 +7,7 @@ import json
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Iterable, Iterator, Mapping, Sequence
+from typing import Any, Iterable, Mapping, Sequence
 
 import numpy as np
 
@@ -35,7 +35,6 @@ class TimelineArtifacts:
     csv: Path
     jsonl: Path | None
     events: list[dict[str, Any]]
-    mode: str | None = None
 
 
 @dataclass(slots=True)
@@ -104,46 +103,28 @@ def run_sed_timeline(
     y = np.asarray(audio_16k, dtype=np.float32)
     y32, sr32 = _resample_to_sr(y, sr, target=32000)
     logmel, feat_info = _compute_logmel(y32, sr32)
-    frame_times, window_audio, mel_windows = _prepare_windows(
+    frame_times, window_audio = _prepare_windows(
         y32, logmel, feat_info, window_sec, hop_sec
     )
-    if not frame_times or (not window_audio and not mel_windows):
+    if not frame_times or not window_audio:
         logger.info("[sed.timeline] no analysis windows generated; skipping")
         return None
 
     input_name = session.get_inputs()[0].name
-    inference_modes: list[tuple[str, list[np.ndarray]]] = []
-    if window_audio:
-        inference_modes.append(("waveform", window_audio))
-    if mel_windows:
-        inference_modes.append(("mel", mel_windows))
+    score_chunks: list[np.ndarray] = []
+    for start in range(0, len(window_audio), batch_size):
+        batch = window_audio[start : start + batch_size]
+        preds = _run_session(session, input_name, batch)
+        if preds is None:
+            logger.info("[sed.timeline] inference halted early; skipping timeline")
+            return None
+        score_chunks.append(preds)
 
-    scores: np.ndarray | None = None
-    used_mode: str | None = None
-    mode_errors: list[str] = []
-    for mode, windows in inference_modes:
-        score_chunks: list[np.ndarray] = []
-        try:
-            for start in range(0, len(windows), batch_size):
-                batch = windows[start : start + batch_size]
-                preds = _run_session(session, input_name, batch, mode)
-                if preds is None:
-                    raise RuntimeError("no predictions returned")
-                score_chunks.append(preds)
-        except Exception as exc:  # pragma: no cover - runtime dependent
-            mode_errors.append(f"{mode}:{exc}")
-            continue
-        if score_chunks:
-            scores = np.vstack(score_chunks)
-            used_mode = mode
-            break
-
-    if scores is None:
-        logger.info(
-            "[sed.timeline] inference failed for all candidate input layouts (%s)",
-            "; ".join(mode_errors) if mode_errors else "no modes",
-        )
+    if not score_chunks:
+        logger.info("[sed.timeline] no predictions generated; skipping")
         return None
+
+    scores = np.vstack(score_chunks)
     if scores.shape[0] != len(frame_times):
         limit = min(scores.shape[0], len(frame_times))
         scores = scores[:limit]
@@ -184,12 +165,7 @@ def run_sed_timeline(
     if jsonl_path is not None:
         _write_frames_jsonl(jsonl_path, frame_times, group_scores, group_labels)
 
-    artifacts = TimelineArtifacts(csv=csv_path, jsonl=jsonl_path, events=events, mode=used_mode)
-    if used_mode and artifacts.events:
-        for event in artifacts.events:
-            if isinstance(event, dict):
-                event.setdefault("inference_mode", used_mode)
-    return artifacts
+    return TimelineArtifacts(csv=csv_path, jsonl=jsonl_path, events=events)
 
 
 def _load_session(model_paths: tuple[Path, Path] | None):
@@ -420,9 +396,9 @@ def _prepare_windows(
     info: _FeatureInfo,
     window_sec: float,
     hop_sec: float,
-) -> tuple[list[tuple[float, float]], list[np.ndarray], list[np.ndarray]]:
-    if audio.size == 0 or info.total_frames == 0 or info.sr <= 0:
-        return [], [], []
+) -> tuple[list[tuple[float, float]], list[np.ndarray]]:
+    if audio.size == 0 or logmel.size == 0 or info.total_frames == 0 or info.sr <= 0:
+        return [], []
 
     frames_per_window = max(1, int(round(window_sec * info.sr / info.hop_length)))
     frame_step = max(1, int(round(hop_sec * info.sr / info.hop_length)))
@@ -440,7 +416,6 @@ def _prepare_windows(
 
     frame_times: list[tuple[float, float]] = []
     audio_windows: list[np.ndarray] = []
-    mel_windows: list[np.ndarray] = []
     total_duration = info.total_samples / float(info.sr)
 
     for start_idx in start_indices:
@@ -452,67 +427,20 @@ def _prepare_windows(
             clip = np.pad(clip, (0, pad))
         audio_windows.append(np.asarray(clip, dtype=np.float32))
 
-        mel_clip = logmel[start_idx : start_idx + frames_per_window]
-        if mel_clip.shape[0] < frames_per_window:
-            pad = frames_per_window - mel_clip.shape[0]
-            if mel_clip.size == 0:
-                n_mels = logmel.shape[1] if logmel.ndim == 2 and logmel.shape[1] > 0 else 64
-                mel_clip = np.zeros((frames_per_window, n_mels), dtype=np.float32)
-            else:
-                tail = mel_clip[-1:, :]
-                mel_pad = np.repeat(tail, pad, axis=0)
-                mel_clip = np.vstack([mel_clip, mel_pad])
-        mel_windows.append(mel_clip.T.astype(np.float32, copy=False))
-
         start_time = sample_start / float(info.sr)
         end_time = min(start_time + window_sec, total_duration)
         frame_times.append((start_time, end_time))
 
-    return frame_times, audio_windows, mel_windows
+    return frame_times, audio_windows
 
 
-def _run_session(
-    session,
-    input_name: str,
-    batch_samples: list[np.ndarray],
-    mode: str,
-) -> np.ndarray | None:
-    if not batch_samples:
+def _run_session(session, input_name: str, batch_audio: list[np.ndarray]) -> np.ndarray | None:
+    try:
+        preds = session.run(None, {input_name: np.stack(batch_audio, axis=0)})[0]
+    except Exception as exc:  # pragma: no cover - runtime dependent
+        logger.info("[sed.timeline] inference batch failed: %s", exc)
         return None
-
-    batch = np.stack(batch_samples, axis=0).astype(np.float32, copy=False)
-    last_error: Exception | None = None
-    for arr in _candidate_arrays(batch, mode):
-        try:
-            preds = session.run(None, {input_name: arr})[0]
-            return np.asarray(preds, dtype=np.float32)
-        except Exception as exc:  # pragma: no cover - runtime dependent
-            last_error = exc
-            continue
-    if last_error is not None:
-        logger.info("[sed.timeline] inference batch failed (%s mode): %s", mode, last_error)
-    return None
-
-
-def _candidate_arrays(batch: np.ndarray, mode: str) -> Iterator[np.ndarray]:
-    if mode == "waveform":
-        if batch.ndim == 2:
-            yield batch
-            yield batch[:, np.newaxis, :]
-        elif batch.ndim == 3:
-            yield batch
-        return
-
-    if batch.ndim == 3:
-        yield batch  # (B, mel, frames)
-        yield batch[:, :, :, np.newaxis]
-        yield batch[:, np.newaxis, :, :]
-        transposed = np.transpose(batch, (0, 2, 1))
-        yield transposed  # (B, frames, mel)
-        yield transposed[:, np.newaxis, :, :]
-    elif batch.ndim == 4:
-        yield batch
-        yield np.transpose(batch, (0, 1, 3, 2))
+    return np.asarray(preds, dtype=np.float32)
 
 
 def _median_filter(scores: np.ndarray, kernel: int) -> np.ndarray:
