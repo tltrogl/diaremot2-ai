@@ -36,6 +36,7 @@ IMPORT_NAME_TO_DEP = {
     "reportlab": "reportlab",
     "scipy": "scipy",
     "sklearn": "scikit-learn",
+    "soxr": "soxr",
     "soundfile": "soundfile",
     "torch": "torch",
     "transformers": "transformers",

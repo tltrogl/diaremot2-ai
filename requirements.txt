@@ -4,6 +4,7 @@ librosa==0.10.2.post1
 numba==0.59.1
 llvmlite==0.42.0
 resampy==0.4.2
+soxr==1.0.0
 soundfile==0.12.1
 av==11.0.0
 praat-parselmouth==0.4.3
