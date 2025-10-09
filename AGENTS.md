@@ -5,7 +5,6 @@ GitHub
 
 0) Operating Mode
 
-Non-interactive: Do not ask clarifying questions; follow directives as-is.
 
 Network: Internet ON. Models are fetched from the release below; subsequent verification runs offline-safe.
 
