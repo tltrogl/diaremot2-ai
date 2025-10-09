@@ -243,32 +243,42 @@ class ModelManager:
         def _load():
             pref = str(config.get("asr_backend", "auto")).lower()
 
-            def _have_fw():
-                return bool(backends.has_faster_whisper and getattr(backends, "WhisperModel", None))
+            last_error: Exception | None = None
 
-            def _have_ow():
-                return bool(backends.has_openai_whisper)
+            def _try_faster() -> Any | None:
+                nonlocal last_error
+                if not backends.has_faster_whisper:
+                    return None
+                try:
+                    return self._load_faster_whisper(config)
+                except Exception as exc:  # pragma: no cover - runtime fallback guard
+                    last_error = exc
+                    self.logger.warning("Faster-Whisper load failed: %s", exc)
+                    return None
+
+            def _try_openai() -> Any | None:
+                nonlocal last_error
+                if not backends.has_openai_whisper:
+                    return None
+                try:
+                    return self._load_openai_whisper(config)
+                except Exception as exc:  # pragma: no cover - runtime fallback guard
+                    last_error = exc
+                    self.logger.warning("OpenAI Whisper load failed: %s", exc)
+                    return None
 
             if pref == "openai":
-                if _have_ow():
-                    return self._load_openai_whisper(config)
-                if _have_fw():
-                    return self._load_faster_whisper(config)
-                raise RuntimeError("No transcription backend available (openai requested)")
+                model = _try_openai() or _try_faster()
+            elif pref == "faster":
+                model = _try_faster() or _try_openai()
+            else:  # auto
+                model = _try_faster() or _try_openai()
 
-            if pref == "faster":
-                if _have_fw():
-                    return self._load_faster_whisper(config)
-                if _have_ow():
-                    return self._load_openai_whisper(config)
-                raise RuntimeError("No transcription backend available (faster requested)")
-
-            # auto
-            if _have_fw():
-                return self._load_faster_whisper(config)
-            if _have_ow():
-                return self._load_openai_whisper(config)
-            raise RuntimeError("No transcription backend available")
+            if model is None:
+                if last_error is not None:
+                    raise RuntimeError("No transcription backend available") from last_error
+                raise RuntimeError("No transcription backend available")
+            return model
 
         loop = asyncio.get_event_loop()
         with ThreadPoolExecutor(max_workers=1, thread_name_prefix="model-loader") as executor:
@@ -278,6 +288,12 @@ class ModelManager:
 
     def _load_faster_whisper(self, config: dict[str, Any]) -> Any:
         """Load faster-whisper model with optimized settings"""
+        try:
+            # Ensure the class symbol is available for fallback attempts
+            from faster_whisper import WhisperModel  # type: ignore
+        except Exception as e:
+            self.last_errors["faster_whisper_import"] = str(e)
+            raise
         compute_type = str(config.get("compute_type", "float32")).lower()
         if compute_type not in ("float32", "int8", "int8_float16", "float16"):
             compute_type = "float32"
@@ -307,10 +323,6 @@ class ModelManager:
         }
 
         try:
-            from faster_whisper import (
-                WhisperModel,  # lazy import to avoid torch/_C during module import
-            )
-
             model = WhisperModel(model_size, **model_kwargs)
             self.logger.info(f"Loaded faster-whisper: {model_size}")
             return model

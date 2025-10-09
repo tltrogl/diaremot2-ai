@@ -19,9 +19,6 @@ dependencies = [
     "resampy==0.4.2",
     "soundfile==0.12.1",
     "av==11.0.0",
-    "torch==2.4.1+cpu",
-    "torchaudio==2.4.1+cpu",
-    "torchvision==0.19.1+cpu",
     "ctranslate2==4.6.0",
     "faster-whisper==1.1.0",
     "openai-whisper==20231117",
@@ -46,8 +43,7 @@ dependencies = [
     "packaging==23.2",
     "panns-inference==0.1.1",
     "click==8.1.7",
-    "typer==0.9.0",
-]
+    "typer==0.9.0",]
 
 [project.scripts]
 diaremot = "diaremot.cli:app"

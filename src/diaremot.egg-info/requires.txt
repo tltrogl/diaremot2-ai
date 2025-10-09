@@ -6,9 +6,6 @@ llvmlite==0.42.0
 resampy==0.4.2
 soundfile==0.12.1
 av==11.0.0
-torch==2.4.1+cpu
-torchaudio==2.4.1+cpu
-torchvision==0.19.1+cpu
 ctranslate2==4.6.0
 faster-whisper==1.1.0
 openai-whisper==20231117
