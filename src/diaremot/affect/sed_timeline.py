@@ -103,17 +103,19 @@ def run_sed_timeline(
     y = np.asarray(audio_16k, dtype=np.float32)
     y32, sr32 = _resample_to_sr(y, sr, target=32000)
     logmel, feat_info = _compute_logmel(y32, sr32)
-    frame_times, window_audio = _prepare_windows(
+    frame_times, window_starts, sample_window = _prepare_windows(
         y32, logmel, feat_info, window_sec, hop_sec
     )
-    if not frame_times or not window_audio:
+    if not frame_times or not window_starts or sample_window <= 0:
         logger.info("[sed.timeline] no analysis windows generated; skipping")
         return None
 
     input_name = session.get_inputs()[0].name
     score_chunks: list[np.ndarray] = []
-    for start in range(0, len(window_audio), batch_size):
-        batch = window_audio[start : start + batch_size]
+    total_windows = len(window_starts)
+    for start in range(0, total_windows, batch_size):
+        batch_indices = window_starts[start : start + batch_size]
+        batch = _build_audio_batch(y32, batch_indices, sample_window)
         preds = _run_session(session, input_name, batch)
         if preds is None:
             logger.info("[sed.timeline] inference halted early; skipping timeline")
@@ -396,9 +398,9 @@ def _prepare_windows(
     info: _FeatureInfo,
     window_sec: float,
     hop_sec: float,
-) -> tuple[list[tuple[float, float]], list[np.ndarray]]:
+) -> tuple[list[tuple[float, float]], list[int], int]:
     if audio.size == 0 or logmel.size == 0 or info.total_frames == 0 or info.sr <= 0:
-        return [], []
+        return [], [], 0
 
     frames_per_window = max(1, int(round(window_sec * info.sr / info.hop_length)))
     frame_step = max(1, int(round(hop_sec * info.sr / info.hop_length)))
@@ -415,28 +417,50 @@ def _prepare_windows(
     start_indices = sorted(dict.fromkeys(start_indices))
 
     frame_times: list[tuple[float, float]] = []
-    audio_windows: list[np.ndarray] = []
+    sample_starts: list[int] = []
     total_duration = info.total_samples / float(info.sr)
 
     for start_idx in start_indices:
         sample_start = int(start_idx * info.hop_length)
-        sample_end = sample_start + sample_window
-        clip = audio[sample_start:sample_end]
-        pad = sample_window - clip.shape[0]
-        if pad > 0:
-            clip = np.pad(clip, (0, pad))
-        audio_windows.append(np.asarray(clip, dtype=np.float32))
+        sample_starts.append(sample_start)
 
         start_time = sample_start / float(info.sr)
         end_time = min(start_time + window_sec, total_duration)
         frame_times.append((start_time, end_time))
 
-    return frame_times, audio_windows
+    return frame_times, sample_starts, sample_window
 
 
-def _run_session(session, input_name: str, batch_audio: list[np.ndarray]) -> np.ndarray | None:
+def _build_audio_batch(
+    audio: np.ndarray, starts: Sequence[int], window_size: int
+) -> np.ndarray:
+    batch = np.zeros((len(starts), window_size), dtype=np.float32)
+    audio = np.asarray(audio, dtype=np.float32, order="C")
+    for idx, sample_start in enumerate(starts):
+        if sample_start < 0:
+            continue
+        sample_end = sample_start + window_size
+        clip = audio[sample_start:sample_end]
+        if clip.shape[0] == window_size:
+            batch[idx] = clip
+            continue
+        take = min(window_size, clip.shape[0])
+        if take > 0:
+            batch[idx, :take] = clip[:take]
+    return batch
+
+
+def _run_session(
+    session,
+    input_name: str,
+    batch_audio: Sequence[np.ndarray] | np.ndarray,
+) -> np.ndarray | None:
     try:
-        preds = session.run(None, {input_name: np.stack(batch_audio, axis=0)})[0]
+        if isinstance(batch_audio, np.ndarray):
+            feed = batch_audio
+        else:
+            feed = np.stack(list(batch_audio), axis=0)
+        preds = session.run(None, {input_name: feed})[0]
     except Exception as exc:  # pragma: no cover - runtime dependent
         logger.info("[sed.timeline] inference batch failed: %s", exc)
         return None
